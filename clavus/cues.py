@@ -180,13 +180,17 @@ class CueStore:
         # Search both cue dirs (with and without prefix)
         for f in self.cues_dir.glob(f"{cue_id}*"):
             data = json.loads(f.read_text())
-            return Cue(**data)
-        
+            cue = Cue(**data)
+            cue.replies = [CueReply(**r) if isinstance(r, dict) else r for r in cue.replies]
+            return cue
+
         # Full scan if prefix search failed
         for f in self.cues_dir.glob("*.json"):
             if f.stem == cue_id or f.stem.startswith(cue_id):
                 data = json.loads(f.read_text())
-                return Cue(**data)
+                cue = Cue(**data)
+                cue.replies = [CueReply(**r) if isinstance(r, dict) else r for r in cue.replies]
+                return cue
         return None
 
     def list_cues(self, filter_: Optional[CueFilter] = None) -> list[Cue]:
@@ -217,6 +221,39 @@ class CueStore:
     def count_unresolved(self) -> int:
         """Count open/pending cues."""
         return len(self.list_cues(CueFilter(status="pending")))
+
+    # ── Sync Import ──
+
+    def import_cue(self, cue: Cue) -> None:
+        """Import a cue from sync.
+
+        If a cue with the same ID already exists and the existing one
+        has a NEWER timestamp, skip (don't overwrite). Otherwise, overwrite.
+        """
+        existing = self.get_cue(cue.id)
+        if existing is not None and existing.timestamp > cue.timestamp:
+            return  # existing is newer — don't overwrite
+        self._save_cue(cue)
+
+    def import_reply(self, cue_id: str, reply: CueReply) -> bool:
+        """Import a reply from sync.
+
+        Only add the reply if it is not a duplicate — determined by
+        matching both timestamp and author against existing replies.
+        Returns True if the reply was added, False if duplicate or cue not found.
+        """
+        cue = self.get_cue(cue_id)
+        if cue is None:
+            return False
+
+        # Check for duplicate (same timestamp + author)
+        for existing_reply in cue.replies:
+            if existing_reply.timestamp == reply.timestamp and existing_reply.author == reply.author:
+                return False
+
+        cue.replies.append(reply)
+        self._save_cue(cue)
+        return True
 
     def _save_cue(self, cue: Cue) -> None:
         """Persist a cue to disk."""

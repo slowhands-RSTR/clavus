@@ -279,6 +279,17 @@ def cmd_serve(args: argparse.Namespace) -> None:
     run_web_server(host=args.host, port=args.port)
 
 
+def cmd_tui(args: argparse.Namespace) -> None:
+    """Launch the Textual TUI."""
+    try:
+        from clavus.tui import run_tui
+    except ImportError:
+        print("❌ TUI requires textual and httpx.")
+        print("   Install with: pip install textual httpx")
+        sys.exit(1)
+    run_tui(connect_url=args.connect)
+
+
 def cmd_cue(args: argparse.Namespace) -> None:
     """Add a timeline-anchored comment."""
     store, proj = get_store_and_project()
@@ -462,6 +473,11 @@ def main():
     p_serve.add_argument("--port", "-p", type=int, default=7890,
                         help="Port to listen on (default: 7890)")
 
+    # TUI (terminal dashboard)
+    p_tui = subparsers.add_parser("tui", help="Launch the TUI dashboard")
+    p_tui.add_argument("--connect", "-c", default="",
+                       help="Clavus server URL (default: http://localhost:7890)")
+
     args = parser.parse_args()
 
     # Override clavus directory if specified
@@ -477,6 +493,7 @@ def main():
         "status": cmd_status,
         "watch": cmd_watch,
         "serve": cmd_serve,
+        "tui": cmd_tui,
         "cue": cmd_cue,
         "cue-reply": cmd_cue_reply,
         "cue-resolve": cmd_cue_resolve,

@@ -1,5 +1,6 @@
 // Clavus Web Companion — CRUX family UI
 let currentFilter = 'all';
+let currentProject = localStorage.getItem('clavus_project') || '';
 let POLL_INTERVAL = 5000; // 5s auto-refresh
 
 function $(id) { return document.getElementById(id); }
@@ -19,12 +20,13 @@ async function api(path, options = {}) {
 }
 
 async function loadProject() {
-  const data = await api('/project');
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  const data = await api('/project' + query);
   if (data.error) {
-    $('projectName').textContent = '⚠ ' + data.error;
+    $('connStatus').textContent = '⚠ ' + data.error;
+    $('connStatus').className = 'connection-status error';
     return;
   }
-  $('projectName').textContent = data.name;
   $('connStatus').textContent = '⬤ connected';
   $('connStatus').className = 'connection-status';
 
@@ -80,7 +82,9 @@ async function loadProject() {
 }
 
 async function loadCues() {
-  const data = await api('/cues?pending_only=' + (currentFilter === 'pending' ? 'true' : 'false'));
+  let url = '/cues?pending_only=' + (currentFilter === 'pending' ? 'true' : 'false');
+  if (currentProject) url += '&name=' + encodeURIComponent(currentProject);
+  const data = await api(url);
   if (data.error) {
     $('cueList').innerHTML = '<div class="empty-state error">⚠ Failed to load cues</div>';
     return;
@@ -141,7 +145,7 @@ async function postCue() {
   $('cueSendBtn').textContent = '...';
   const result = await api('/cues', {
     method: 'POST',
-    body: JSON.stringify({ text, position }),
+    body: JSON.stringify({ text, position, project_name: currentProject }),
   });
   $('cueSendBtn').textContent = '+ Cue';
   if (!result.error) {
@@ -155,7 +159,8 @@ async function postReply(cueId) {
   const text = $('reply-text-' + cueId).value.trim();
   if (!text) return;
 
-  await api('/cues/' + cueId + '/reply', {
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  await api('/cues/' + cueId + '/reply' + query, {
     method: 'POST',
     body: JSON.stringify({ text }),
   });
@@ -165,7 +170,8 @@ async function postReply(cueId) {
 }
 
 async function resolveCue(cueId) {
-  await api('/cues/' + cueId + '/resolve', { method: 'POST' });
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  await api('/cues/' + cueId + '/resolve' + query, { method: 'POST' });
   loadCues();
 }
 
@@ -177,7 +183,28 @@ function setFilter(filter) {
 }
 
 async function loadAll() {
-  await Promise.all([loadProject(), loadCues()]);
+  await Promise.all([loadProjectList(), loadProject(), loadCues()]);
+}
+
+async function loadProjectList() {
+  const data = await api('/projects');
+  if (data.error || !data.projects) return;
+  const select = $('projectSwitcher');
+  const currentVal = select.value || currentProject;
+  select.innerHTML = '<option value="">Select project…</option>'
+    + data.projects.map(p =>
+      `<option value="${escapeHtml(p.name)}"${p.name === currentVal ? ' selected' : ''}>${escapeHtml(p.name)}</option>`
+    ).join('');
+}
+
+function switchProject(name) {
+  currentProject = name;
+  if (name) {
+    localStorage.setItem('clavus_project', name);
+  } else {
+    localStorage.removeItem('clavus_project');
+  }
+  loadAll();
 }
 
 function escapeHtml(str) {
@@ -185,7 +212,6 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Keyboard shortcut: Enter to send cue
 document.addEventListener('DOMContentLoaded', () => {
   $('cueText').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {

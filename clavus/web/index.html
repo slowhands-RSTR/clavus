@@ -11,7 +11,9 @@
     <div class="logo">
       <span class="logo-icon">⧩</span>
       <span class="logo-text">clavus</span>
-      <span class="project-name" id="projectName">—</span>
+      <select class="project-switcher" id="projectSwitcher" onchange="switchProject(this.value)">
+        <option value="">—</option>
+      </select>
     </div>
     <div class="header-actions">
       <span class="connection-status" id="connStatus">⬤ connecting...</span>

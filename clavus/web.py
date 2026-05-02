@@ -26,9 +26,22 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from clavus.helpers import get_store_and_project, find_als_file
-from clavus.cues import CueStore, CueFilter, format_cue_list
+from clavus.cues import CueStore, CueFilter, format_cue_list, Cue, CueReply as CueReplyData
 from clavus.store import BlobStore, ClavusProject, diff_projects, DEFAULT_CLAVUS_DIR
 from clavus import parse_als
+
+# ─── Helpers ────────────────────────────────────────────────────────────
+
+import concurrent.futures
+
+def _parse_with_timeout(als_path: Path, timeout: float = 5.0):
+    """Parse an .als file with a hard timeout to prevent hanging."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(parse_als, als_path)
+        try:
+            return fut.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            return None
 
 # ─── App setup ──────────────────────────────────────────────────────────
 
@@ -42,8 +55,14 @@ HTML_DIR.mkdir(exist_ok=True)
 _HTML_CACHE: dict[str, str] = {}
 
 
-def _get_project() -> tuple[BlobStore, ClavusProject]:
-    """Get the active clavus project."""
+def _get_project(name: str = "") -> tuple[BlobStore, ClavusProject]:
+    """Get a clavus project by name, or the active one."""
+    store = BlobStore()
+    if name:
+        proj = store.get_index(name)
+        if not proj:
+            raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+        return store, proj
     try:
         return get_store_and_project()
     except SystemExit:
@@ -57,10 +76,27 @@ class CueCreate(BaseModel):
     position: str = "0.0.0"
     track: str = ""
     author: str = "web"
+    project_name: str = ""
 
 
 class CueReply(BaseModel):
     text: str
+
+
+class SyncCueItem(BaseModel):
+    id: str
+    position: str = "0.0.0"
+    text: str = ""
+    author: str = ""
+    status: str = "pending"
+    timestamp: float = 0.0
+    track_name: str = ""
+    snapshot_hash: str = ""
+    replies: list[dict] = []
+
+
+class SyncPushBody(BaseModel):
+    cues: list[SyncCueItem] = []
 
 
 # ─── API Routes ─────────────────────────────────────────────────────────
@@ -70,11 +106,27 @@ async def ping():
     return {"status": "ok", "app": "clavus-web", "version": "0.2.0"}
 
 
+@app.get("/api/projects")
+async def list_projects():
+    """List all registered projects."""
+    store = BlobStore()
+    projects = store.list_projects()
+    return {"projects": [
+        {
+            "name": p.name,
+            "root_als": p.root_als,
+            "head": p.head[:8] if p.head else None,
+            "branch": p.branch,
+        }
+        for p in projects
+    ]}
+
+
 @app.get("/api/project")
-def get_project_sync():
+def get_project_sync(name: str = Query("", description="Project name to load")):
     """Get current project info + snapshot history."""
     try:
-        store, proj = _get_project()
+        store, proj = _get_project(name)
     except HTTPException:
         return JSONResponse({"error": "No clavus project found"}, status_code=404)
 
@@ -83,17 +135,20 @@ def get_project_sync():
     project_data = None
     if als_path.exists():
         try:
-            project_obj = parse_als(als_path)
-            project_data = {
-                "ableton_version": project_obj.ableton_version,
-                "tracks": [{"name": t.name, "type": t.track_type, "color": t.color}
-                          for t in project_obj.tracks],
-                "return_tracks": [{"name": t.name} for t in project_obj.return_tracks],
-                "bpm": project_obj.bpm,
-                "time_signature": project_obj.time_signature,
-                "markers": [{"time": m.time, "name": m.name} for m in project_obj.markers],
-                "track_count": len(project_obj.tracks),
-            }
+            project_obj = _parse_with_timeout(als_path, timeout=5.0)
+            if project_obj is None:
+                project_data = {"error": "Parse timed out after 5s"}
+            else:
+                project_data = {
+                    "ableton_version": project_obj.ableton_version,
+                    "tracks": [{"name": t.name, "type": t.track_type, "color": t.color}
+                              for t in project_obj.tracks],
+                    "return_tracks": [{"name": t.name} for t in project_obj.return_tracks],
+                    "bpm": project_obj.bpm,
+                    "time_signature": project_obj.time_signature,
+                    "markers": [{"time": m.time, "name": m.name} for m in project_obj.markers],
+                    "track_count": len(project_obj.tracks),
+                }
         except Exception as e:
             project_data = {"error": str(e)}
 
@@ -127,10 +182,10 @@ def get_project_sync():
 
 
 @app.get("/api/cues")
-async def get_cues(pending_only: bool = False):
+async def get_cues(pending_only: bool = False, name: str = Query("", description="Project name")):
     """List all cues."""
     try:
-        store, proj = _get_project()
+        store, proj = _get_project(name)
     except HTTPException:
         return JSONResponse({"error": "No clavus project found"}, status_code=404)
 
@@ -167,7 +222,7 @@ async def get_cues(pending_only: bool = False):
 async def create_cue(cue: CueCreate):
     """Add a new cue."""
     try:
-        store, proj = _get_project()
+        store, proj = _get_project(cue.project_name)
     except HTTPException:
         return JSONResponse({"error": "No clavus project found"}, status_code=404)
 
@@ -190,10 +245,11 @@ async def create_cue(cue: CueCreate):
 
 
 @app.post("/api/cues/{cue_id}/reply")
-async def reply_to_cue(cue_id: str, reply: CueReply):
+async def reply_to_cue(cue_id: str, reply: CueReply,
+                       name: str = Query("", description="Project name")):
     """Reply to a cue."""
     try:
-        store, proj = _get_project()
+        store, proj = _get_project(name)
     except HTTPException:
         return JSONResponse({"error": "No clavus project found"}, status_code=404)
 
@@ -206,10 +262,10 @@ async def reply_to_cue(cue_id: str, reply: CueReply):
 
 
 @app.post("/api/cues/{cue_id}/resolve")
-async def resolve_cue(cue_id: str):
+async def resolve_cue(cue_id: str, name: str = Query("", description="Project name")):
     """Resolve a cue."""
     try:
-        store, proj = _get_project()
+        store, proj = _get_project(name)
     except HTTPException:
         return JSONResponse({"error": "No clavus project found"}, status_code=404)
 
@@ -221,10 +277,10 @@ async def resolve_cue(cue_id: str):
 
 
 @app.post("/api/cues/{cue_id}/skip")
-async def skip_cue(cue_id: str):
+async def skip_cue(cue_id: str, name: str = Query("", description="Project name")):
     """Skip a cue."""
     try:
-        store, proj = _get_project()
+        store, proj = _get_project(name)
     except HTTPException:
         return JSONResponse({"error": "No clavus project found"}, status_code=404)
 
@@ -233,6 +289,89 @@ async def skip_cue(cue_id: str):
     if not result:
         raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
     return {"status": "skipped"}
+
+
+# ─── Sync Endpoints ──────────────────────────────────────────────────────
+
+
+@app.get("/api/sync/pull")
+async def sync_pull(name: str = Query(..., description="Project name")):
+    """Pull all cues and snapshot history for a project."""
+    try:
+        store, proj = _get_project(name)
+    except HTTPException:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    # Cues
+    cues_store = CueStore(proj.name, store=store)
+    all_cues = cues_store.list_cues(CueFilter())
+    cues_data = [{
+        "id": c.id, "position": c.position, "text": c.text,
+        "author": c.author, "status": c.status, "timestamp": c.timestamp,
+        "track_name": c.track_name,
+        "replies": [{"author": r.author, "text": r.text, "timestamp": r.timestamp}
+                   for r in (c.replies or [])],
+    } for c in all_cues]
+
+    # Snapshot history
+    history = []
+    current = proj.head
+    while current:
+        snap = store.load_snapshot(current)
+        if not snap:
+            break
+        history.append({
+            "hash": snap.hash[:8], "full_hash": snap.hash,
+            "timestamp": snap.timestamp, "message": snap.message,
+            "track_count": snap.track_count, "bpm": snap.bpm,
+            "is_head": current == store.read_ref("HEAD"),
+        })
+        current = snap.parent
+
+    return {
+        "project": {"name": proj.name, "head": proj.head[:8] if proj.head else None, "branch": proj.branch},
+        "cues": cues_data,
+        "snapshots": history,
+        "timestamp": time.time(),
+    }
+
+
+@app.post("/api/sync/push")
+async def sync_push(body: SyncPushBody, name: str = Query(..., description="Project name")):
+    """Push (merge) cues into a project using last-write-wins."""
+    try:
+        store, proj = _get_project(name)
+    except HTTPException:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    cues_store = CueStore(proj.name, store=store)
+    merged = 0
+    skipped = 0
+
+    for item in body.cues:
+        cue = Cue(
+            id=item.id, position=item.position, text=item.text,
+            author=item.author, status=item.status, timestamp=item.timestamp,
+            track_name=item.track_name, snapshot_hash=item.snapshot_hash,
+        )
+        cues_store.import_cue(cue)
+        merged += 1
+
+        # Import replies
+        for r in item.replies:
+            reply = CueReplyData(
+                id=r.get("id", ""),
+                text=r.get("text", ""),
+                author=r.get("author", ""),
+                timestamp=r.get("timestamp", 0.0),
+                snapshot_hash=r.get("snapshot_hash", ""),
+            )
+            if cues_store.import_reply(item.id, reply):
+                merged += 1
+            else:
+                skipped += 1
+
+    return {"status": "ok", "merged": merged, "skipped": skipped}
 
 
 # ─── Web UI: Main page ──────────────────────────────────────────────────
@@ -294,7 +433,9 @@ def _generate_index_html() -> str:
     <div class="logo">
       <span class="logo-icon">⧩</span>
       <span class="logo-text">clavus</span>
-      <span class="project-name" id="projectName">—</span>
+      <select class="project-switcher" id="projectSwitcher" onchange="switchProject(this.value)">
+        <option value="">—</option>
+      </select>
     </div>
     <div class="header-actions">
       <span class="connection-status" id="connStatus">⬤ connecting...</span>
@@ -411,6 +552,20 @@ header {
 .logo { display: flex; align-items: center; gap: 8px; }
 .logo-icon { color: var(--accent); font-size: 18px; }
 .logo-text { color: var(--accent); font-weight: bold; font-size: 14px; }
+.project-switcher {
+  background: var(--bg-ter);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg-dim);
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 2px 6px;
+  cursor: pointer;
+  max-width: 200px;
+  -webkit-app-region: no-drag;
+}
+.project-switcher:focus { outline: none; border-color: var(--accent-dim); }
+.project-switcher:hover { border-color: var(--accent-dim); color: var(--accent); }
 .project-name { color: var(--fg-dim); font-size: 12px; }
 .header-actions { display: flex; align-items: center; gap: 12px; -webkit-app-region: no-drag; }
 .connection-status { font-size: 11px; color: var(--success); }
@@ -678,6 +833,7 @@ footer a:hover { color: var(--accent); }
 def _generate_app_js() -> str:
     return """// Clavus Web Companion — CRUX family UI
 let currentFilter = 'all';
+let currentProject = localStorage.getItem('clavus_project') || '';
 let POLL_INTERVAL = 5000; // 5s auto-refresh
 
 function $(id) { return document.getElementById(id); }
@@ -697,12 +853,13 @@ async function api(path, options = {}) {
 }
 
 async function loadProject() {
-  const data = await api('/project');
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  const data = await api('/project' + query);
   if (data.error) {
-    $('projectName').textContent = '⚠ ' + data.error;
+    $('connStatus').textContent = '⚠ ' + data.error;
+    $('connStatus').className = 'connection-status error';
     return;
   }
-  $('projectName').textContent = data.name;
   $('connStatus').textContent = '⬤ connected';
   $('connStatus').className = 'connection-status';
 
@@ -758,7 +915,9 @@ async function loadProject() {
 }
 
 async function loadCues() {
-  const data = await api('/cues?pending_only=' + (currentFilter === 'pending' ? 'true' : 'false'));
+  let url = '/cues?pending_only=' + (currentFilter === 'pending' ? 'true' : 'false');
+  if (currentProject) url += '&name=' + encodeURIComponent(currentProject);
+  const data = await api(url);
   if (data.error) {
     $('cueList').innerHTML = '<div class="empty-state error">⚠ Failed to load cues</div>';
     return;
@@ -819,7 +978,7 @@ async function postCue() {
   $('cueSendBtn').textContent = '...';
   const result = await api('/cues', {
     method: 'POST',
-    body: JSON.stringify({ text, position }),
+    body: JSON.stringify({ text, position, project_name: currentProject }),
   });
   $('cueSendBtn').textContent = '+ Cue';
   if (!result.error) {
@@ -833,7 +992,8 @@ async function postReply(cueId) {
   const text = $('reply-text-' + cueId).value.trim();
   if (!text) return;
 
-  await api('/cues/' + cueId + '/reply', {
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  await api('/cues/' + cueId + '/reply' + query, {
     method: 'POST',
     body: JSON.stringify({ text }),
   });
@@ -843,7 +1003,8 @@ async function postReply(cueId) {
 }
 
 async function resolveCue(cueId) {
-  await api('/cues/' + cueId + '/resolve', { method: 'POST' });
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  await api('/cues/' + cueId + '/resolve' + query, { method: 'POST' });
   loadCues();
 }
 
@@ -855,7 +1016,28 @@ function setFilter(filter) {
 }
 
 async function loadAll() {
-  await Promise.all([loadProject(), loadCues()]);
+  await Promise.all([loadProjectList(), loadProject(), loadCues()]);
+}
+
+async function loadProjectList() {
+  const data = await api('/projects');
+  if (data.error || !data.projects) return;
+  const select = $('projectSwitcher');
+  const currentVal = select.value || currentProject;
+  select.innerHTML = '<option value="">Select project…</option>'
+    + data.projects.map(p =>
+      `<option value="${escapeHtml(p.name)}"${p.name === currentVal ? ' selected' : ''}>${escapeHtml(p.name)}</option>`
+    ).join('');
+}
+
+function switchProject(name) {
+  currentProject = name;
+  if (name) {
+    localStorage.setItem('clavus_project', name);
+  } else {
+    localStorage.removeItem('clavus_project');
+  }
+  loadAll();
 }
 
 function escapeHtml(str) {
@@ -863,7 +1045,6 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Keyboard shortcut: Enter to send cue
 document.addEventListener('DOMContentLoaded', () => {
   $('cueText').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -895,6 +1076,3 @@ def run_web_server(host: str = "0.0.0.0", port: int = 7890) -> None:
     print(f"   Share via Tailscale or Cloudflare tunnel for remote access.")
     print(f"   Press Ctrl+C to stop.")
     uvicorn.run(app, host=host, port=port, log_level="warning")
-    path = HTML_DIR / name
-    path.write_text(content)
-    _HTML_CACHE[name] = content
