@@ -226,20 +226,94 @@ class CueStore:
 
 # ─── Cue Rendering (Ableton Marker Export) ─────────────────────────────
 
-def render_cues_as_markers(cues: list[Cue], output_path: str) -> str:
+def render_cues_as_markers(cues: list[Cue], output_path: str,
+                            inject_into_als: str = "") -> str:
     """
-    Render unresolved cues as an Ableton-compatible marker file.
+    Render unresolved cues as Ableton-compatible markers.
     
-    Produces a small XML snippet that can be merged into the .als file's
-    <CuePoints> section. This is a one-way, safe operation — the original
-    .als is never touched.
+    Two modes:
+    1. Export to XML file — produce a <ClavusCueExport> wrapper file
+    2. Inject into .als — merge cue markers directly into the project's <CuePoints>
+    
+    Injection mode creates a backup (.als.bak) before modifying if one doesn't exist.
+    Only inserts new, unique markers — never duplicates existing ones.
     """
     import xml.etree.ElementTree as ET
     
     unresolved = [c for c in cues if c.status in ("pending", "deferred")]
     if not unresolved:
         return ""
-
+    
+    # ── Injection Mode ──
+    if inject_into_als:
+        import gzip
+        import shutil
+        
+        als_path = Path(inject_into_als)
+        if not als_path.exists():
+            print(f"❌ .als file not found: {als_path}")
+            return ""
+        
+        # Create backup on first injection (never overwrite existing backup)
+        backup = als_path.with_suffix(".als.bak")
+        if not backup.exists():
+            shutil.copy2(als_path, backup)
+        
+        # Parse existing .als
+        with gzip.open(als_path, "rb") as f:
+            raw = f.read()
+        root = ET.fromstring(raw)
+        
+        # Find the LiveSet
+        if root.tag == "Ableton":
+            live_set = root.find("LiveSet")
+        else:
+            live_set = root  # Live 9 format
+        
+        if live_set is None:
+            print("❌ Could not find <LiveSet> in the .als file.")
+            return ""
+        
+        # Find or create CuePoints
+        cue_points = live_set.find("CuePoints")
+        if cue_points is None:
+            cue_points = ET.SubElement(live_set, "CuePoints")
+        
+        # Collect existing marker names to avoid duplicates
+        existing_names = set()
+        for existing in cue_points.findall("CuePoint"):
+            name_elem = existing.find("Name")
+            if name_elem is not None and name_elem.get("Value"):
+                existing_names.add(name_elem.get("Value"))
+        
+        # Insert new markers
+        inserted = 0
+        for cue in unresolved:
+            marker_name = f"💬 {cue.text[:60]}"
+            if marker_name in existing_names:
+                continue  # skip duplicates
+            
+            cue_elem = ET.SubElement(cue_points, "CuePoint")
+            ET.SubElement(cue_elem, "Time").set("Value", cue.position)
+            ET.SubElement(cue_elem, "Name").set("Value", marker_name)
+            existing_names.add(marker_name)
+            inserted += 1
+        
+        if inserted == 0:
+            print("📍 All cues already present in the project — nothing to inject.")
+            return ""
+        
+        # Write back the modified .als
+        xml_str = ET.tostring(root, encoding="unicode")
+        with gzip.open(als_path, "wb") as f:
+            f.write(xml_str.encode("utf-8"))
+        
+        print(f"📍 Injected {inserted} cue(s) as markers into {als_path.name}")
+        if backup.exists():
+            print(f"   Backup saved as {backup.name}")
+        return str(als_path)
+    
+    # ── Export Mode (original behavior) ──
     root_als = ET.Element("ClavusCueExport")
     root_als.set("version", "1")
     root_als.set("count", str(len(unresolved)))
@@ -249,7 +323,6 @@ def render_cues_as_markers(cues: list[Cue], output_path: str) -> str:
         ET.SubElement(cue_elem, "Time").set("Value", cue.position)
         ET.SubElement(cue_elem, "Name").set("Value", f"💬 {cue.text[:60]}")
 
-    # Export to a file
     xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xml_str += ET.tostring(root_als, encoding="unicode")
 

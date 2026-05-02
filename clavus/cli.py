@@ -29,61 +29,8 @@ from clavus.cues import (
     CueStore, CueFilter, format_cue, format_cue_list,
     render_cues_as_markers, add_cue_command,
 )
-
-# ─── Helpers ────────────────────────────────────────────────────────────
-
-def _find_als_file(path: str | Path) -> Optional[Path]:
-    """Find the .als file in a directory, or use the path directly."""
-    p = Path(path)
-    if p.is_file() and p.suffix == ".als":
-        return p
-    if p.is_dir():
-        als_files = list(p.glob("*.als"))
-        if als_files:
-            return als_files[0]
-    return None
-
-
-def _get_store_and_project() -> tuple[BlobStore, ClavusProject]:
-    """Get the store and active project from the current directory."""
-    store = BlobStore()
-    projects = store.list_projects()
-    if not projects:
-        print("❌ No Clavus projects found. Run 'clavus init' first.")
-        sys.exit(1)
-
-    # Use the first project in the index, or match by CWD
-    cwd = os.getcwd()
-    for p in projects:
-        if cwd.startswith(os.path.dirname(p.root_als)):
-            return store, p
-
-    # Fallback to first project
-    return store, projects[0]
-
-
-def _resolve_snapshot(store: BlobStore, ref: str) -> Optional[str]:
-    """Resolve a reference name or hash to a snapshot hash."""
-    # Try as a ref name
-    hash_str = store.read_ref(f"refs/tags/{ref}")
-    if hash_str:
-        return hash_str
-
-    hash_str = store.read_ref(ref)
-    if hash_str:
-        return hash_str
-
-    # Try as a full hash
-    if len(ref) >= 8:
-        # Search objects dir for matching prefix
-        for obj_dir in store.objects_dir.iterdir():
-            if obj_dir.is_dir():
-                for f in obj_dir.iterdir():
-                    if f.name.startswith(ref):
-                        return f.name
-
-    return None
-
+from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot
+from clavus.watch import watch as cmd_watch_daemon
 
 # ─── Commands ──────────────────────────────────────────────────────────
 
@@ -92,7 +39,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     target = args.path or os.getcwd()
     target = Path(target).resolve()
 
-    als_path = _find_als_file(target)
+    als_path = find_als_file(target)
     if als_path is None:
         print(f"❌ No .als file found at {target}")
         print("   Specify the path to an .als file or a directory containing one.")
@@ -135,7 +82,7 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 def cmd_snapshot(args: argparse.Namespace) -> None:
     """Create a new snapshot of the current project state."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
     als_path = Path(proj.root_als)
     if not als_path.exists():
         print(f"❌ .als file not found: {als_path}")
@@ -191,7 +138,7 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
 
 def cmd_log(args: argparse.Namespace) -> None:
     """Show snapshot history."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
     current_hash = proj.head
     count = 0
 
@@ -232,10 +179,10 @@ def cmd_log(args: argparse.Namespace) -> None:
 
 def cmd_diff(args: argparse.Namespace) -> None:
     """Show what changed in a snapshot vs its parent."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
 
     if args.hash:
-        hash_str = _resolve_snapshot(store, args.hash)
+        hash_str = resolve_snapshot(store, args.hash)
         if not hash_str:
             print(f"❌ Could not resolve '{args.hash}'")
             sys.exit(1)
@@ -271,7 +218,7 @@ def cmd_diff(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     """Show current project status."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
 
     als_path = Path(proj.root_als)
     als_exists = als_path.exists()
@@ -302,9 +249,21 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(f"   No snapshots yet.")
 
 
+def cmd_watch(args: argparse.Namespace) -> None:
+    """Start the file watcher daemon."""
+    store, proj = get_store_and_project()
+    cmd_watch_daemon(
+        store,
+        proj,
+        cooldown=args.cooldown,
+        verbose=not args.quiet,
+        once=args.once,
+    )
+
+
 def cmd_cue(args: argparse.Namespace) -> None:
     """Add a timeline-anchored comment."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
     head = store.read_ref("HEAD")
 
     position = args.position or "0.0.0"
@@ -330,7 +289,7 @@ def cmd_cue(args: argparse.Namespace) -> None:
 
 def cmd_cue_reply(args: argparse.Namespace) -> None:
     """Reply to a cue thread."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
     cues = CueStore(proj.name, store=store)
     head = store.read_ref("HEAD")
 
@@ -344,7 +303,7 @@ def cmd_cue_reply(args: argparse.Namespace) -> None:
 
 def cmd_cue_resolve(args: argparse.Namespace) -> None:
     """Resolve a cue."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
     cues = CueStore(proj.name, store=store)
 
     cue = cues.resolve(args.cue_id, note=args.note or "")
@@ -358,7 +317,7 @@ def cmd_cue_resolve(args: argparse.Namespace) -> None:
 
 def cmd_cue_skip(args: argparse.Namespace) -> None:
     """Skip a cue."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
     cues = CueStore(proj.name, store=store)
 
     cue = cues.skip(args.cue_id, reason=args.reason or "")
@@ -372,7 +331,7 @@ def cmd_cue_skip(args: argparse.Namespace) -> None:
 
 def cmd_cues(args: argparse.Namespace) -> None:
     """List all cues."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
     cues = CueStore(proj.name, store=store)
 
     filter_ = CueFilter()
@@ -386,8 +345,8 @@ def cmd_cues(args: argparse.Namespace) -> None:
 
 
 def cmd_cue_render(args: argparse.Namespace) -> None:
-    """Export unresolved cues as an Ableton marker file."""
-    store, proj = _get_store_and_project()
+    """Export unresolved cues as Ableton markers — either to file or injected into the .als."""
+    store, proj = get_store_and_project()
     cues = CueStore(proj.name, store=store)
 
     unresolved = cues.list_cues(CueFilter(status="pending"))
@@ -395,10 +354,14 @@ def cmd_cue_render(args: argparse.Namespace) -> None:
         print("💬 No unresolved cues to render.")
         return
 
-    output = args.output or f"{proj.name}_cues.xml"
-    render_cues_as_markers(unresolved, output)
-    print(f"📍 Rendered {len(unresolved)} cues to {output}")
-    print(f"   Import into Ableton by merging <CuePoints> into your .als file.")
+    if args.inject:
+        # Inject directly into the project's .als file
+        render_cues_as_markers(unresolved, "", inject_into_als=proj.root_als)
+    else:
+        output = args.output or f"{proj.name}_cues.xml"
+        render_cues_as_markers(unresolved, output)
+        print(f"📍 Rendered {len(unresolved)} cues to {output}")
+        print(f"   Import into Ableton by merging <CuePoints> into your .als file.")
 
 
 # ─── Main Entry Point ──────────────────────────────────────────────────
@@ -462,6 +425,17 @@ def main():
 
     p_cue_render = subparsers.add_parser("cue-render", help="Export cues as Ableton markers")
     p_cue_render.add_argument("--output", "-o", default="", help="Output file path")
+    p_cue_render.add_argument("--inject", action="store_true",
+                             help="Inject cues directly into the project's .als file (creates backup)")
+
+    # Watch
+    p_watch = subparsers.add_parser("watch", help="Auto-snapshot on file changes")
+    p_watch.add_argument("--cooldown", "-c", type=int, default=30,
+                        help="Seconds to wait after last change before snapshotting (default: 30)")
+    p_watch.add_argument("--quiet", "-q", action="store_true",
+                        help="Suppress detailed output")
+    p_watch.add_argument("--once", action="store_true",
+                        help="Take one snapshot and exit (useful for cron jobs)")
 
     args = parser.parse_args()
 
@@ -476,6 +450,7 @@ def main():
         "log": cmd_log,
         "diff": cmd_diff,
         "status": cmd_status,
+        "watch": cmd_watch,
         "cue": cmd_cue,
         "cue-reply": cmd_cue_reply,
         "cue-resolve": cmd_cue_resolve,
