@@ -32,6 +32,13 @@ from clavus.cues import (
 from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot
 from clavus.watch import watch as cmd_watch_daemon
 
+# Optional web server
+try:
+    from clavus.web import run_web_server
+    _HAS_WEB = True
+except ImportError:
+    _HAS_WEB = False
+
 # ─── Commands ──────────────────────────────────────────────────────────
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -251,7 +258,7 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def cmd_watch(args: argparse.Namespace) -> None:
     """Start the file watcher daemon."""
-    store, proj = get_store_and_project()
+    store, proj = _get_store_and_project()
     cmd_watch_daemon(
         store,
         proj,
@@ -259,6 +266,17 @@ def cmd_watch(args: argparse.Namespace) -> None:
         verbose=not args.quiet,
         once=args.once,
     )
+
+
+def cmd_serve(args: argparse.Namespace) -> None:
+    """Start the web companion server."""
+    try:
+        from clavus.web import run_web_server
+    except ImportError:
+        print("❌ Web companion requires fastapi and uvicorn.")
+        print("   Install with: pip install fastapi uvicorn")
+        sys.exit(1)
+    run_web_server(host=args.host, port=args.port)
 
 
 def cmd_cue(args: argparse.Namespace) -> None:
@@ -437,6 +455,13 @@ def main():
     p_watch.add_argument("--once", action="store_true",
                         help="Take one snapshot and exit (useful for cron jobs)")
 
+    # Serve (web companion)
+    p_serve = subparsers.add_parser("serve", help="Start the web companion UI")
+    p_serve.add_argument("--host", default="0.0.0.0",
+                        help="Host to bind to (default: 0.0.0.0)")
+    p_serve.add_argument("--port", "-p", type=int, default=7890,
+                        help="Port to listen on (default: 7890)")
+
     args = parser.parse_args()
 
     # Override clavus directory if specified
@@ -451,6 +476,7 @@ def main():
         "diff": cmd_diff,
         "status": cmd_status,
         "watch": cmd_watch,
+        "serve": cmd_serve,
         "cue": cmd_cue,
         "cue-reply": cmd_cue_reply,
         "cue-resolve": cmd_cue_resolve,
