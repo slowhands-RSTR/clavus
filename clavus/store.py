@@ -30,7 +30,7 @@ from clavus.parser import Project
 
 # ─── Config ──────────────────────────────────────────────────────────────
 
-DEFAULT_CLAVUS_DIR = Path.home() / ".clavus"
+DEFAULT_CLAVUS_DIR = Path(os.environ.get("CLAVUS_DIR", str(Path.home() / ".clavus")))
 OBJECTS_DIR = "objects"
 REFS_DIR = "refs"
 INDEX_FILE = "index.json"
@@ -142,6 +142,13 @@ class BlobStore:
         """Check if a blob exists."""
         obj_path = self.objects_dir / hash_str[:2] / hash_str
         return obj_path.exists()
+
+    # ── Helpers ──
+
+    @staticmethod
+    def _write_json(path: Path, data: dict) -> None:
+        """Write JSON data to a file."""
+        path.write_text(json.dumps(data, indent=2, default=str))
 
     # ── Snapshot Storage ──
 

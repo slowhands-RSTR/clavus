@@ -705,7 +705,16 @@ def cmd_push(args: argparse.Namespace) -> None:
         if result["error"]:
             print(f"  ❌ {result['error']}")
         else:
-            print(f"  ✅ {result['cues']} cues, {result['snapshots']} snapshots")
+            parts = [f"✅ {result['cues']} cues, {result['snapshots']} snapshots"]
+
+        # Push stems for current HEAD
+        head = store.read_ref("HEAD")
+        stem_store = StemStore(proj.name, store)
+        if head and stem_store.get_manifest(head):
+            from clavus.sync import push_stems_to_remote
+            stem_count = push_stems_to_remote(store, proj, remote, stem_store, head)
+            parts.append(f"{stem_count} stem{'s' if stem_count != 1 else ''}")
+        print(f"  {' — '.join(parts)}")
         print()
 
 
@@ -724,7 +733,22 @@ def cmd_pull(args: argparse.Namespace) -> None:
         if result["error"]:
             print(f"  ❌ {result['error']}")
         else:
-            print(f"  ✅ {result['cues']} cues, {result['snapshots']} snapshots")
+            parts = [f"✅ {result['cues']} cues, {result['snapshots']} snapshots"]
+
+        # Pull stems for current HEAD
+        head = store.read_ref("HEAD")
+        if head:
+            from clavus.sync import pull_stems_from_remote
+            stem_count = pull_stems_from_remote(store, proj, remote)
+            if stem_count:
+                parts.append(f"{stem_count} stem{'s' if stem_count != 1 else ''}")
+                # Materialize after pull
+                stem_store = StemStore(proj.name, store)
+                manifest = stem_store.get_manifest(head)
+                if manifest and manifest.stems:
+                    paths = stem_store.materialize_stems(head)
+                    parts.append(f"materialized {len(paths)} file{'s' if len(paths) != 1 else ''}")
+        print(f"  {' — '.join(parts)}")
         print()
 
 
