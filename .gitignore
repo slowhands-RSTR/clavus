@@ -10,3 +10,6 @@ htest.py
 minimal_*.py
 tui_headless_test.py
 test_input.py
+clavus/web/index.html
+clavus/web/app.js
+clavus/web/app.css
