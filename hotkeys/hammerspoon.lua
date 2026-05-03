@@ -1,17 +1,16 @@
 -- ──────────────────────────────────────────────────────────────────────
 -- Clavus Hotkeys — Hammerspoon Config
 -- ──────────────────────────────────────────────────────────────────────
--- Keys that work inside Ableton:
---   CapsLock+N  → Quick Cue
---   CapsLock+L  → List Cues
---   CapsLock+I  → Inject Markers
---   CapsLock+S  → Snapshot
---   CapsLock+T  → Toggle TUI
---   CapsLock+P  → Switch Project
---   CapsLock+W  → Where Am I? (placeholder)
+-- Keys that work inside Ableton (Ableton doesn't use any of these):
+--   Ctrl+Opt+Cmd+N  → Quick Cue
+--   Ctrl+Opt+Cmd+L  → List Cues
+--   Ctrl+Opt+Cmd+I  → Inject Markers
+--   Ctrl+Opt+Cmd+T  → Toggle TUI
+--   Ctrl+Opt+Cmd+P  → Switch Project
+--   Ctrl+Opt+Cmd+W  → Where Am I?
 --
--- CapsLock is used as a held modifier, like holding Shift.
--- Ableton and macOS ignore CapsLock as a shortcut modifier.
+-- Three modifiers is the magic number — Ableton doesn't use triple-modifier
+-- combos. On Windows keycaps: Ctrl = Ctrl, Opt = Alt, Cmd = Win key.
 
 local server_host = "127.0.0.1"
 local server_port = 7890
@@ -47,48 +46,8 @@ local function get_project()
     return nil
 end
 
--- CapsLock is a tricky key in Hammerspoon. It's a toggle, not a held modifier.
--- We handle it by tracking CapsLock state and using a different approach.
--- Instead of binding to CapsLock itself, we listen for key down/up events.
-
--- ─── CapsLock-as-Modifier via Event Tap ──────────────────
--- This approach uses hs.eventtap to detect when CapsLock is held
--- and map letter keys to Clavus actions.
-
-local capslock_is_down = false
-
--- Completely suppress CapsLock as a toggle.
--- We use hs.eventtap to catch the keydown and prevent the system
--- from toggling CapsLock. Then we manually track the state.
-local tap = hs.eventtap.new({hs.eventtap.event.types.keyDown, hs.eventtap.event.types.flagsChanged}, function(e)
-    local keycode = e:getKeyCode()
-    -- 57 = CapsLock keycode on most keyboards
-    if keycode == 57 then
-        -- Toggle our internal state instead of the system's
-        capslock_is_down = not capslock_is_down
-        -- Return true to swallow the event — CapsLock never toggles
-        return true
-    end
-    if e:getType() == hs.eventtap.event.types.flagsChanged then
-        -- For non-CapsLock flag changes, let them pass
-        local flags = e:getFlags()
-        capslock_is_down = flags.capslock or false
-    end
-    return false
-end)
-tap:start()
-
--- ─── Letter Hotkeys (only fire when CapsLock is held) ───
-local function clavus_key(key, fn)
-    hs.hotkey.bind({}, key, function()
-        if capslock_is_down then
-            fn()
-        end
-    end)
-end
-
--- ─── Action: Quick Cue (CapsLock+N) ─────────────────────
-clavus_key("n", function()
+-- ─── Hotkey: Quick Cue (Ctrl+Opt+Cmd+N) ─────────────────
+hs.hotkey.bind({"ctrl", "alt", "cmd"}, "N", function()
     hs.dialog.textPrompt("Clavus — New Cue", "Cue text:", "", "Next", "Cancel",
         function(text)
             if not text or text == "" then return end
@@ -108,8 +67,8 @@ clavus_key("n", function()
         end)
 end)
 
--- ─── Action: List Cues (CapsLock+L) ─────────────────────
-clavus_key("l", function()
+-- ─── Hotkey: List Cues (Ctrl+Opt+Cmd+L) ─────────────────
+hs.hotkey.bind({"ctrl", "alt", "cmd"}, "L", function()
     local project = get_project()
     if not project then notify("Error", "No project found") return end
     local resp = api("GET", "/api/cues?name=" .. project .. "&limit=5&status=pending")
@@ -128,8 +87,8 @@ clavus_key("l", function()
     end
 end)
 
--- ─── Action: Inject Markers (CapsLock+I) ────────────────
-clavus_key("i", function()
+-- ─── Hotkey: Inject (Ctrl+Opt+Cmd+I) ────────────────────
+hs.hotkey.bind({"ctrl", "alt", "cmd"}, "I", function()
     local project = get_project()
     if not project then notify("Error", "No project found") return end
     local resp = api("POST", "/api/projects/inject?name=" .. project)
@@ -146,8 +105,8 @@ clavus_key("i", function()
     end
 end)
 
--- ─── Action: Toggle TUI (CapsLock+T) ────────────────────
-clavus_key("t", function()
+-- ─── Hotkey: Toggle TUI (Ctrl+Opt+Cmd+T) ────────────────
+hs.hotkey.bind({"ctrl", "alt", "cmd"}, "T", function()
     hs.osascript.applescript([[
         tell application "Terminal"
             do script "cd ~/Developer/clavus && python3 -m clavus.tui"
@@ -156,8 +115,8 @@ clavus_key("t", function()
     ]])
 end)
 
--- ─── Action: Switch Project (CapsLock+P) ────────────────
-clavus_key("p", function()
+-- ─── Hotkey: Switch Project (Ctrl+Opt+Cmd+P) ────────────
+hs.hotkey.bind({"ctrl", "alt", "cmd"}, "P", function()
     local resp = api("GET", "/api/projects")
     if not resp or resp == "" then notify("Error", "No server") return end
     local names = ""
@@ -171,14 +130,14 @@ clavus_key("p", function()
         end)
 end)
 
--- ─── Action: Where Am I? (CapsLock+W) ───────────────────
-clavus_key("w", function()
-    notify("Position", "Playhead tracking coming soon.\nFor now, enter manually in cue dialog.")
+-- ─── Hotkey: Where Am I? (Ctrl+Opt+Cmd+W) ───────────────
+hs.hotkey.bind({"ctrl", "alt", "cmd"}, "W", function()
+    notify("Position", "Playhead tracking coming soon.\nEnter manually in cue dialog.")
 end)
 
--- ─── Menu bar icon ──────────────────────────────────────
-hs.menubar.new():setTitle("♮"):setToolTip("Clavus: hold CapsLock+letter  N=Cue  L=List  I=Inject  T=TUI  P=Project  W=Where")
+-- ─── Menu bar ──────────────────────────────────────────
+hs.menubar.new():setTitle("♮"):setToolTip("Clavus: Ctrl+Alt+Cmd+N Cue  L List  I Inject  T TUI  P Switch  W Where")
 
--- ─── Ready! ──────────────────────────────────────────────
-hs.alert.show("♮ Clavus loaded — hold CapsLock, press letter")
-notify("Clavus Ready", "CapsLock+N=Cue  CapsLock+L=List  CapsLock+I=Inject  CapsLock+T=TUI")
+-- ─── Ready! ────────────────────────────────────────────
+hs.alert.show("♮ Clavus loaded — Ctrl+Opt+Cmd+letter")
+notify("Clavus Ready", "Ctrl+Alt+Cmd+N for Quick Cue")
