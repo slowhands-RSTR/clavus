@@ -1,16 +1,5 @@
--- ──────────────────────────────────────────────────────────────────────
--- Clavus Hotkeys — Hammerspoon Config
--- ──────────────────────────────────────────────────────────────────────
--- Keys that work inside Ableton (Ableton doesn't use any of these):
---   Ctrl+Opt+Cmd+N  → Quick Cue
---   Ctrl+Opt+Cmd+L  → List Cues
---   Ctrl+Opt+Cmd+I  → Inject Markers
---   Ctrl+Opt+Cmd+T  → Toggle TUI
---   Ctrl+Opt+Cmd+P  → Switch Project
---   Ctrl+Opt+Cmd+W  → Where Am I?
---
--- Three modifiers is the magic number — Ableton doesn't use triple-modifier
--- combos. On Windows keycaps: Ctrl = Ctrl, Opt = Alt, Cmd = Win key.
+-- Clavus Hotkeys — FINAL
+-- Using Ctrl+Shift+letter — works inside Ableton
 
 local server_host = "127.0.0.1"
 local server_port = 7890
@@ -46,8 +35,9 @@ local function get_project()
     return nil
 end
 
--- ─── Hotkey: Quick Cue (Ctrl+Opt+Cmd+N) ─────────────────
-hs.hotkey.bind({"ctrl", "alt", "cmd"}, "N", function()
+-- ─── Quick Cue (Ctrl+Shift+N) ─────────────────────────
+hs.hotkey.bind({"ctrl", "shift"}, "N", function()
+    hs.alert.show("Quick Cue activated")
     hs.dialog.textPrompt("Clavus — New Cue", "Cue text:", "", "Next", "Cancel",
         function(text)
             if not text or text == "" then return end
@@ -67,8 +57,9 @@ hs.hotkey.bind({"ctrl", "alt", "cmd"}, "N", function()
         end)
 end)
 
--- ─── Hotkey: List Cues (Ctrl+Opt+Cmd+L) ─────────────────
-hs.hotkey.bind({"ctrl", "alt", "cmd"}, "L", function()
+-- ─── List Cues (Ctrl+Shift+L) ─────────────────────────
+hs.hotkey.bind({"ctrl", "shift"}, "L", function()
+    hs.alert.show("Listing cues...")
     local project = get_project()
     if not project then notify("Error", "No project found") return end
     local resp = api("GET", "/api/cues?name=" .. project .. "&limit=5&status=pending")
@@ -87,8 +78,9 @@ hs.hotkey.bind({"ctrl", "alt", "cmd"}, "L", function()
     end
 end)
 
--- ─── Hotkey: Inject (Ctrl+Opt+Cmd+I) ────────────────────
-hs.hotkey.bind({"ctrl", "alt", "cmd"}, "I", function()
+-- ─── Inject Markers (Ctrl+Shift+I) ────────────────────
+hs.hotkey.bind({"ctrl", "shift"}, "I", function()
+    hs.alert.show("Injecting markers...")
     local project = get_project()
     if not project then notify("Error", "No project found") return end
     local resp = api("POST", "/api/projects/inject?name=" .. project)
@@ -105,8 +97,8 @@ hs.hotkey.bind({"ctrl", "alt", "cmd"}, "I", function()
     end
 end)
 
--- ─── Hotkey: Toggle TUI (Ctrl+Opt+Cmd+T) ────────────────
-hs.hotkey.bind({"ctrl", "alt", "cmd"}, "T", function()
+-- ─── Toggle TUI (Ctrl+Shift+T) ───────────────────────
+hs.hotkey.bind({"ctrl", "shift"}, "T", function()
     hs.osascript.applescript([[
         tell application "Terminal"
             do script "cd ~/Developer/clavus && python3 -m clavus.tui"
@@ -115,8 +107,8 @@ hs.hotkey.bind({"ctrl", "alt", "cmd"}, "T", function()
     ]])
 end)
 
--- ─── Hotkey: Switch Project (Ctrl+Opt+Cmd+P) ────────────
-hs.hotkey.bind({"ctrl", "alt", "cmd"}, "P", function()
+-- ─── Switch Project (Ctrl+Shift+P) ───────────────────
+hs.hotkey.bind({"ctrl", "shift"}, "P", function()
     local resp = api("GET", "/api/projects")
     if not resp or resp == "" then notify("Error", "No server") return end
     local names = ""
@@ -130,14 +122,13 @@ hs.hotkey.bind({"ctrl", "alt", "cmd"}, "P", function()
         end)
 end)
 
--- ─── Hotkey: Where Am I? (Ctrl+Opt+Cmd+W) ───────────────
-hs.hotkey.bind({"ctrl", "alt", "cmd"}, "W", function()
+-- ─── Where Am I? (Ctrl+Shift+W) ──────────────────────
+hs.hotkey.bind({"ctrl", "shift"}, "W", function()
     notify("Position", "Playhead tracking coming soon.\nEnter manually in cue dialog.")
 end)
 
--- ─── Menu bar ──────────────────────────────────────────
-hs.menubar.new():setTitle("♮"):setToolTip("Clavus: Ctrl+Alt+Cmd+N Cue  L List  I Inject  T TUI  P Switch  W Where")
+-- ─── Menu bar ─────────────────────────────────────────
+hs.menubar.new():setTitle("♮"):setToolTip("Clavus: Ctrl+Shift+N Cue  L List  I Inject  T TUI  P Project")
 
--- ─── Ready! ────────────────────────────────────────────
-hs.alert.show("♮ Clavus loaded — Ctrl+Opt+Cmd+letter")
-notify("Clavus Ready", "Ctrl+Alt+Cmd+N for Quick Cue")
+-- ─── Ready! ───────────────────────────────────────────
+hs.alert.show("♮ Clavus: 6 hotkeys (Ctrl+Shift+letter)")
