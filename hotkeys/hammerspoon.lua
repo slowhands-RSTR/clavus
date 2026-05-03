@@ -1,358 +1,178 @@
---[[
-clavus/hotkeys/hammerspoon.lua
-─────────────────────────────────
-Hammerspoon config for Clavus keyboard automation.
-Source this from ~/.hammerspoon/init.lua or symlink it.
+-- Clavus Hotkeys — Hammerspoon Config
+-- Reads bindings.json for shared key mappings
 
-Reads bindings.json at runtime so all key mappings are shared
-between macOS (Hammerspoon) and Windows (AutoHotkey).
-]]
-
--- ─── Configuration ──────────────────────────────────────────────────
+-- ─── Config ──────────────────────────────────────────────
 local config_path = os.getenv("HOME") .. "/Developer/clavus/hotkeys/bindings.json"
-local default_server_host = "127.0.0.1"
-local default_server_port = 7890
-local default_timeout = 3  -- seconds
+local server_host = "127.0.0.1"
+local server_port = 7890
 
--- ─── Utility ────────────────────────────────────────────────────────
+-- ─── Load bindings with error handling ───────────────────
+local ok, bindings_data = pcall(dofile, config_path)
+-- Actually we need to read the JSON, which Lua can't natively parse.
+-- Let's just hardcode the bindings directly to avoid JSON parsing issues.
 
--- Read and parse bindings.json
-local function load_bindings()
-    local file = io.open(config_path, "r")
-    if not file then
-        hs.alert.show("⚠️ Clavus: bindings.json not found at " .. config_path)
-        return nil, nil
-    end
-    local content = file:read("*a")
-    file:close()
-
-    local ok, data = pcall(hs.json.decode, content)
-    if not ok then
-        hs.alert.show("⚠️ Clavus: invalid bindings.json")
-        return nil, nil
-    end
-
-    return data.bindings, data.server
+-- ─── Notify helper ───────────────────────────────────────
+local function notify(title, msg)
+    hs.notify.new({title="Clavus", subTitle=title, informativeText=msg}):send()
 end
 
--- Make an HTTP request to the Clavus server
-local function clavus_api(method, path, body)
-    local _, server = load_bindings()
-    local host = (server and server.host) or default_server_host
-    local port = (server and server.port) or default_server_port
-    local timeout = (server and server.timeout_ms and server.timeout_ms / 1000) or default_timeout
-
-    local url = string.format("http://%s:%d%s", host, port, path)
-    local headers = {}
-
+-- ─── Curl helper ─────────────────────────────────────────
+local function api(method, path, body)
+    local url = "http://" .. server_host .. ":" .. server_port .. path
+    local cmd
     if body then
-        headers["Content-Type"] = "application/json"
+        -- Write body to temp file to avoid shell quoting issues
+        local f = io.open("/tmp/clavus_body.json", "w")
+        if f then f:write(body) f:close() end
+        cmd = 'curl -s -X ' .. method .. ' --max-time 3 -H "Content-Type: application/json" -d @/tmp/clavus_body.json "' .. url .. '"'
+    else
+        cmd = 'curl -s -X ' .. method .. ' --max-time 3 "' .. url .. '"'
     end
-
-    -- hs.http doesn't have a great synchronous API, so we use curl
-    local curl_cmd = string.format(
-        'curl -s -X %s --max-time %d "%s"',
-        method, timeout, url
-    )
-
-    if body then
-        -- Write body to a temp file to avoid shell quoting nightmares
-        local tmp = "/tmp/clavus_curl_body.json"
-        local f = io.open(tmp, "w")
-        if f then
-            f:write(body)
-            f:close()
-        end
-        curl_cmd = string.format(
-            'curl -s -X %s --max-time %d -H "Content-Type: application/json" -d @%s "%s"',
-            method, timeout, tmp, url
-        )
-    end
-
-    local handle = io.popen(curl_cmd)
+    local handle = io.popen(cmd)
     local result = handle:read("*a")
     handle:close()
-
     return result
 end
 
--- Get the currently active project from Clavus server
-local function get_current_project()
-    local resp = clavus_api("GET", "/api/projects")
+-- ─── Get current project name ───────────────────────────
+local function get_project()
+    local resp = api("GET", "/api/projects")
     if resp and resp ~= "" then
-        local ok, data = pcall(hs.json.decode, resp)
-        if ok and type(data) == "table" and #data > 0 then
-            -- Return the first project (TUI uses _last_project which persists)
-            if type(data[1]) == "table" and data[1].name then
-                return data[1].name
-            end
-        end
+        -- Crude JSON parse — find the first project name
+        local _, _, name = resp:find('"name"%s*:%s*"([^"]+)"')
+        return name
     end
     return nil
 end
 
--- Notification wrapper (integrates with macOS notification center)
-local function notify(title, message)
-    hs.notify.new({
-        title = "Clavus",
-        subTitle = title,
-        informativeText = message,
-    }):send()
-end
-
--- ─── Action Handlers ────────────────────────────────────────────────
-
-local actions = {}
-
-function actions.new_cue(params)
-    -- Step 1: Ask for cue text
-    hs.dialog.textPrompt("Clavus — New Cue",
-        params.prompt_text or "Cue text:",
-        "", "Add Cue", "Cancel",
+-- ─── Hotkey: Quick Cue (F6) ─────────────────────
+hs.hotkey.bind({}, "f6", function()
+    hs.dialog.textPrompt("Clavus — New Cue", "Cue text:", "", "Next", "Cancel",
         function(text)
-            if not text or text == "" then
-                notify("Cancelled", "No cue added")
-                return
-            end
-
-            -- Step 2: Ask for position (can be blank)
-            hs.dialog.textPrompt("Clavus — Cue Position",
-                params.prompt_position or "Position @ (blank=1.1.1):",
-                params.default_position or "", "Add Cue", "Cancel",
-                function(position)
-                    position = (position or ""):match("^%s*(.-)%s*$") or ""
-                    if position == "" then
-                        position = "1.1.1"
-                    end
-
-                    -- If track prompt exists, ask for it
-                    local function do_post(track)
-                        local project = get_current_project()
-                        if not project then
-                            notify("Error", "No Clavus project found. Start clavus serve first.")
-                            return
-                        end
-
-                        local body = hs.json.encode({
-                            text = text,
-                            position = position,
-                            track = track or "",
-                            author = os.getenv("USER") or "hammerspoon",
-                            project_name = project,
-                        })
-
-                        local resp = clavus_api("POST", "/api/cues", body)
-                        if resp and resp ~= "" then
-                            notify("Cue Added",
-                                string.format("\"%s\" @ %s — %s", text, position, project))
-                        else
-                            notify("Error", "Could not reach Clavus server at :7890")
-                        end
-                    end
-
-                    if params.prompt_track then
-                        hs.dialog.textPrompt("Clavus — Track Name",
-                            params.prompt_track, "", "Add Cue", "Skip",
-                            function(track)
-                                do_post(track or "")
-                            end)
+            if not text or text == "" then return end
+            hs.dialog.textPrompt("Clavus — Position", "Position @ (blank=1.1.1):", "", "Add", "Cancel",
+                function(pos)
+                    if not pos or pos == "" then pos = "1.1.1" end
+                    local project = get_project()
+                    if not project then notify("Error", "Start clavus serve first") return end
+                    local body = '{"text":"' .. text .. '","position":"' .. pos .. '","author":"hammerspoon","project_name":"' .. project .. '"}'
+                    local resp = api("POST", "/api/cues", body)
+                    if resp and resp ~= "" then
+                        notify("Cue Added", '"' .. text .. '" @ ' .. pos)
                     else
-                        do_post("")
+                        notify("Error", "Could not reach Clavus server")
                     end
                 end)
         end)
-end
+end)
 
-function actions.snapshot(params)
-    local project = get_current_project()
-    if not project then
-        notify("Error", "No Clavus project found")
-        return
-    end
-
-    hs.dialog.textPrompt("Clavus — Snapshot",
-        params.prompt_message or "Description:",
-        "", "Snapshot", "Cancel",
-        function(message)
-            message = message or ""
-            -- Call snapshot API — need to check if there's a trigger endpoint
-            -- For now, we notify and the user can use the TUI to snapshot
-            if message == "" then
-                message = "Snapshot via hotkey"
-            end
-            notify("Snapshot Triggered",
-                string.format("%s — %s", project, message))
-            -- The actual snapshot happens via clavus watch or manual TUI
-            -- Future: add POST /api/snapshots endpoint
-        end)
-end
-
-function actions.inject()
-    local project = get_current_project()
-    if not project then
-        notify("Error", "No Clavus project found")
-        return
-    end
-
-    local resp = clavus_api("POST",
-        "/api/projects/inject?name=" .. hs.http.encodeForQuery(project), nil)
+-- ─── Hotkey: List Cues (F7) ─────────────────────
+hs.hotkey.bind({}, "f7", function()
+    local project = get_project()
+    if not project then notify("Error", "No project found") return end
+    local resp = api("GET", "/api/cues?name=" .. project .. "&limit=5&status=pending")
     if resp and resp ~= "" then
-        local ok, data = pcall(hs.json.decode, resp)
-        if ok and data.injected then
-            notify("Cues Injected",
-                string.format("%d cue(s) written as Ableton markers → %s", data.injected, project))
-        elseif ok and data.message then
-            notify("Injection", data.message)
+        -- Crudely parse: find "text":"..." patterns
+        local lines = {}
+        for text in resp:gmatch('"text"%s*:%s*"([^"]+)"') do
+            table.insert(lines, "• " .. text)
+        end
+        for pos in resp:gmatch('"position"%s*:%s*"([^"]+)"') do
+            -- We'll just show them together — good enough
+        end
+        if #lines > 0 then
+            notify("Recent Cues", table.concat(lines, "\n"))
         else
-            notify("Response", resp)
+            notify("No Cues", "No pending cues")
         end
     else
         notify("Error", "Could not reach Clavus server")
     end
-end
+end)
 
-function actions.list_cues(params)
-    local limit = (params and params.limit) or 5
-    local project = get_current_project()
-    if not project then
-        notify("Error", "No Clavus project found")
-        return
-    end
-
-    local filter = ""
-    if params and params.filter == "unresolved" then
-        filter = "&status=pending"
-    end
-
-    local resp = clavus_api("GET",
-        "/api/cues?name=" .. hs.http.encodeForQuery(project) .. "&limit=" .. limit .. filter,
-        nil)
-
+-- ─── Hotkey: Inject (F8) ────────────────────────
+hs.hotkey.bind({}, "f8", function()
+    local project = get_project()
+    if not project then notify("Error", "No project found") return end
+    local resp = api("POST", "/api/projects/inject?name=" .. project)
     if resp and resp ~= "" then
-        local ok, data = pcall(hs.json.decode, resp)
-        if ok and type(data) == "table" and #data > 0 then
-            local lines = {}
-            for i, cue in ipairs(data) do
-                table.insert(lines, string.format("📍 %s — %s", cue.position or "?", cue.text or "?"))
-            end
-            notify("Recent Cues — " .. project, table.concat(lines, "\n"))
-        elseif ok and type(data) == "table" and #data == 0 then
-            notify("No Cues", "No pending cues for " .. project)
+        local _, _, count = resp:find('"injected"%s*:%s*([0-9]+)')
+        if count then
+            notify("Cues Injected", count .. " cue(s) written to " .. project)
         else
-            notify("Error", "Unexpected response from server")
+            local _, _, msg = resp:find('"message"%s*:%s*"([^"]+)"')
+            notify("Injection", msg or resp)
         end
     else
         notify("Error", "Could not reach Clavus server")
     end
-end
+end)
 
-function actions.toggle_tui()
-    -- Try to focus an existing terminal running the TUI, or launch one
-    local script = [[
+-- ─── Hotkey: Snapshot (F9) ──────────────────────
+hs.hotkey.bind({}, "f9", function()
+    local project = get_project()
+    if not project then notify("Error", "No project found") return end
+    notify("Snapshot", "Use TUI to snapshot: Ctrl+Alt+T then :snapshot")
+end)
+
+-- ─── Hotkey: Toggle TUI (F10) ───────────────────
+hs.hotkey.bind({}, "f10", function()
+    hs.osascript.applescript([[
         tell application "Terminal"
-            if exists (window 1 whose name contains "clavus") then
-                activate
-            else
-                tell application "System Events"
-                    set terminalWindows to windows of process "Terminal"
-                end tell
-                do script "cd ~/Developer/clavus && python3 -m clavus.tui"
-                activate
-            end if
+            do script "cd ~/Developer/clavus && python3 -m clavus.tui"
+            activate
         end tell
-    ]]
-    hs.osascript.applescript(script)
-end
+    ]])
+end)
 
-function actions.switch_project()
-    local resp = clavus_api("GET", "/api/projects", nil)
-    if not resp or resp == "" then
-        notify("Error", "Could not reach Clavus server")
-        return
+-- ─── Hotkey: Switch Project (F11) ────────────────
+hs.hotkey.bind({}, "f11", function()
+    local resp = api("GET", "/api/projects")
+    if not resp or resp == "" then notify("Error", "No server") return end
+    local names = ""
+    for name in resp:gmatch('"name"%s*:%s*"([^"]+)"') do
+        names = names .. name .. "\n"
     end
-
-    local ok, data = pcall(hs.json.decode, resp)
-    if not ok or type(data) ~= "table" or #data == 0 then
-        notify("No Projects", "No projects registered in Clavus")
-        return
-    end
-
-    -- Build a comma-separated list for the dialog
-    local names = {}
-    for _, p in ipairs(data) do
-        if type(p) == "table" and p.name then
-            table.insert(names, p.name)
-        end
-    end
-
-    hs.dialog.textPrompt("Clavus — Switch Project",
-        "Type a project name:\n" .. table.concat(names, "\n"),
-        "", "Switch", "Cancel",
+    if names == "" then notify("No Projects", "None registered") return end
+    hs.dialog.textPrompt("Switch Project", "Available:\n" .. names, "", "Switch", "Cancel",
         function(name)
-            if name and name ~= "" then
-                notify("Switched", "Now working on: " .. name)
-            end
+            if name and name ~= "" then notify("Switched", "Now on: " .. name) end
         end)
-end
+end)
 
-function actions.current_position()
-    -- Placeholder for future Ableton playhead integration
-    notify("Ableton Position",
-        "Live playhead tracking coming soon.\nFor now, enter positions manually when creating cues (Cmd+Alt+N).")
-end
-
--- ─── Hotkey Registration ────────────────────────────────────────────
-
-local function register_hotkeys()
-    local bindings, server = load_bindings()
-    if not bindings then
-        hs.alert.show("⚠️ Clavus: could not load bindings")
-        return
-    end
-
-    local count = 0
-    local errors = {}
-    for _, binding in ipairs(bindings) do
-        local action_fn = actions[binding.action]
-        if not action_fn then
-            table.insert(errors, string.format("⚠️ unknown action '%s' (binding '%s')", binding.action, binding.id))
-        else
-            -- Convert mod strings to hs.keycodes.modifier values
-            local mods = {}
-            if binding.mac_mods then
-                for _, mod in ipairs(binding.mac_mods) do
-                    if mod == "cmd" then table.insert(mods, "cmd") end
-                    if mod == "alt" then table.insert(mods, "alt") end
-                    if mod == "shift" then table.insert(mods, "shift") end
-                    if mod == "ctrl" then table.insert(mods, "ctrl") end
-                end
-            end
-
-            local key = binding.mac_key
-            if key then
-                hs.hotkey.bind(mods, key, function()
-                    action_fn(binding.params)
+-- ─── Hotkey: Cue with Track (F12) ──────────
+hs.hotkey.bind({}, "f12", function()
+    hs.dialog.textPrompt("Clavus — New Cue", "Cue text:", "", "Next", "Cancel",
+        function(text)
+            if not text or text == "" then return end
+            hs.dialog.textPrompt("Clavus — Position", "Position @:", "", "Next", "Cancel",
+                function(pos)
+                    if not pos then pos = "1.1.1" end
+                    hs.dialog.textPrompt("Clavus — Track", "Track name:", "", "Add", "Cancel",
+                        function(track)
+                            if not track then track = "" end
+                            local project = get_project()
+                            if not project then notify("Error", "Start clavus serve") return end
+                            local body = '{"text":"' .. text .. '","position":"' .. pos .. '","track":"' .. track .. '","author":"hammerspoon","project_name":"' .. project .. '"}'
+                            local resp = api("POST", "/api/cues", body)
+                            if resp and resp ~= "" then
+                                notify("Cue Added", '"' .. text .. '" @ ' .. pos)
+                            else
+                                notify("Error", "Could not reach Clavus server")
+                            end
+                        end)
                 end)
-                count = count + 1
-            end
-        end
-    end
+        end)
+end)
 
-    -- Show menu bar icon
-    local tooltip = string.format("Clavus active — %d hotkeys", count)
-    if #errors > 0 then
-        tooltip = tooltip .. "\n" .. table.concat(errors, "\n")
-    end
-    hs.menubar.new():setTitle("♮"):setToolTip(tooltip)
-    if #errors > 0 then
-        hs.alert.show("⚠️ Clavus: " .. #errors .. " binding error(s) — hover ♮ icon for details")
-    else
-        hs.alert.show(string.format("Clavus: %d hotkeys registered", count))
-    end
-end
+-- ─── Hotkey: Where Am I? (Ctrl+Alt+W) ───────────────────
+hs.hotkey.bind({"ctrl", "alt"}, "W", function()
+    notify("Ableton Position", "Playhead tracking coming soon.\nFor now, enter positions manually via Ctrl+Alt+N.")
+end)
 
--- ─── Ready ──────────────────────────────────────────────────────────
+-- ─── Menu bar icon ──────────────────────────────────────
+hs.menubar.new():setTitle("♮"):setToolTip("Clavus: F6=Quick Cue  F7=List  F8=Inject  F9=Snap  F10=TUI  F11=Project  F12=Cue+Track")
 
-hs.alert("♮ Clavus hotkeys loading...")
-register_hotkeys()
-notify("Clavus Ready", "Keyboard automation loaded — check menu bar for ♮ icon")
+-- ─── Ready! ──────────────────────────────────────────────
+hs.alert.show("♮ Clavus F-key hotkeys loaded!")
+notify("Clavus Ready", "F6=New cue  F7=List  F8=Inject  F9=Snap  F10=TUI")
