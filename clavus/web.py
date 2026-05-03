@@ -17,7 +17,7 @@ from typing import Optional
 
 # ─── FastAPI ─────────────────────────────────────────────────────────────
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -27,7 +27,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from clavus.helpers import get_store_and_project, find_als_file
 from clavus.cues import CueStore, CueFilter, format_cue_list, Cue, CueReply as CueReplyData
-from clavus.store import BlobStore, ClavusProject, Snapshot, diff_projects, DEFAULT_CLAVUS_DIR
+from clavus.store import BlobStore, ClavusProject, Snapshot, diff_projects, DEFAULT_CLAVUS_DIR, StemStore
 from clavus import parse_als
 
 # ─── Helpers ────────────────────────────────────────────────────────────
@@ -505,6 +505,114 @@ async def skip_cue(cue_id: str, name: str = Query("", description="Project name"
     })
 
     return {"status": "skipped"}
+
+
+# ─── Stem Endpoints ───────────────────────────────────────────────────
+
+
+@app.get("/api/stems/{project}/manifest/{snapshot_hash}")
+async def get_stem_manifest(project: str, snapshot_hash: str):
+    """Get the stem manifest for a given snapshot."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": f"Project '{project}' not found"}, status_code=404)
+
+    stem_store = StemStore(proj.name, store)
+    manifest = stem_store.get_manifest(snapshot_hash)
+    if not manifest:
+        return JSONResponse({"stems": [], "snapshot_hash": snapshot_hash})
+
+    return {
+        "snapshot_hash": manifest.snapshot_hash,
+        "stems": [{
+            "track_name": s.track_name,
+            "file_name": s.file_name,
+            "hash": s.hash,
+            "size": s.size,
+            "format": s.format,
+            "sample_rate": s.sample_rate,
+            "bit_depth": s.bit_depth,
+            "channels": s.channels,
+            "duration_seconds": s.duration_seconds,
+        } for s in manifest.stems],
+    }
+
+
+@app.get("/api/stems/blob/{stem_hash}")
+async def get_stem_blob(stem_hash: str):
+    """Download a stem blob by content hash."""
+    store = BlobStore()
+    data = store.get_object(stem_hash)
+    if not data:
+        return JSONResponse({"error": "Stem blob not found"}, status_code=404)
+
+    # Determine content type from magic bytes
+    content_type = "application/octet-stream"
+    if data[:4] == b"RIFF":
+        content_type = "audio/wav"
+    elif data[:4] == b"fLaC":
+        content_type = "audio/flac"
+    elif data[:3] == b"ID3" or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        content_type = "audio/mpeg"
+
+    from fastapi.responses import Response
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f"attachment; filename={stem_hash[:12]}.wav",
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
+@app.post("/api/stems/check")
+async def check_stems(body: dict):
+    """Given a list of stem hashes, return which ones are missing locally.
+    Used by remote sync to determine which stems need to be transferred."""
+    store = BlobStore()
+    hashes = body.get("hashes", [])
+    missing = [h for h in hashes if not store.has_object(h)]
+    return {"missing": missing}
+
+
+@app.post("/api/stems/{project}/manifest/{snapshot_hash}")
+async def receive_stem_manifest(project: str, snapshot_hash: str, body: dict):
+    """Receive a stem manifest pushed from a remote peer."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": f"Project '{project}' not found"}, status_code=404)
+
+    stem_store = StemStore(proj.name, store)
+    stems_data = body.get("stems", [])
+
+    from clavus.store import StemManifest, StemEntry
+    manifest = StemManifest(snapshot_hash=snapshot_hash, created_at=time.time())
+    for s in stems_data:
+        manifest.stems.append(StemEntry(
+            track_name=s.get("track_name", ""),
+            file_name=s.get("file_name", ""),
+            hash=s.get("hash", ""),
+            size=s.get("size", 0),
+            format=s.get("format", "wav"),
+            sample_rate=s.get("sample_rate", 44100),
+            bit_depth=s.get("bit_depth", 24),
+            channels=s.get("channels", 2),
+            duration_seconds=s.get("duration_seconds", 0),
+        ))
+    stem_store.save_manifest(manifest)
+    return {"status": "ok", "stems": len(manifest.stems)}
+
+
+@app.post("/api/stems/blob/{stem_hash}")
+async def receive_stem_blob(stem_hash: str, request: Request):
+    """Receive a stem blob uploaded from a remote peer."""
+    store = BlobStore()
+    body = await request.body()
+    store.put_object(body, stem_hash)
+    return {"status": "stored", "hash": stem_hash[:12]}
 
 
 # ─── Sync Endpoints ──────────────────────────────────────────────────────

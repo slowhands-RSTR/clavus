@@ -66,6 +66,29 @@ class ClavusProject:
     sync_url: str = ""  # Remote sync address (for Phase 5+)
 
 
+@dataclass
+class StemEntry:
+    """A single stem file tracked in a snapshot."""
+    track_name: str           # e.g., "Kick", "Bass", "Vocal"
+    file_name: str            # e.g., "Kick.wav"
+    hash: str                 # SHA256 of the audio file content
+    size: int = 0             # File size in bytes
+    format: str = "wav"       # Audio format
+    sample_rate: int = 44100
+    bit_depth: int = 24
+    channels: int = 2
+    duration_seconds: float = 0.0
+    bounced_at: float = 0.0   # Timestamp when the stem was bounced
+
+
+@dataclass
+class StemManifest:
+    """Mapping of which stem blobs belong to a snapshot."""
+    snapshot_hash: str
+    stems: list[StemEntry] = field(default_factory=list)
+    created_at: float = 0.0
+
+
 # ─── Storage ────────────────────────────────────────────────────────────
 
 class BlobStore:
@@ -221,6 +244,142 @@ class BlobStore:
         index = json.loads(self.index_path.read_text())
         return [ClavusProject(**data) for data in index.values()
                 if isinstance(data, dict)]
+
+
+# ─── Stem Registry ──────────────────────────────────────────────────
+
+
+STEMS_DIR = "stems"  # Working tree: reconstructed stem directories per snapshot
+
+
+class StemStore:
+    """Manages stem file registry — mapping blobs to snapshots.
+
+    Stems are stored as content-addressed blobs in objects/ (dedup'd by hash).
+    A StemManifest per snapshot records which stems belong to it.
+    The stems/ working tree is reconstructed on demand (e.g., after pull).
+    """
+
+    def __init__(self, project_name: str, store: BlobStore):
+        self.project = project_name
+        self.store = store
+        self.stems_root = store.root / STEMS_DIR / project_name
+
+    # ── Manifest CRUD ──
+
+    def get_manifest(self, snapshot_hash: str) -> Optional[StemManifest]:
+        """Load the StemManifest for a given snapshot."""
+        path = self._manifest_path(snapshot_hash)
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text())
+            stems = [StemEntry(**s) for s in data.get("stems", [])]
+            return StemManifest(
+                snapshot_hash=data["snapshot_hash"],
+                stems=stems,
+                created_at=data.get("created_at", 0.0),
+            )
+        except (json.JSONDecodeError, KeyError):
+            return None
+
+    def save_manifest(self, manifest: StemManifest) -> None:
+        """Save or update a StemManifest."""
+        path = self._manifest_path(manifest.snapshot_hash)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "snapshot_hash": manifest.snapshot_hash,
+            "created_at": manifest.created_at or time.time(),
+            "stems": [asdict(s) for s in manifest.stems],
+        }
+        path.write_text(json.dumps(data, indent=2, default=str))
+
+    def list_manifests(self) -> list[str]:
+        """List all snapshot hashes that have stem manifests."""
+        base = self.stems_root
+        if not base.exists():
+            return []
+        return sorted([d.name for d in base.iterdir() if d.is_dir()])
+
+    # ── Stem Blob Operations ──
+
+    def store_stem_file(self, file_path: str, track_name: str) -> StemEntry:
+        """Ingest a stem audio file into the blob store. Returns a StemEntry."""
+        path = Path(file_path)
+        data = path.read_bytes()
+        content_hash = self.store.put_object(data)
+
+        # Gather file metadata
+        import wave
+        import struct
+        duration = 0.0
+        sample_rate = 44100
+        bit_depth = 24
+        channels = 2
+        try:
+            with wave.open(str(path), 'rb') as wf:
+                channels = wf.getnchannels()
+                sample_rate = wf.getframerate()
+                bit_depth = wf.getsampwidth() * 8
+                frames = wf.getnframes()
+                duration = frames / sample_rate if sample_rate > 0 else 0.0
+        except Exception:
+            pass
+
+        return StemEntry(
+            track_name=track_name,
+            file_name=path.name,
+            hash=content_hash,
+            size=len(data),
+            format=path.suffix.lstrip(".").lower(),
+            sample_rate=sample_rate,
+            bit_depth=bit_depth,
+            channels=channels,
+            duration_seconds=duration,
+            bounced_at=time.time(),
+        )
+
+    def get_stem_data(self, stem_hash: str) -> Optional[bytes]:
+        """Retrieve stem audio data by content hash."""
+        return self.store.get_object(stem_hash)
+
+    def has_stem(self, stem_hash: str) -> bool:
+        """Check if a stem blob exists locally."""
+        return self.store.has_object(stem_hash)
+
+    # ── Working Tree (reconstruct stems/ on disk) ──
+
+    def has_working_tree(self, snapshot_hash: str) -> bool:
+        """Check if the stems directory is already materialized."""
+        return self._manifest_path(snapshot_hash).exists()
+
+    def materialize_stems(self, snapshot_hash: str, output_dir: str = "") -> list[Path]:
+        """Reconstruct stem files from blobs into a directory. Returns list of created paths."""
+        manifest = self.get_manifest(snapshot_hash)
+        if not manifest:
+            return []
+
+        out = Path(output_dir) if output_dir else self._snap_dir(snapshot_hash)
+        out.mkdir(parents=True, exist_ok=True)
+
+        created = []
+        for entry in manifest.stems:
+            data = self.store.get_object(entry.hash)
+            if not data:
+                continue
+            stem_path = out / entry.file_name
+            stem_path.write_bytes(data)
+            created.append(stem_path)
+
+        return created
+
+    # ── Path Helpers ──
+
+    def _manifest_path(self, snapshot_hash: str) -> Path:
+        return self._snap_dir(snapshot_hash) / "StemManifest.json"
+
+    def _snap_dir(self, snapshot_hash: str) -> Path:
+        return self.stems_root / snapshot_hash[:12]
 
     @staticmethod
     def _write_json(path: Path, data: dict) -> None:

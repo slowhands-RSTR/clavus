@@ -39,6 +39,9 @@ from clavus.cues import (
 )
 from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot
 from clavus.watch import watch as cmd_watch_daemon
+from clavus.store import (
+    StemStore, StemEntry, StemManifest,
+)
 from clavus.sync import (
     load_remotes, save_remotes, Remote, push_to_remote, pull_from_remote, SyncDaemon,
 )
@@ -769,6 +772,126 @@ def cmd_cue_render(args: argparse.Namespace) -> None:
         print(f"   Import into Ableton by merging <CuePoints> into your .als file.")
 
 
+# ─── Stem Commands ─────────────────────────────────────────────────────
+
+
+def cmd_stem_import(args: argparse.Namespace) -> None:
+    """Import a bounced stem file and register it with the current snapshot."""
+    store, proj = get_store_and_project()
+    stem_store = StemStore(proj.name, store)
+    head = store.read_ref("HEAD")
+
+    if not head:
+        print("❌ No snapshot yet. Run 'clavus snapshot' first.")
+        return
+
+    entry = stem_store.store_stem_file(args.file, args.track)
+    manifest = stem_store.get_manifest(head) or StemManifest(snapshot_hash=head)
+
+    # Check if this track already has a stem — replace it
+    manifest.stems = [s for s in manifest.stems if s.track_name != args.track]
+    manifest.stems.append(entry)
+    manifest.created_at = time.time()
+    stem_store.save_manifest(manifest)
+
+    file_size_mb = entry.size / (1024 * 1024)
+    print(f"📦 Imported stem: {entry.track_name} ({entry.file_name})")
+    print(f"   Hash:   {entry.hash[:12]}")
+    print(f"   Size:   {file_size_mb:.1f} MB")
+    print(f"   Format: {entry.format} / {entry.sample_rate}Hz / {entry.bit_depth}bit / {entry.channels}ch")
+    if entry.duration_seconds:
+        print(f"   Length: {entry.duration_seconds:.1f}s")
+    print(f"   Snapshot: {head[:12]}")
+
+
+def cmd_stem_list(args: argparse.Namespace) -> None:
+    """List stems for the current (or specified) snapshot."""
+    store, proj = get_store_and_project()
+    stem_store = StemStore(proj.name, store)
+    head = args.snapshot or store.read_ref("HEAD")
+
+    if not head:
+        print("❌ No snapshot to show stems for.")
+        return
+
+    manifest = stem_store.get_manifest(head)
+    if not manifest or not manifest.stems:
+        print(f"No stems registered for snapshot {head[:12]}")
+        return
+
+    print(f"Stems for snapshot {head[:12]}:\n")
+    total_size = 0
+    for entry in manifest.stems:
+        size_mb = entry.size / (1024 * 1024)
+        total_size += entry.size
+        duration = f"{entry.duration_seconds:.1f}s" if entry.duration_seconds else "?"
+        print(f"  {entry.track_name:20s}  {entry.file_name:25s}  {size_mb:6.1f} MB  {duration}  {entry.hash[:12]}")
+    print(f"\n  Total: {total_size / (1024 * 1024):.1f} MB across {len(manifest.stems)} stems")
+
+
+def cmd_stem_pull(args: argparse.Namespace) -> None:
+    """Pull stem files from remotes (materialize working tree)."""
+    store, proj = get_store_and_project()
+    stem_store = StemStore(proj.name, store)
+    remotes = load_remotes(store)
+
+    if not remotes:
+        print("❌ No remotes configured. Use 'clavus remote add' first.")
+        return
+
+    head = store.read_ref("HEAD")
+    if not head:
+        print("❌ No snapshot yet.")
+        return
+
+    # Fetch stems from remotes via the sync extension
+    from clavus.sync import pull_stems_from_remote
+    total = 0
+    for remote in remotes:
+        print(f"  Pulling stems from '{remote.name}'...")
+        count = pull_stems_from_remote(store, proj, remote)
+        total += count
+        if count:
+            print(f"    Downloaded {count} stem(s)")
+        else:
+            print(f"    No new stems")
+
+    # Materialize working tree
+    manifest = stem_store.get_manifest(head)
+    if manifest and manifest.stems:
+        paths = stem_store.materialize_stems(head)
+        print(f"\n  Materialized {len(paths)} stem(s) to ~/.clavus/stems/{proj.name}/{head[:12]}/")
+    else:
+        print(f"\n  No stem manifest for current snapshot")
+
+
+def cmd_stem_push(args: argparse.Namespace) -> None:
+    """Push stem files to all remotes."""
+    store, proj = get_store_and_project()
+    stem_store = StemStore(proj.name, store)
+    remotes = load_remotes(store)
+
+    if not remotes:
+        print("❌ No remotes configured.")
+        return
+
+    head = store.read_ref("HEAD")
+    if not head:
+        print("❌ No snapshot yet.")
+        return
+
+    manifest = stem_store.get_manifest(head)
+    if not manifest or not manifest.stems:
+        print("No stems to push for current snapshot.")
+        return
+
+    from clavus.sync import push_stems_to_remote
+    for remote in remotes:
+        print(f"  Pushing to '{remote.name}'...")
+        count = push_stems_to_remote(store, proj, remote, stem_store, head)
+        print(f"    Pushed {count} stem(s)")
+
+
 # ─── Main Entry Point ──────────────────────────────────────────────────
 
 def main():
@@ -886,6 +1009,23 @@ def main():
     p_tui.add_argument("--connect", "-c", default="",
                        help="Clavus server URL (default: http://localhost:7890)")
 
+    # ── Stem subcommands ──
+    p_stem = subparsers.add_parser("stem", help="Manage stems (audio exports)")
+    stem_sub = p_stem.add_subparsers(dest="stem_action", help="Stem commands")
+
+    p_stem_import = stem_sub.add_parser("import", help="Import a stem file")
+    p_stem_import.add_argument("file", help="Path to the stem audio file")
+    p_stem_import.add_argument("--track", "-t", required=True,
+                               help="Track name (e.g., 'Kick', 'Bass', 'Vocal')")
+
+    p_stem_list = stem_sub.add_parser("list", help="List stems for a snapshot")
+    p_stem_list.add_argument("--snapshot", "-s", default="",
+                             help="Snapshot hash (default: current HEAD)")
+
+    p_stem_push = stem_sub.add_parser("push", help="Push stem files to remotes")
+
+    p_stem_pull = stem_sub.add_parser("pull", help="Pull stem files from remotes")
+
     args = parser.parse_args()
 
     # Override clavus directory if specified
@@ -919,6 +1059,17 @@ def main():
 
     if args.command in commands:
         commands[args.command](args)
+    elif args.command == "stem":
+        stem_actions = {
+            "import": cmd_stem_import,
+            "list": cmd_stem_list,
+            "push": cmd_stem_push,
+            "pull": cmd_stem_pull,
+        }
+        if args.stem_action in stem_actions:
+            stem_actions[args.stem_action](args)
+        else:
+            print("Usage: clavus stem {import|list|push|pull}")
     else:
         parser.print_help()
 

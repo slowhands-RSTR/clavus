@@ -24,7 +24,7 @@ from typing import Optional
 import httpx
 
 from clavus.store import (
-    BlobStore, ClavusProject, Snapshot, DEFAULT_CLAVUS_DIR,
+    BlobStore, ClavusProject, Snapshot, DEFAULT_CLAVUS_DIR, StemStore,
 )
 from clavus.cues import CueStore, Cue, CueReply as CueReplyData, CueFilter
 
@@ -424,3 +424,172 @@ class SyncDaemon:
             print(f"  ⚠️  websockets library not installed. Run: pip install websockets")
         except Exception as e:
             raise e
+
+
+# ─── Stem Sync ───────────────────────────────────────────────────────
+
+
+def push_stems_to_remote(
+    store: BlobStore, proj: ClavusProject,
+    remote: Remote, stem_store: StemStore, snapshot_hash: str,
+) -> int:
+    """Push stem blobs for a snapshot to a remote. Returns number of stems pushed."""
+    manifest = stem_store.get_manifest(snapshot_hash)
+    if not manifest or not manifest.stems:
+        return 0
+
+    client = SyncClient(remote.url)
+    count = 0
+
+    try:
+        # Ask remote which hashes it's missing
+        all_hashes = [s.hash for s in manifest.stems]
+        r = client.client.post(
+            f"{remote.url}/api/stems/check",
+            json={"hashes": all_hashes},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            print(f"  ⚠️  Stem check failed: {r.status_code}")
+            return 0
+
+        missing = r.json().get("missing", [])
+        if not missing:
+            return len(all_hashes)  # All already present on remote
+
+        # Upload each missing stem blob
+        for stem_hash in missing:
+            data = store.get_object(stem_hash)
+            if not data:
+                print(f"  ⚠️  Stem blob {stem_hash[:12]} not found locally, skipping")
+                continue
+
+            # Find the entry for reporting
+            entry = next((s for s in manifest.stems if s.hash == stem_hash), None)
+            track = entry.track_name if entry else "?"
+
+            r = client.client.post(
+                f"{remote.url}/api/stems/blob/{stem_hash}",
+                content=data,
+                timeout=120,
+            )
+            if r.status_code == 200:
+                print(f"    Uploaded {track} ({stem_hash[:12]}) — {len(data) / (1024*1024):.1f} MB")
+                count += 1
+            else:
+                print(f"    ⚠️  Upload failed for {stem_hash[:12]}: {r.status_code}")
+
+        # Push the manifest too
+        manifest_data = {
+            "snapshot_hash": manifest.snapshot_hash,
+            "stems": [{
+                "track_name": s.track_name, "file_name": s.file_name,
+                "hash": s.hash, "size": s.size, "format": s.format,
+                "sample_rate": s.sample_rate, "bit_depth": s.bit_depth,
+                "channels": s.channels, "duration_seconds": s.duration_seconds,
+            } for s in manifest.stems],
+        }
+        r = client.client.post(
+            f"{remote.url}/api/stems/{proj.name}/manifest/{snapshot_hash}",
+            json=manifest_data,
+            timeout=30,
+        )
+
+    finally:
+        client.close()
+
+    return count
+
+
+def pull_stems_from_remote(
+    store: BlobStore, proj: ClavusProject, remote: Remote,
+) -> int:
+    """Pull stem files from a remote for the current HEAD. Returns count downloaded."""
+    head = store.read_ref("HEAD")
+    if not head:
+        return 0
+
+    client = SyncClient(remote.url)
+    stem_store = StemStore(proj.name, store)
+    count = 0
+
+    try:
+        # Get remote's manifest for this snapshot
+        r = client.client.get(
+            f"{remote.url}/api/stems/{proj.name}/manifest/{head}",
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return 0
+
+        manifest_data = r.json()
+        stems = manifest_data.get("stems", [])
+        if not stems:
+            return 0
+
+        # Check which we need locally
+        needed = [s for s in stems if not stem_store.has_stem(s["hash"])]
+
+        if not needed:
+            return len(stems)  # All already present
+
+        # Download each missing stem
+        for entry in needed:
+            r = client.client.get(
+                f"{remote.url}/api/stems/blob/{entry['hash']}",
+                timeout=120,
+            )
+            if r.status_code != 200:
+                print(f"  ⚠️  Download failed for {entry['hash'][:12]}: {r.status_code}")
+                continue
+
+            # Store the blob
+            store.put_object(r.content, entry["hash"])
+            size_mb = len(r.content) / (1024 * 1024)
+            print(f"    Downloaded {entry['track_name']} ({entry['hash'][:12]}) — {size_mb:.1f} MB")
+            count += 1
+
+        # Also save the manifest locally
+        local_manifest = stem_store.get_manifest(head)
+        if local_manifest:
+            for entry in stems:
+                local_entry = next(
+                    (s for s in local_manifest.stems if s.hash == entry["hash"]), None
+                )
+                if not local_entry:
+                    from clavus.store import StemEntry
+                    local_manifest.stems.append(StemEntry(
+                        track_name=entry["track_name"],
+                        file_name=entry["file_name"],
+                        hash=entry["hash"],
+                        size=entry.get("size", 0),
+                        format=entry.get("format", "wav"),
+                        sample_rate=entry.get("sample_rate", 44100),
+                        bit_depth=entry.get("bit_depth", 24),
+                        channels=entry.get("channels", 2),
+                        duration_seconds=entry.get("duration_seconds", 0),
+                        bounced_at=0,
+                    ))
+            stem_store.save_manifest(local_manifest)
+        else:
+            from clavus.store import StemManifest, StemEntry
+            new_manifest = StemManifest(snapshot_hash=head, created_at=time.time())
+            for entry in stems:
+                new_manifest.stems.append(StemEntry(
+                    track_name=entry["track_name"],
+                    file_name=entry["file_name"],
+                    hash=entry["hash"],
+                    size=entry.get("size", 0),
+                    format=entry.get("format", "wav"),
+                    sample_rate=entry.get("sample_rate", 44100),
+                    bit_depth=entry.get("bit_depth", 24),
+                    channels=entry.get("channels", 2),
+                    duration_seconds=entry.get("duration_seconds", 0),
+                    bounced_at=0,
+                ))
+            stem_store.save_manifest(new_manifest)
+
+    finally:
+        client.close()
+
+    return count
