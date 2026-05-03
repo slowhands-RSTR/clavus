@@ -1,7 +1,7 @@
 {
   "$schema": "clavus-hotkeys-schema-v1",
-  "version": 1,
-  "description": "Shared keyboard bindings for Clavus — single source of truth consumed by Hammerspoon (macOS) and AutoHotkey (Windows)",
+  "version": 2,
+  "description": "Shared keyboard bindings for Clavus — single source of truth consumed by Hammerspoon (macOS) and AutoHotkey (Windows). Ctrl+Alt avoids Ableton key conflicts.",
 
   "server": {
     "host": "127.0.0.1",
@@ -14,14 +14,14 @@
       "id": "cue_quick",
       "name": "Quick Cue",
       "description": "Add a timeline cue without leaving your DAW",
-      "mac_mods": ["cmd", "alt"],
+      "mac_mods": ["ctrl", "alt"],
       "mac_key": "N",
-      "win_mods": ["win", "alt"],
+      "win_mods": ["ctrl", "alt"],
       "win_key": "N",
       "action": "new_cue",
       "params": {
         "prompt_text": "New cue text:",
-        "prompt_position": "Position @ (blank for current/playhead, or type bar.beat like 16.1.1):",
+        "prompt_position": "Position @ (blank=1.1.1):",
         "default_position": "",
         "default_track": ""
       }
@@ -30,9 +30,9 @@
       "id": "cue_with_track",
       "name": "Cue with Track",
       "description": "Add a cue and specify which track it refers to",
-      "mac_mods": ["cmd", "alt", "shift"],
+      "mac_mods": ["ctrl", "alt", "shift"],
       "mac_key": "N",
-      "win_mods": ["win", "alt", "shift"],
+      "win_mods": ["ctrl", "alt", "shift"],
       "win_key": "N",
       "action": "new_cue",
       "params": {
@@ -47,9 +47,9 @@
       "id": "snapshot",
       "name": "Snapshot Now",
       "description": "Take a snapshot of the current project state",
-      "mac_mods": ["cmd", "alt"],
+      "mac_mods": ["ctrl", "alt"],
       "mac_key": "S",
-      "win_mods": ["win", "alt"],
+      "win_mods": ["ctrl", "alt"],
       "win_key": "S",
       "action": "snapshot",
       "params": {
@@ -60,9 +60,9 @@
       "id": "inject",
       "name": "Inject Cues as Markers",
       "description": "Write pending cues as Ableton locators/markers into the .als file",
-      "mac_mods": ["cmd", "alt"],
+      "mac_mods": ["ctrl", "alt"],
       "mac_key": "I",
-      "win_mods": ["win", "alt"],
+      "win_mods": ["ctrl", "alt"],
       "win_key": "I",
       "action": "inject",
       "params": {}
@@ -71,9 +71,9 @@
       "id": "list_cues",
       "name": "List Recent Cues",
       "description": "Show the most recent cues in a notification/bubble",
-      "mac_mods": ["cmd", "alt"],
+      "mac_mods": ["ctrl", "alt"],
       "mac_key": "L",
-      "win_mods": ["win", "alt"],
+      "win_mods": ["ctrl", "alt"],
       "win_key": "L",
       "action": "list_cues",
       "params": {
@@ -85,9 +85,9 @@
       "id": "toggle_tui",
       "name": "Toggle TUI",
       "description": "Launch or focus the Clavus terminal UI",
-      "mac_mods": ["cmd", "alt"],
+      "mac_mods": ["ctrl", "alt"],
       "mac_key": "T",
-      "win_mods": ["win", "alt"],
+      "win_mods": ["ctrl", "alt"],
       "win_key": "T",
       "action": "toggle_tui",
       "params": {}
@@ -96,9 +96,9 @@
       "id": "switch_project",
       "name": "Switch Project",
       "description": "Pick a different project to work on",
-      "mac_mods": ["cmd", "alt"],
+      "mac_mods": ["ctrl", "alt"],
       "mac_key": "P",
-      "win_mods": ["win", "alt"],
+      "win_mods": ["ctrl", "alt"],
       "win_key": "P",
       "action": "switch_project",
       "params": {}
@@ -106,10 +106,10 @@
     {
       "id": "current_position",
       "name": "Where Am I?",
-      "description": "Get Ableton's current playhead position and show recent cues near it",
-      "mac_mods": ["cmd", "alt"],
+      "description": "See recent cues near current position (playhead tracking coming soon)",
+      "mac_mods": ["ctrl", "alt"],
       "mac_key": "W",
-      "win_mods": ["win", "alt"],
+      "win_mods": ["ctrl", "alt"],
       "win_key": "W",
       "action": "current_position",
       "params": {}
