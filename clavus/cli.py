@@ -2,13 +2,21 @@
 Clavus CLI — the primary user interface.
 
 Commands:
-  clavus init [path]          Initialize a new clavus project
-  clavus snapshot "message"   Tag current state of the .als file
-  clavus log                  Show snapshot history
+  clavus init [path]          Initialize + git init
+  clavus snapshot "message"   Snapshot + git commit .als
+  clavus log                  Show clavus + git history
+  clavus log --graph          Show branch topology
+  clavus branch               List / create branches (clavus + git)
+  clavus checkout <name>      Switch branches (clavus + git)
+  clavus merge <branch>       Merge branches (clavus + git)
   clavus diff [hash]          Show what changed in a snapshot
   clavus status               Show current project state
   clavus cue "text" @time     Add a timeline-anchored comment
   clavus cues                 List all pending cues
+  clavus remote               Manage remotes
+  clavus push                 Push to remotes + git push
+  clavus pull                 Pull from remotes + git pull
+  clavus sync                 Start auto-sync daemon
 """
 
 from __future__ import annotations
@@ -31,6 +39,13 @@ from clavus.cues import (
 )
 from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot
 from clavus.watch import watch as cmd_watch_daemon
+from clavus.sync import (
+    load_remotes, save_remotes, Remote, push_to_remote, pull_from_remote, SyncDaemon,
+)
+from clavus.git_integration import (
+    git_init, git_commit, git_branch, git_checkout, git_merge,
+    git_push, git_pull, git_log, is_git_repo,
+)
 
 # Optional web server
 try:
@@ -77,6 +92,15 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     # Save to index
     store.set_index(clavus_proj)
+
+    # Also init git if not already a repo
+    git_result = git_init(als_path.parent)
+    if git_result == "git repo initialized":
+        # Initial git commit for the .als
+        git_commit(als_path, "Initial import")
+        print(f"   📦 Git: initialized + initial commit")
+    elif git_result == "already a git repo":
+        print(f"   📦 Git: already a repo")
 
     print(f"📁 Initialized Clavus project '{clavus_proj.name}'")
     print(f"   .als: {als_path}")
@@ -140,6 +164,12 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
         print(f"📸 Snapshot: {snap.short_hash()} — '{snap.message}'")
         print(f"   {project.track_count} tracks @ {project.bpm}bpm (initial state)")
 
+    # Commit .als to git alongside the clavus snapshot
+    if is_git_repo(als_path.parent):
+        git_hash = git_commit(als_path, snap.message, author="clavus")
+        if git_hash and git_hash != "":
+            print(f"   📦 Git: {git_hash}")
+
     print(f"   📋 Run 'clavus log' to see history.")
 
 
@@ -153,35 +183,122 @@ def cmd_log(args: argparse.Namespace) -> None:
         print("📋 No snapshots yet. Run 'clavus snapshot' to create one.")
         return
 
-    print(f"📋 Snapshot history for '{proj.name}'")
+    # Collect all branch refs for graph display
+    branch_refs: dict[str, str] = {"HEAD": current_hash}
+    if store.refs_dir.exists():
+        for ref_file in store.refs_dir.glob("heads/*"):
+            branch_refs[ref_file.name] = ref_file.read_text().strip()
+
+    print(f"📋 Snapshot history for '{proj.branch}'")
     print()
 
-    while current_hash and count < (args.limit or 20):
-        snap = store.load_snapshot(current_hash)
-        if not snap:
-            break
+    # Build a set of all snapshots for the graph
+    all_snaps: dict[str, Snapshot] = {}
+    def collect(h: str):
+        while h and h not in all_snaps:
+            snap = store.load_snapshot(h)
+            if snap:
+                all_snaps[h] = snap
+                h = snap.parent if snap.parent else ""
+            else:
+                break
+    for h in branch_refs.values():
+        collect(h)
 
-        is_head = "➡ " if current_hash == store.read_ref("HEAD") else "  "
-        time_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(snap.timestamp))
+    # Show graph or linear history
+    if args.graph:
+        # Build a simple graph with branches
+        sorted_hashes = sorted(all_snaps.keys(),
+                              key=lambda h: all_snaps[h].timestamp if h in all_snaps else 0,
+                              reverse=True)
 
-        tags = ""
-        if snap.tags:
-            tags = f" [{', '.join(snap.tags[:3])}]"
+        # Which branches point to each snapshot
+        hash_branches: dict[str, list[str]] = {}
+        for bname, bh in branch_refs.items():
+            h = bh
+            while h:
+                if h not in hash_branches:
+                    hash_branches[h] = []
+                if bname not in hash_branches[h]:
+                    hash_branches[h].append(bname)
+                snap = all_snaps.get(h)
+                h = snap.parent if snap else ""
 
-        print(f"  {is_head}{snap.short_hash()}  {time_str}")
-        if args.verbose:
-            print(f"     Tracks: {snap.track_count}  BPM: {snap.bpm}")
-        print(f"     {snap.message}{tags}")
+        for i, h in enumerate(sorted_hashes):
+            if count >= (args.limit or 30):
+                break
+            snap = all_snaps.get(h)
+            if not snap:
+                continue
+            count += 1
 
-        current_hash = snap.parent
-        count += 1
+            # Graph lines
+            graph = "|"
+            if i > 0:
+                prev = sorted_hashes[i-1]
+                if prev in all_snaps and all_snaps[prev].parent != h:
+                    graph = "\\"
 
-        if count < (args.limit or 20) and current_hash:
+            time_str = time.strftime("%m/%d %H:%M", time.localtime(snap.timestamp))
+
+            # Show branch labels
+            labels = hash_branches.get(h, [])
+            label_str = ""
+            for lb in labels:
+                if lb in ("HEAD", proj.branch):
+                    label_str += f" *{lb}*"
+                else:
+                    label_str += f" {lb}"
+
+            print(f"  {graph} {snap.short_hash()}  {time_str}{label_str}")
+            if args.verbose:
+                print(f"  |    Tracks: {snap.track_count}  BPM: {snap.bpm}")
+            print(f"  |    {snap.message[:70]}")
+
+        if count == 0:
+            print("  (no snapshots to show)")
+    else:
+        # Linear history (original behavior)
+        while current_hash and count < (args.limit or 20):
+            snap = store.load_snapshot(current_hash)
+            if not snap:
+                break
+
+            is_head = "➡ " if current_hash == store.read_ref("HEAD") else "  "
+            time_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(snap.timestamp))
+
+            tags = ""
+            if snap.tags:
+                tags = f" [{', '.join(snap.tags[:3])}]"
+
+            print(f"  {is_head}{snap.short_hash()}  {time_str}")
+            if args.verbose:
+                print(f"     Tracks: {snap.track_count}  BPM: {snap.bpm}")
+            print(f"     {snap.message}{tags}")
+
+            current_hash = snap.parent
+            count += 1
+
+            if count < (args.limit or 20) and current_hash:
+                print()
+
+        if current_hash and count >= (args.limit or 20):
             print()
+            print(f"  ... and more. Use --limit to show more.")
 
-    if current_hash and count >= (args.limit or 20):
-        print()
-        print(f"  ... and more. Use --limit to show more.")
+    # Show recent git commits alongside
+    try:
+        store_obj, proj_obj = get_store_and_project()
+        als_path = Path(proj_obj.root_als)
+        if is_git_repo(als_path.parent):
+            entries = git_log(count=5, cwd=als_path.parent)
+            if entries:
+                print()
+                print(f"📦 Recent git commits for '{als_path.parent.name}':")
+                for e in entries:
+                    print(f"  {e['hash']}  {e['date']} {e['time']}  {e['message'][:60]}")
+    except Exception:
+        pass
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
@@ -373,6 +490,329 @@ def cmd_cues(args: argparse.Namespace) -> None:
     print(format_cue_list(all_cues, verbose=args.verbose))
 
 
+def cmd_branch(args: argparse.Namespace) -> None:
+    """List or create branches."""
+    store, proj = get_store_and_project()
+
+    if args.delete:
+        # Delete a branch
+        branch_ref = f"heads/{args.delete}"
+        existing = store.read_ref(branch_ref)
+        if not existing:
+            print(f"❌ Branch '{args.delete}' not found.")
+            return
+        if args.delete == proj.branch:
+            print(f"❌ Cannot delete the current branch '{args.delete}'.")
+            return
+        store.delete_ref(branch_ref)
+        print(f"🗑 Deleted branch '{args.delete}'")
+        return
+
+    if args.list or not args.name:
+        # List all branches
+        branches = []
+        if store.refs_dir.exists():
+            for ref_file in store.refs_dir.glob("heads/*"):
+                branches.append(ref_file.name)
+        if not branches:
+            branches = ["main"]
+        print(f"🌿 Branches for '{proj.name}'")
+        print()
+        for b in sorted(branches):
+            prefix = "* " if b == proj.branch else "  "
+            snap = store.read_ref(f"heads/{b}")
+            snap_str = f" ({snap[:8]})" if snap else ""
+            print(f"  {prefix}{b}{snap_str}")
+        return
+
+    # Create a new branch at current HEAD
+    branch_ref = f"heads/{args.name}"
+    head = store.read_ref("HEAD")
+    if not head:
+        print(f"❌ No snapshots yet. Create one first with 'clavus snapshot'.")
+        return
+
+    # Check if branch already exists
+    existing = store.read_ref(branch_ref)
+    if existing:
+        print(f"⚠️  Branch '{args.name}' already exists (at {existing[:8]})")
+        return
+
+    store.update_ref(branch_ref, head)
+
+    # Also create git branch
+    als_path = Path(proj.root_als)
+    if is_git_repo(als_path.parent):
+        git_branch("create", args.name, cwd=als_path.parent)
+
+    print(f"🌿 Created branch '{args.name}' at {head[:8]}")
+
+
+def cmd_checkout(args: argparse.Namespace) -> None:
+    """Switch branches."""
+    store, proj = get_store_and_project()
+
+    if args.b:
+        # Create and switch
+        head = store.read_ref("HEAD")
+        if not head:
+            print(f"❌ No snapshots yet.")
+            return
+        store.update_ref(f"heads/{args.name}", head)
+
+    branch_ref = f"heads/{args.name}"
+    branch_head = store.read_ref(branch_ref)
+    if not branch_head:
+        print(f"❌ Branch '{args.name}' not found.")
+        print(f"   Available: {[f.stem for f in store.refs_dir.glob('heads/*')]}")
+        return
+
+    # Update project to point to new branch
+    proj.branch = args.name
+    proj.head = branch_head
+    store.update_ref("HEAD", branch_head)
+    store.set_index(proj)
+
+    # Also switch git branch
+    als_path = Path(proj.root_als)
+    if is_git_repo(als_path.parent):
+        git_checkout(args.name, cwd=als_path.parent)
+
+    snap = store.load_snapshot(branch_head)
+    msg = f" — '{snap.message}'" if snap else ""
+    print(f"✅ Switched to branch '{args.name}' at {branch_head[:8]}{msg}")
+
+
+def cmd_merge(args: argparse.Namespace) -> None:
+    """Merge another branch into the current branch."""
+    store, proj = get_store_and_project()
+
+    # Get current HEAD
+    current_head = store.read_ref("HEAD")
+    if not current_head:
+        print(f"❌ No snapshots on current branch.")
+        return
+
+    # Get the branch to merge
+    merge_ref = f"heads/{args.branch}"
+    merge_head = store.read_ref(merge_ref)
+    if not merge_head:
+        print(f"❌ Branch '{args.branch}' not found.")
+        return
+
+    if merge_head == current_head:
+        print(f"✅ Already up to date — branches are at the same snapshot.")
+        return
+
+    current_snap = store.load_snapshot(current_head)
+    merge_snap = store.load_snapshot(merge_head)
+
+    # Walk back to find merge base
+    def ancestors(hash_str: str) -> list[str]:
+        chain = []
+        while hash_str:
+            chain.append(hash_str)
+            snap = store.load_snapshot(hash_str)
+            hash_str = snap.parent if snap else None
+        return chain
+
+    current_ancestors = ancestors(current_head)
+    merge_ancestors = ancestors(merge_head)
+
+    # Find merge base (first common ancestor)
+    merge_base = None
+    for ca in current_ancestors:
+        if ca in merge_ancestors:
+            merge_base = ca
+            break
+
+    if merge_base is None:
+        print(f"⚠️  No common ancestor found. Branches have diverged completely.")
+        return
+
+    if merge_base == merge_head:
+        # Fast-forward: merge_branch is ancestor of current
+        print(f"✅ Already up to date — '{args.branch}' is behind current branch.")
+        return
+
+    if merge_base == current_head:
+        # Fast-forward: current is ancestor of merge_branch
+        if not args.no_ff:
+            # Fast-forward: just move HEAD forward
+            proj.head = merge_head
+            store.update_ref("HEAD", merge_head)
+            store.set_index(proj)
+            print(f"⏩ Fast-forward merged '{args.branch}' into '{proj.branch}'")
+            print(f"   {current_head[:8]}..{merge_head[:8]}")
+            return
+
+    # Also merge in git if we're in a repo
+    als_path = Path(proj.root_als)
+    if is_git_repo(als_path.parent):
+        git_merge(args.branch, cwd=als_path.parent)
+
+    # Create a merge commit
+
+    # Parse the current .als for the merge snapshot
+    als_path = Path(proj.root_als)
+    project = None
+    if als_path.exists():
+        project = parse_als(als_path)
+
+    if project is None:
+        print(f"❌ Could not parse .als file: {proj.root_als}")
+        return
+
+    # Save snapshot with TWO parents
+    snap = store.save_snapshot(
+        project,
+        message=merge_message,
+        parent=current_head,
+        tags=["merge"],
+    )
+
+    # Store the second parent in a sidecar file
+    meta_path = store.objects_dir / snap.hash[:2] / f"{snap.hash}.meta"
+    if meta_path.exists():
+        import json
+        data = json.loads(meta_path.read_text())
+        data["parent2"] = merge_head
+        meta_path.write_text(json.dumps(data, indent=2))
+
+    # Update refs
+    proj.head = snap.hash
+    store.update_ref("HEAD", snap.hash)
+    store.update_ref(f"heads/{proj.branch}", snap.hash)
+    store.set_index(proj)
+
+    base_msg = f" ({merge_base[:8]})" if merge_base else ""
+    print(f"🔀 Merged '{args.branch}' into '{proj.branch}'")
+    print(f"   Merge commit: {snap.short_hash()}")
+    print(f"   Base{base_msg} | Parents: {current_head[:8]} + {merge_head[:8]}")
+
+
+def cmd_remote(args: argparse.Namespace) -> None:
+    """Manage remote clavus servers."""
+    store, proj = get_store_and_project()
+    remotes = load_remotes(store)
+
+    name = args.add or (args.name if args.action == "add" else "")
+    remove_name = args.remove or (args.name if args.action == "remove" else "")
+
+    if name:
+        # Add a remote
+        for r in remotes:
+            if r.name == name:
+                print(f"⚠️  Remote '{name}' already exists")
+                return
+        url = args.url or f"http://{name}.local:7890"
+        remotes.append(Remote(name=name, url=url))
+        save_remotes(store, remotes)
+        print(f"🌐 Added remote '{name}' → {url}")
+        return
+
+    if remove_name:
+        remotes = [r for r in remotes if r.name != remove_name]
+        save_remotes(store, remotes)
+        print(f"🗑 Removed remote '{remove_name}'")
+        return
+
+    # List remotes
+    if not remotes:
+        print(f"📡 No remotes configured.")
+        print(f"   Use 'clavus remote add <name> <url>' to add one.")
+        return
+
+    print(f"📡 Remotes for '{proj.name}'")
+    print()
+    for r in remotes:
+        last_sync = time.strftime("%m/%d %H:%M", time.localtime(r.last_sync)) if r.last_sync else "never"
+        print(f"  {r.name:<20} {r.url}")
+        print(f"  {'':<20} last sync: {last_sync}")
+        print()
+
+
+def cmd_push(args: argparse.Namespace) -> None:
+    """Push cues and snapshots to all remotes."""
+    store, proj = get_store_and_project()
+    remotes = load_remotes(store)
+
+    if not remotes:
+        print(f"❌ No remotes configured.")
+        print(f"   Use 'clavus remote add <name> <url>' first.")
+        return
+
+    # Also git push if we have a remote configured
+    als_path = Path(proj.root_als)
+    if is_git_repo(als_path.parent):
+        git_result = git_push(cwd=als_path.parent)
+        if git_result == "ok":
+            print(f"   📦 Git: pushed")
+        elif "fatal" not in git_result.lower():
+            print(f"   📦 Git: {git_result}")
+
+    for remote in remotes:
+        print(f"📤 Pushing to '{remote.name}' ({remote.url})...")
+        result = push_to_remote(store, proj, remote)
+        if result["error"]:
+            print(f"  ❌ {result['error']}")
+        else:
+            print(f"  ✅ {result['cues']} cues, {result['snapshots']} snapshots")
+        print()
+
+
+def cmd_pull(args: argparse.Namespace) -> None:
+    """Pull cues and snapshots from all remotes."""
+    store, proj = get_store_and_project()
+    remotes = load_remotes(store)
+
+    if not remotes:
+        print(f"❌ No remotes configured.")
+        return
+
+    # Also git pull if we have a remote
+    als_path = Path(proj.root_als)
+    if is_git_repo(als_path.parent):
+        git_result = git_pull(cwd=als_path.parent)
+        if git_result == "ok":
+            print(f"   📦 Git: pulled")
+        elif "fatal" not in git_result.lower():
+            print(f"   📦 Git: {git_result}")
+
+    for remote in remotes:
+        print(f"📥 Pulling from '{remote.name}' ({remote.url})...")
+        result = pull_from_remote(store, proj, remote)
+        if result["error"]:
+            print(f"  ❌ {result['error']}")
+        else:
+            print(f"  ✅ {result['cues']} cues, {result['snapshots']} snapshots")
+        print()
+
+
+def cmd_sync(args: argparse.Namespace) -> None:
+    """Start the auto-sync daemon."""
+    store, proj = get_store_and_project()
+    remotes = load_remotes(store)
+
+    if not remotes:
+        print(f"❌ No remotes configured.")
+        print(f"   Use 'clavus remote add <name> <url>' first.")
+        print(f"   Then 'clavus push' to sync manually, or 'clavus sync' for auto.")
+        return
+
+    daemon = SyncDaemon(store, proj, interval=args.interval)
+    daemon.start()
+
+    print()
+    print(f"  Press Ctrl+C to stop.")
+    print()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        daemon.stop()
+
+
 def cmd_cue_render(args: argparse.Namespace) -> None:
     """Export unresolved cues as Ableton markers — either to file or injected into the .als."""
     store, proj = get_store_and_project()
@@ -452,6 +892,38 @@ def main():
     p_cues.add_argument("--author", "-a", default="", help="Filter by author")
     p_cues.add_argument("--verbose", "-v", action="store_true", help="Show replies and resolved cues")
 
+    # ── Remote / Push / Pull / Sync ──
+    p_remote = subparsers.add_parser("remote", help="Manage remote clavus servers")
+    p_remote.add_argument("action", nargs="?", choices=["list", "add", "remove"], default="list",
+                         help="Action: list, add, or remove")
+    p_remote.add_argument("name", nargs="?", default="", help="Remote name")
+    p_remote.add_argument("url", nargs="?", default="", help="Remote URL")
+    p_remote.add_argument("--add", default="", help=argparse.SUPPRESS)
+    p_remote.add_argument("--remove", default="", help=argparse.SUPPRESS)
+
+    p_push = subparsers.add_parser("push", help="Push to all remotes")
+
+    p_pull = subparsers.add_parser("pull", help="Pull from all remotes")
+
+    p_sync = subparsers.add_parser("sync", help="Start auto-sync daemon")
+    p_sync.add_argument("--interval", "-i", type=int, default=30,
+                        help="Poll interval in seconds (default: 30)")
+
+    # ── Branch / Checkout / Merge ──
+    p_branch = subparsers.add_parser("branch", help="List or create branches")
+    p_branch.add_argument("name", nargs="?", default=None, help="Branch name to create")
+    p_branch.add_argument("--delete", "-d", default="", help="Delete a branch")
+    p_branch.add_argument("--list", "-l", action="store_true", help="List all branches")
+
+    p_checkout = subparsers.add_parser("checkout", help="Switch branches")
+    p_checkout.add_argument("name", help="Branch to switch to")
+    p_checkout.add_argument("-b", action="store_true", help="Create branch then switch")
+
+    p_merge = subparsers.add_parser("merge", help="Merge another branch into current")
+    p_merge.add_argument("branch", help="Branch name to merge from")
+    p_merge.add_argument("--message", "-m", default="", help="Merge commit message")
+    p_merge.add_argument("--no-ff", action="store_true", help="Create a merge commit even if fast-forward")
+
     p_cue_render = subparsers.add_parser("cue-render", help="Export cues as Ableton markers")
     p_cue_render.add_argument("--output", "-o", default="", help="Output file path")
     p_cue_render.add_argument("--inject", action="store_true",
@@ -494,6 +966,13 @@ def main():
         "watch": cmd_watch,
         "serve": cmd_serve,
         "tui": cmd_tui,
+        "branch": cmd_branch,
+        "checkout": cmd_checkout,
+        "remote": cmd_remote,
+        "push": cmd_push,
+        "pull": cmd_pull,
+        "sync": cmd_sync,
+        "merge": cmd_merge,
         "cue": cmd_cue,
         "cue-reply": cmd_cue_reply,
         "cue-resolve": cmd_cue_resolve,

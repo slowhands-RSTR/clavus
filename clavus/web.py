@@ -17,7 +17,7 @@ from typing import Optional
 
 # ─── FastAPI ─────────────────────────────────────────────────────────────
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -27,7 +27,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from clavus.helpers import get_store_and_project, find_als_file
 from clavus.cues import CueStore, CueFilter, format_cue_list, Cue, CueReply as CueReplyData
-from clavus.store import BlobStore, ClavusProject, diff_projects, DEFAULT_CLAVUS_DIR
+from clavus.store import BlobStore, ClavusProject, Snapshot, diff_projects, DEFAULT_CLAVUS_DIR
 from clavus import parse_als
 
 # ─── Helpers ────────────────────────────────────────────────────────────
@@ -46,6 +46,81 @@ def _parse_with_timeout(als_path: Path, timeout: float = 5.0):
 # ─── App setup ──────────────────────────────────────────────────────────
 
 app = FastAPI(title="Clavus Web", version="0.2.0")
+
+# ─── WebSocket Manager ─────────────────────────────────────────────────
+
+class ConnectionManager:
+    """Manages websocket connections per project for real-time sync."""
+
+    def __init__(self):
+        self._connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, project: str):
+        await websocket.accept()
+        if project not in self._connections:
+            self._connections[project] = []
+        self._connections[project].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, project: str):
+        if project in self._connections:
+            self._connections[project] = [
+                w for w in self._connections[project] if w != websocket
+            ]
+
+    async def broadcast(self, project: str, event: str, data: dict):
+        """Send an event to all connected peers for a project."""
+        if project not in self._connections:
+            return
+        message = {"event": event, "data": data, "timestamp": time.time()}
+        stale = []
+        for ws in self._connections[project]:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                stale.append(ws)
+        for ws in stale:
+            self.disconnect(ws, project)
+
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, project: str = ""):
+    """WebSocket endpoint for real-time sync between peers.
+
+    Query params:
+        project: Project name to scope the connection.
+
+    Messages received:
+        {"event": "ping"} — keep alive (server responds with "pong")
+
+    Messages broadcasted:
+        {"event": "cue_new", "data": {...}}
+        {"event": "cue_reply", "data": {...}}
+        {"event": "cue_update", "data": {...}}
+    """
+    if not project:
+        await websocket.close(code=4000)
+        return
+
+    await manager.connect(websocket, project)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data.get("event") == "ping":
+                await websocket.send_json({"event": "pong"})
+    except (WebSocketDisconnect, Exception):
+        manager.disconnect(websocket, project)
+
+
+async def broadcast_cue_event(project: str, event: str, cue_data: dict):
+    """Broadcast a cue change to all connected peers.
+
+    Call this after any cue mutation (create, reply, update)
+    so remotes get real-time updates.
+    """
+    await manager.broadcast(project, event, cue_data)
 
 # HTML template path
 HERE = Path(__file__).resolve().parent
@@ -236,6 +311,15 @@ async def create_cue(cue: CueCreate):
         snapshot_hash=head or "",
         track_name=cue.track,
     )
+
+    # Broadcast to connected peers
+    await broadcast_cue_event(proj.name, "cue_new", {
+        "id": new_cue.id, "text": new_cue.text,
+        "position": new_cue.position, "author": new_cue.author,
+        "status": new_cue.status, "timestamp": new_cue.timestamp,
+        "track_name": new_cue.track_name,
+    })
+
     return {
         "id": new_cue.id,
         "text": new_cue.text,
@@ -258,6 +342,13 @@ async def reply_to_cue(cue_id: str, reply: CueReply,
     result = cues_store.reply(cue_id, reply.text, snapshot_hash=head or "")
     if not result:
         raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    # Broadcast to connected peers
+    await broadcast_cue_event(proj.name, "cue_reply", {
+        "cue_id": cue_id, "reply": reply.text,
+        "timestamp": time.time(),
+    })
+
     return {"status": "ok", "replies": len(result.replies) if result else 0}
 
 
@@ -273,6 +364,12 @@ async def resolve_cue(cue_id: str, name: str = Query("", description="Project na
     result = cues_store.resolve(cue_id)
     if not result:
         raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    # Broadcast to connected peers
+    await broadcast_cue_event(proj.name, "cue_update", {
+        "cue_id": cue_id, "status": "resolved",
+    })
+
     return {"status": "resolved"}
 
 
@@ -288,6 +385,12 @@ async def skip_cue(cue_id: str, name: str = Query("", description="Project name"
     result = cues_store.skip(cue_id)
     if not result:
         raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    # Broadcast to connected peers
+    await broadcast_cue_event(proj.name, "cue_update", {
+        "cue_id": cue_id, "status": "skipped",
+    })
+
     return {"status": "skipped"}
 
 
@@ -374,6 +477,56 @@ async def sync_push(body: SyncPushBody, name: str = Query(..., description="Proj
     return {"status": "ok", "merged": merged, "skipped": skipped}
 
 
+class SyncPushSnapshotsBody(BaseModel):
+    snapshots: list[dict] = []
+
+
+@app.post("/api/sync/push-snapshots")
+async def sync_push_snapshots(body: SyncPushSnapshotsBody,
+                               name: str = Query(..., description="Project name")):
+    """Push (import) snapshots from a remote peer."""
+    try:
+        store, proj = _get_project(name)
+    except HTTPException:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    imported = 0
+    for s in body.snapshots:
+        snap_hash = s.get("full_hash", s.get("hash", ""))
+        if not snap_hash:
+            continue
+
+        # Store snapshot metadata
+        meta_dir = store.objects_dir / snap_hash[:2]
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta_path = meta_dir / f"{snap_hash}.meta"
+
+        # Skip if we already have this snapshot
+        if meta_path.exists():
+            continue
+
+        from dataclasses import asdict
+        snap = Snapshot(
+            hash=snap_hash,
+            timestamp=s.get("timestamp", 0.0),
+            message=s.get("message", ""),
+            parent=s.get("parent", None),
+            project_path=s.get("project_path", ""),
+            track_count=s.get("track_count", 0),
+            bpm=s.get("bpm", 120.0),
+            tags=s.get("tags", []),
+        )
+        meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
+        imported += 1
+
+    # Update HEAD if we got new snapshots and remote has a later HEAD
+    if imported > 0:
+        proj.head = store.read_ref("HEAD") or proj.head
+        store.set_index(proj)
+
+    return {"status": "ok", "imported": imported}
+
+
 # ─── Web UI: Main page ──────────────────────────────────────────────────
 
 def _read_template(name: str) -> str:
@@ -442,6 +595,7 @@ def _generate_index_html() -> str:
       <button id="refreshBtn" onclick="loadAll()" title="Refresh">⟳</button>
     </div>
   </header>
+  <div class="tailscale-url" id="tailscaleUrl"></div>
 
   <main>
     <!-- LEFT: Project Pane -->
@@ -821,11 +975,44 @@ footer a:hover { color: var(--accent); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
 
+/* ── Tailscale URL ── */
+.tailscale-url {
+  text-align: center;
+  padding: 4px 12px;
+  font-size: 9px;
+  color: var(--fg-muted);
+  background: var(--bg-sec);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font);
+}
+.tailscale-url code {
+  color: var(--accent-dim);
+  font-size: 10px;
+}
+
 /* ── Responsive ── */
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
   .pane-project { max-height: 200px; }
   .pane-history { display: none; }
+  header { padding: 6px 10px; flex-wrap: wrap; gap: 4px; }
+  .logo-text { font-size: 12px; }
+  .project-switcher { max-width: 140px; font-size: 11px; }
+  .pane-header h2 { font-size: 10px; }
+  .cue-text-input { font-size: 16px; } /* prevent iOS zoom */
+  .cue-composer { flex-wrap: wrap; }
+  .cue-position-input { width: 60px; }
+  .cue-send-btn { padding: 8px 16px; font-size: 14px; }
+  .cue-action-btn { padding: 6px 12px; font-size: 12px; }
+  footer { font-size: 9px; padding: 3px 10px; flex-wrap: wrap; gap: 4px; }
+}
+
+@media (max-width: 480px) {
+  .pane.project { max-height: 150px; }
+  .project-info { grid-template-columns: 1fr; }
+  .project-switcher { max-width: 100px; }
+  .pane-filters { gap: 1px; }
+  .filter-btn { padding: 4px 6px; font-size: 9px; }
 }
 """
 
@@ -1040,6 +1227,13 @@ function switchProject(name) {
   loadAll();
 }
 
+function showServerInfo() {
+  const url = window.location.href;
+  const ts = document.getElementById('tailscaleUrl');
+  const info = ts && ts.textContent ? ts.textContent : 'Local only';
+  alert('Clavus Web Companion\nURL: ' + url + '\n' + info);
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1064,15 +1258,61 @@ def _write_template(name: str, content: str) -> None:
     _HTML_CACHE[name] = content
 
 
+def _get_tailscale_url(port: int = 7890) -> str:
+    """Try to detect the Tailscale IP for sharing."""
+    import socket
+    try:
+        # Tailscale uses 100.x.y.z range
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            if ip.startswith("100."):
+                return f"http://{ip}:{port}"
+    except Exception:
+        pass
+    try:
+        # Try resolving the Tailscale hostname directly
+        for info in socket.getaddrinfo(
+            f"{socket.gethostname()}.tail?????.ts.net", 7890,
+            socket.AF_INET, socket.SOCK_STREAM
+        ):
+            pass
+    except Exception:
+        pass
+    return ""
+
+
 def run_web_server(host: str = "0.0.0.0", port: int = 7890) -> None:
     """Run the web server for the Clavus Web Companion."""
     # Templates must be generated before import since they're cached at module level
-    _generate_index_html()
+    index_html = _generate_index_html()
     _generate_app_css()
     _generate_app_js()
 
+    tailscale_url = _get_tailscale_url(port)
+
+    # Inject Tailscale URL into the HTML
+    if tailscale_url:
+        index_html = index_html.replace(
+            '<div class="tailscale-url" id="tailscaleUrl"></div>',
+            f'<div class="tailscale-url" id="tailscaleUrl">📡 Tailscale: <code>{tailscale_url}</code></div>'
+        )
+        path = _HTML_CACHE.get("index.html") or HTML_DIR / "index.html"
+        if isinstance(path, str):
+            path = HTML_DIR / "index.html"
+        path.write_text(index_html)
+        _HTML_CACHE["index.html"] = index_html
+
     import uvicorn
-    print(f"🌐 Clavus Web Companion running at http://{host}:{port}")
-    print(f"   Share via Tailscale or Cloudflare tunnel for remote access.")
-    print(f"   Press Ctrl+C to stop.")
+    print()
+    print(f"  🌐  Clavus Web Companion")
+    print(f"  {'─' * 40}")
+    print(f"  Local:   http://localhost:{port}")
+    if tailscale_url:
+        print(f"  Remote:  {tailscale_url}")
+        print(f"  (via Tailscale — share this link)")
+    else:
+        print(f"  Share via Tailscale or Cloudflare tunnel.")
+    print(f"  {'─' * 40}")
+    print()
+    print(f"  Press Ctrl+C to stop.")
+    print()
     uvicorn.run(app, host=host, port=port, log_level="warning")

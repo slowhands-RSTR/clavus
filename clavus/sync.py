@@ -1,0 +1,426 @@
+"""
+Clavus — peer-to-peer sync engine.
+
+Self-contained, no cloud, no subscriptions.
+Machines sync directly over LAN or Tailscale.
+
+Usage:
+  clavus remote add friend http://friend.local:7890
+  clavus push                    # push to all remotes
+  clavus pull                    # pull from all remotes
+  clavus sync                    # daemon: auto-push on changes
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import threading
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+import httpx
+
+from clavus.store import (
+    BlobStore, ClavusProject, Snapshot, DEFAULT_CLAVUS_DIR,
+)
+from clavus.cues import CueStore, Cue, CueReply as CueReplyData, CueFilter
+
+
+# ─── Remote Config ────────────────────────────────────────────────────
+
+REMOTES_FILE = "remotes.json"
+
+
+@dataclass
+class Remote:
+    """A remote clavus server."""
+    name: str
+    url: str  # e.g., "http://friend.local:7890"
+    last_sync: float = 0.0
+
+
+def load_remotes(store: BlobStore) -> list[Remote]:
+    """Load remote configurations."""
+    path = store.root / REMOTES_FILE
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+        return [Remote(**r) for r in data.get("remotes", [])]
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def save_remotes(store: BlobStore, remotes: list[Remote]) -> None:
+    """Save remote configurations."""
+    path = store.root / REMOTES_FILE
+    path.write_text(json.dumps(
+        {"remotes": [{"name": r.name, "url": r.url.rstrip("/"), "last_sync": r.last_sync}
+                     for r in remotes]},
+        indent=2,
+    ))
+
+
+# ─── Sync Client ──────────────────────────────────────────────────────
+
+class SyncClient:
+    """HTTP client for talking to remote clavus servers."""
+
+    def __init__(self, remote_url: str):
+        self.base_url = remote_url.rstrip("/")
+        self.client = httpx.Client(timeout=30.0)
+
+    def ping(self) -> bool:
+        try:
+            r = self.client.get(f"{self.base_url}/api/ping")
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def pull(self, project: str) -> Optional[dict]:
+        """Pull cues and snapshots from remote."""
+        try:
+            r = self.client.get(
+                f"{self.base_url}/api/sync/pull",
+                params={"name": project},
+                timeout=30,
+            )
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            pass
+        return None
+
+    def push_cues(self, project: str, cues: list[dict]) -> bool:
+        """Push cues to remote."""
+        try:
+            r = self.client.post(
+                f"{self.base_url}/api/sync/push",
+                params={"name": project},
+                json={"cues": cues},
+                timeout=30,
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def push_snapshots(self, project: str, snapshots: list[dict]) -> bool:
+        """Push snapshot metadata to remote."""
+        try:
+            r = self.client.post(
+                f"{self.base_url}/api/sync/push-snapshots",
+                params={"name": project},
+                json={"snapshots": snapshots},
+                timeout=60,
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def close(self):
+        self.client.close()
+
+
+# ─── Push / Pull Logic ───────────────────────────────────────────────
+
+def _cues_to_dicts(cues_store: CueStore) -> list[dict]:
+    """Serialize all cues for transport."""
+    all_cues = cues_store.list_cues(CueFilter())
+    return [{
+        "id": c.id, "position": c.position, "text": c.text,
+        "author": c.author, "status": c.status, "timestamp": c.timestamp,
+        "track_name": c.track_name, "snapshot_hash": c.snapshot_hash,
+        "replies": [
+            {"id": r.id, "text": r.text, "author": r.author,
+             "timestamp": r.timestamp, "snapshot_hash": r.snapshot_hash}
+            for r in (c.replies or [])
+        ],
+    } for c in all_cues]
+
+
+def _snapshots_to_dicts(store: BlobStore, proj: ClavusProject) -> list[dict]:
+    """Serialize snapshot history for transport."""
+    history = []
+    current = proj.head
+    while current:
+        snap = store.load_snapshot(current)
+        if not snap:
+            break
+        history.append({
+            "hash": snap.hash, "full_hash": snap.hash,
+            "timestamp": snap.timestamp, "message": snap.message,
+            "track_count": snap.track_count, "bpm": snap.bpm,
+            "project_path": snap.project_path,
+            "tags": snap.tags,
+            "parent": snap.parent,
+        })
+        current = snap.parent
+    return history
+
+
+def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> dict:
+    """Push all data to a remote. Returns summary."""
+    result = {"cues": 0, "snapshots": 0, "error": ""}
+    client = SyncClient(remote.url)
+
+    try:
+        if not client.ping():
+            result["error"] = f"Cannot reach {remote.url}"
+            return result
+
+        # Push cues
+        cues_store = CueStore(proj.name, store=store)
+        cues_data = _cues_to_dicts(cues_store)
+        if cues_data:
+            ok = client.push_cues(proj.name, cues_data)
+            result["cues"] = len(cues_data) if ok else 0
+            if not ok:
+                result["error"] = "Failed to push cues"
+
+        # Push snapshots
+        snap_data = _snapshots_to_dicts(store, proj)
+        if snap_data:
+            ok = client.push_snapshots(proj.name, snap_data)
+            result["snapshots"] = len(snap_data) if ok else 0
+            if not ok and not result["error"]:
+                result["error"] = "Failed to push snapshots"
+
+        remote.last_sync = time.time()
+        save_remotes(store, load_remotes(store))
+    finally:
+        client.close()
+
+    return result
+
+
+def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> dict:
+    """Pull all data from a remote. Returns summary."""
+    result = {"cues": 0, "snapshots": 0, "error": ""}
+    client = SyncClient(remote.url)
+
+    try:
+        if not client.ping():
+            result["error"] = f"Cannot reach {remote.url}"
+            return result
+
+        data = client.pull(proj.name)
+        if not data:
+            result["error"] = "Pull returned no data"
+            return result
+
+        cues_store = CueStore(proj.name, store=store)
+
+        # Import cues
+        for c in data.get("cues", []):
+            cue = Cue(
+                id=c["id"], position=c.get("position", "0.0.0"),
+                text=c.get("text", ""), author=c.get("author", ""),
+                status=c.get("status", "pending"),
+                timestamp=c.get("timestamp", 0.0),
+                track_name=c.get("track_name", ""),
+                snapshot_hash=c.get("snapshot_hash", ""),
+            )
+            cues_store.import_cue(cue)
+
+            # Import replies
+            for r in c.get("replies", []):
+                reply = CueReplyData(
+                    id=r.get("id", ""), text=r.get("text", ""),
+                    author=r.get("author", ""),
+                    timestamp=r.get("timestamp", 0.0),
+                    snapshot_hash=r.get("snapshot_hash", ""),
+                )
+                cues_store.import_reply(c["id"], reply)
+
+        result["cues"] = len(data.get("cues", []))
+
+        # Import snapshots
+        for s in data.get("snapshots", []):
+            snap = Snapshot(
+                hash=s.get("full_hash", s["hash"]),
+                timestamp=s.get("timestamp", 0.0),
+                message=s.get("message", ""),
+                parent=s.get("parent", None),
+                project_path=s.get("project_path", ""),
+                track_count=s.get("track_count", 0),
+                bpm=s.get("bpm", 120.0),
+                tags=s.get("tags", []),
+            )
+            # Store snapshot metadata
+            meta_dir = store.objects_dir / snap.hash[:2]
+            meta_dir.mkdir(parents=True, exist_ok=True)
+            meta_path = meta_dir / f"{snap.hash}.meta"
+            if not meta_path.exists():
+                from dataclasses import asdict
+                meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
+
+        result["snapshots"] = len(data.get("snapshots", []))
+
+        remote.last_sync = time.time()
+        save_remotes(store, load_remotes(store))
+    finally:
+        client.close()
+
+    return result
+
+
+# ─── WebSocket Sync Daemon ──────────────────────────────────────────
+
+def _apply_cue_event(store: BlobStore, proj: ClavusProject, event: str, data: dict):
+    """Apply a cue event received from websocket to local store."""
+    cues_store = CueStore(proj.name, store=store)
+
+    if event == "cue_new":
+        cue = Cue(
+            id=data.get("id", ""),
+            position=data.get("position", "0.0.0"),
+            text=data.get("text", ""),
+            author=data.get("author", "remote"),
+            status=data.get("status", "pending"),
+            timestamp=data.get("timestamp", 0.0),
+            track_name=data.get("track_name", ""),
+            snapshot_hash=data.get("snapshot_hash", ""),
+        )
+        cues_store.import_cue(cue)
+        print(f"  📥 Incoming cue: {cue.text[:40]} @ {cue.position}")
+
+    elif event == "cue_reply":
+        cue_id = data.get("cue_id", "")
+        reply_text = data.get("reply", "")
+        reply = CueReplyData(
+            id=f"ws_{int(time.time())}",
+            text=reply_text,
+            author="remote",
+            timestamp=data.get("timestamp", time.time()),
+        )
+        if cues_store.import_reply(cue_id, reply):
+            print(f"  📥 Incoming reply to {cue_id[:8]}: {reply_text[:40]}")
+
+    elif event == "cue_update":
+        cue_id = data.get("cue_id", "")
+        status = data.get("status", "")
+        if status == "resolved":
+            cues_store.resolve(cue_id)
+            print(f"  📥 Incoming resolve: {cue_id[:8]}")
+        elif status == "skipped":
+            cues_store.skip(cue_id)
+            print(f"  📥 Incoming skip: {cue_id[:8]}")
+
+
+class SyncDaemon:
+    """Background daemon that syncs changes to remotes in real-time.
+
+    Connects to each remote via websocket and listens for incoming events.
+    Also pushes local changes when they happen (via REST as fallback).
+    """
+
+    def __init__(self, store: BlobStore, proj: ClavusProject, interval: int = 30):
+        self.store = store
+        self.proj = proj
+        self.interval = interval
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._last_cue_count = 0
+        self._last_event_times: set[str] = set()
+
+    def start(self):
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        print(f"🔄 Sync daemon started")
+        print(f"   Project: '{self.proj.name}'")
+
+        remotes = load_remotes(self.store)
+        for r in remotes:
+            print(f"   Remote:  {r.name} ({r.url})")
+        if not remotes:
+            print(f"   No remotes configured — use 'clavus remote add'")
+
+    def stop(self):
+        self._running = False
+        print("🛑 Sync daemon stopped")
+
+    def _run(self):
+        while self._running:
+            remotes = load_remotes(self.store)
+            for remote in remotes:
+                if not self._running:
+                    break
+                try:
+                    self._listen_to_remote(remote)
+                except Exception as e:
+                    print(f"  ⚠️  Connection to '{remote.name}' lost: {e}")
+                    print(f"     Reconnecting in {self.interval}s...")
+            # Wait before reconnecting
+            for _ in range(self.interval):
+                if not self._running:
+                    return
+                time.sleep(1)
+
+    def _listen_to_remote(self, remote: Remote):
+        """Connect to a remote's websocket and listen for events."""
+        ws_url = remote.url.replace("http://", "ws://").replace("https://", "wss://")
+        ws_url = f"{ws_url}/ws?project={self.proj.name}"
+
+        import httpx
+
+        with httpx.Client() as client:
+            try:
+                # Initial sync: pull all cues
+                resp = client.get(
+                    f"{remote.url}/api/sync/pull",
+                    params={"name": self.proj.name},
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for c in data.get("cues", []):
+                        _apply_cue_event(self.store, self.proj, "cue_new", c)
+                    cue_count = len(data.get("cues", []))
+                    snap_count = len(data.get("snapshots", []))
+                    if cue_count or snap_count:
+                        print(f"  📥 Initial sync from '{remote.name}': {cue_count} cues, {snap_count} snapshots")
+            except Exception as e:
+                print(f"  ⚠️  Initial sync from '{remote.name}' failed: {e}")
+                return
+
+        # Now listen for real-time events via websocket
+        try:
+            import websockets.sync.client
+
+            print(f"  🔌 Listening to '{remote.name}' ({ws_url})...")
+            with websockets.sync.client.connect(ws_url) as ws:
+                # Push our current state to the remote
+                cues_store = CueStore(self.proj.name, store=self.store)
+                all_cues = cues_store.list_cues(CueFilter())
+                for cue in all_cues:
+                    ws.send(json.dumps({
+                        "event": "cue_new",
+                        "data": {
+                            "id": cue.id, "position": cue.position,
+                            "text": cue.text, "author": cue.author,
+                            "status": cue.status, "timestamp": cue.timestamp,
+                            "track_name": cue.track_name,
+                        }
+                    }))
+
+                # Listen loop
+                while self._running:
+                    message = ws.recv()
+                    data = json.loads(message)
+                    event = data.get("event")
+                    payload = data.get("data", {})
+
+                    if event == "ping":
+                        ws.send(json.dumps({"event": "pong"}))
+                    elif event == "pong":
+                        pass
+                    elif event in ("cue_new", "cue_reply", "cue_update"):
+                        _apply_cue_event(self.store, self.proj, event, payload)
+        except ImportError:
+            print(f"  ⚠️  websockets library not installed. Run: pip install websockets")
+        except Exception as e:
+            raise e
