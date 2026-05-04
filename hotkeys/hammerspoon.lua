@@ -2,7 +2,33 @@
 -- Inside Ableton, most primitives are sandboxed.
 -- These work great when Ableton is NOT the focused app.
 
-local CLAVUS_PORT = 7890
+-- Read config from ~/.config/clavus/config.json
+local CONFIG_PATH = os.getenv("HOME") .. "/.config/clavus/config.json"
+local function read_config()
+    local f = io.open(CONFIG_PATH, "r")
+    if not f then return nil end
+    local content = f:read("*a")
+    f:close()
+    return content
+end
+
+local function json_str(json, key)
+    if not json then return nil end
+    local pattern = '"' .. key .. '"%s*:%s*"([^"]*)"'
+    local _, _, val = json:find(pattern)
+    return val
+end
+
+local function json_num(json, key)
+    if not json then return nil end
+    local pattern = '"' .. key .. '"%s*:%s*(%d+)'
+    local _, _, val = json:find(pattern)
+    if val then return tonumber(val) end
+    return nil
+end
+
+local config_raw = read_config()
+local CLAVUS_PORT = json_num(config_raw, "port") or 7890
 local API = "http://127.0.0.1:" .. CLAVUS_PORT
 local CACHED_PROJECT = ""
 

@@ -22,6 +22,7 @@
 ; ─── Config ──────────────────────────────────────────────────────────
 CLAVUS_DIR := A_MyDocuments . "\Developer\clavus"
 BINDINGS_FILE := CLAVUS_DIR . "\hotkeys\bindings.json"
+CONFIG_FILE := A_AppData . "\clavus\config.json"
 SERVER_HOST := "127.0.0.1"
 SERVER_PORT := 7890
 TIMEOUT_MS := 3000
@@ -29,7 +30,23 @@ TIMEOUT_MS := 3000
 TraySetIcon("shell32.dll", 186)  ; musical note icon in system tray
 A_IconTip := "Clavus Hotkeys (Windows)"
 
-; ─── Load bindings.json ──────────────────────────────────────────────
+; ─── Load Clavus config ────────────────────────────────────────────
+if FileExist(CONFIG_FILE) {
+    try {
+        raw := FileRead(CONFIG_FILE)
+        parsed := JSON.Parse(raw)
+        if parsed.Has("port") and parsed["port"] != "" {
+            SERVER_PORT := parsed["port"]
+        }
+        if parsed.Has("host") and parsed["host"] != "" {
+            SERVER_HOST := parsed["host"]
+        }
+    } catch {
+        ; Fall through to defaults
+    }
+}
+
+; ─── Load bindings.json ────────────────────────────────────────────
 Bindings := Map()
 ServerConfig := Map()
 
