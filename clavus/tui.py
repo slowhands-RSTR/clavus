@@ -56,6 +56,8 @@ class Cue:
     timestamp: float = 0.0
     track_name: str = ""
     snapshot_hash: str = ""
+    assignee: str = ""
+    in_progress: bool = False
     replies: list = field(default_factory=list)
 
 @dataclass
@@ -167,7 +169,8 @@ class ClavusClient:
                 data = r.json()
                 cues = []
                 fields = {"id","position","text","author","status",
-                          "timestamp","track_name","snapshot_hash"}
+                          "timestamp","track_name","snapshot_hash",
+                          "assignee","in_progress"}
                 for c in data.get("cues", []):
                     cue = Cue(**{k: v for k, v in c.items() if k in fields})
                     cue.replies = [
@@ -292,6 +295,8 @@ class ClavusApp(App):
         Binding("c", "cue_new", "New cue"),
         Binding("s", "skip", "Skip"),
         Binding("R", "resolve", "Resolve"),
+        Binding("a", "assign", "Assign"),
+        Binding("S", "start", "Start/Stop"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
         Binding("j", "cursor_down", "Down", show=False),
@@ -617,6 +622,34 @@ class ClavusApp(App):
         self._status("skipped" if cue.status == "skipped" else "unskipped")
         self._save()
 
+    def action_assign(self):
+        cue = self._get_cue()
+        if not cue:
+            return
+        if cue.assignee:
+            cue.assignee = ""
+            cue.in_progress = False
+            self._status("unassigned")
+        else:
+            cue.assignee = self.author or os.environ.get("USER", "self")
+            cue.in_progress = False
+            self._status(f"assigned to {cue.assignee}")
+        self._render()
+        self._save()
+
+    def action_start(self):
+        cue = self._get_cue()
+        if not cue:
+            return
+        if cue.in_progress:
+            cue.in_progress = False
+            self._status("paused")
+        else:
+            cue.in_progress = True
+            self._status("in progress")
+        self._render()
+        self._save()
+
     @work(exclusive=True)
     async def action_pull(self):
         self._status("pulling...")
@@ -798,6 +831,8 @@ class ClavusApp(App):
                 f"[{C['accent']}]e[/] edit  "
                 f"[{C['accent']}]c[/] cue  "
                 f"[{C['accent']}]s[/] skip  "
+                f"[{C['accent']}]a[/] assign  "
+                f"[{C['accent']}]S[/] start  "
                 f"[{C['accent']}]p[/] pull  "
                 f"[{C['accent']}]P[/] push  "
                 f"[{C['accent']}]q[/] quit  "
@@ -837,10 +872,13 @@ class ClavusApp(App):
                 C["green"] if c.status == "resolved" else C["muted"])
             dot = "●" if c.status == "pending" else ("✓" if c.status == "resolved" else "–")
             rc = f" [{C['dim']}]{len(c.replies)}r[/]" if c.replies else ""
+            assignee_part = f" [{C['accent']}]@{c.assignee}[/]" if c.assignee else ""
+            in_prog = f" [{C['yellow']}]▶[/]" if c.in_progress else ""
             safe_text = c.text[:60].replace("[", "\\[").replace("]", "\\]")
             lines = [
                 f"  [{color}]{dot}[/] [dim]@{c.position}[/] "
                 f"[{C['fg']}]{safe_text}[/]"
+                f"{assignee_part}{in_prog}"
                 f" [{C['muted']}]{c.id[:8]}[/]{rc}"
             ]
             if c.replies:

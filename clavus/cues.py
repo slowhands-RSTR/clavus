@@ -27,6 +27,7 @@ import os
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+import sys
 from typing import Optional
 
 from clavus.store import BlobStore, DEFAULT_CLAVUS_DIR
@@ -56,10 +57,12 @@ class Cue:
     snapshot_hash: str = ""  # The snapshot this cue is attached to
     track_name: str = ""  # Optional: which track the cue is about
     replies: list[CueReply] = field(default_factory=list)
+    assignee: str = ""  # Who is responsible for addressing this cue
+    in_progress: bool = False  # Whether someone is actively working on this cue
 
     @property
     def is_open(self) -> bool:
-        return self.status == "pending"
+        return self.status == "pending" and not self.in_progress
 
     @property
     def thread_length(self) -> int:
@@ -84,6 +87,34 @@ class CueStore:
         self.store = store or BlobStore()
         self.cues_dir = self.store.root / "cues" / project_name
         self.cues_dir.mkdir(parents=True, exist_ok=True)
+        self._migrate_if_needed()
+
+    def _migrate_if_needed(self) -> None:
+        """Ensure cue files on disk have all fields from current schema.
+
+        Handles: assignee, in_progress. New fields with defaults
+        are safe for Cue(**data) even without migration, but this
+        keeps disk files consistent for sync and external tools.
+        """
+        migrated = 0
+        for f in sorted(self.cues_dir.glob("*.json")):
+            try:
+                raw = f.read_text()
+                data = json.loads(raw)
+                changed = False
+                if "assignee" not in data:
+                    data["assignee"] = ""
+                    changed = True
+                if "in_progress" not in data:
+                    data["in_progress"] = False
+                    changed = True
+                if changed:
+                    f.write_text(json.dumps(data, indent=2, default=str))
+                    migrated += 1
+            except (json.JSONDecodeError, OSError):
+                continue
+        if migrated:
+            print(f"  ↻ Migrated {migrated} cue file(s) to current schema", file=sys.stderr)
 
     # ── CRUD ──
 
@@ -174,6 +205,117 @@ class CueStore:
             ))
         self._save_cue(cue)
         return cue
+
+    def assign(self, cue_id: str, assignee_name: str) -> Optional[Cue]:
+        """Assign a cue to someone. Clears in_progress on reassign."""
+        cue = self.get_cue(cue_id)
+        if cue is None:
+            return None
+        cue.assignee = assignee_name
+        cue.in_progress = False  # resets in_progress on reassignment
+        cue.replies.append(CueReply(
+            id=f"assign_{int(time.time())}",
+            text=f"👤 Assigned to {assignee_name}" if assignee_name else "👤 Unassigned",
+            author="system",
+            timestamp=time.time(),
+        ))
+        self._save_cue(cue)
+        return cue
+
+    def unassign(self, cue_id: str) -> Optional[Cue]:
+        """Remove assignee from a cue. Also stops in_progress."""
+        cue = self.get_cue(cue_id)
+        if cue is None:
+            return None
+        cue.assignee = ""
+        cue.in_progress = False
+        cue.replies.append(CueReply(
+            id=f"unassign_{int(time.time())}",
+            text="👤 Unassigned",
+            author="system",
+            timestamp=time.time(),
+        ))
+        self._save_cue(cue)
+        return cue
+
+    def start(self, cue_id: str) -> Optional[Cue]:
+        """Mark a cue as in-progress (actively being worked on)."""
+        cue = self.get_cue(cue_id)
+        if cue is None:
+            return None
+        cue.in_progress = True
+        cue.replies.append(CueReply(
+            id=f"start_{int(time.time())}",
+            text="▶ Started working on this",
+            author="system",
+            timestamp=time.time(),
+        ))
+        self._save_cue(cue)
+        return cue
+
+    def stop(self, cue_id: str) -> Optional[Cue]:
+        """Mark a cue as no longer in-progress."""
+        cue = self.get_cue(cue_id)
+        if cue is None:
+            return None
+        cue.in_progress = False
+        cue.replies.append(CueReply(
+            id=f"stop_{int(time.time())}",
+            text="⏸ Paused work on this",
+            author="system",
+            timestamp=time.time(),
+        ))
+        self._save_cue(cue)
+        return cue
+
+    def delete(self, cue_id: str) -> bool:
+        """Permanently delete a cue file from disk."""
+        cue_file = self.cues_dir / f"{cue_id}.json"
+        if cue_file.exists():
+            cue_file.unlink()
+            return True
+        # Try prefix scan
+        for f in self.cues_dir.glob(f"{cue_id}*"):
+            if f.suffix == ".json":
+                f.unlink()
+                return True
+        return False
+
+    def archive(self, cue_id: str, archive_dir: Optional[Path] = None) -> Optional[Path]:
+        """Move a resolved/skipped cue to an archive directory.
+
+        Creates an 'archive' subdirectory in the cues folder.
+        Returns the archive path, or None if cue not found/resolved.
+        """
+        cue = self.get_cue(cue_id)
+        if cue is None:
+            return None
+        archive_path = archive_dir or (self.cues_dir / "archive")
+        archive_path.mkdir(parents=True, exist_ok=True)
+        src = self.cues_dir / f"{cue.id}.json"
+        dst = archive_path / f"{cue.id}.json"
+        if src.exists():
+            import shutil
+            shutil.move(str(src), str(dst))
+            return dst
+        return None
+
+    def archive_resolved(self) -> int:
+        """Move all resolved and skipped cues to archive. Returns count."""
+        import shutil
+        archive_path = self.cues_dir / "archive"
+        archive_path.mkdir(parents=True, exist_ok=True)
+        count = 0
+        for f in list(self.cues_dir.glob("*.json")):
+            try:
+                data = json.loads(f.read_text())
+                if data.get("status") in ("resolved", "skipped"):
+                    dst = archive_path / f.name
+                    shutil.move(str(f), str(dst))
+                    count += 1
+            except (json.JSONDecodeError, OSError):
+                continue
+        return count
 
     def get_cue(self, cue_id: str) -> Optional[Cue]:
         """Load a cue by ID."""
@@ -490,6 +632,9 @@ def format_cue(cue: Cue, verbose: bool = False) -> str:
     lines.append(f"  {status_icon} @{cue.position}  {time_str}  {cue.author}")
     if cue.track_name:
         lines.append(f"     Track: {cue.track_name}")
+    if cue.assignee:
+        prog = " ▶" if cue.in_progress else ""
+        lines.append(f"     👤 {cue.assignee}{prog}")
     lines.append(f"     \"{cue.text}\"")
     lines.append(f"     [{cue.status}]  id: {cue.id}")
 

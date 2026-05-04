@@ -167,6 +167,8 @@ class SyncCueItem(BaseModel):
     timestamp: float = 0.0
     track_name: str = ""
     snapshot_hash: str = ""
+    assignee: str = ""
+    in_progress: bool = False
     replies: list[dict] = []
 
 
@@ -368,6 +370,8 @@ async def get_cues(pending_only: bool = False, name: str = Query("", description
             "author": c.author,
             "track_name": c.track_name,
             "status": c.status,
+            "assignee": c.assignee,
+            "in_progress": c.in_progress,
             "timestamp": c.timestamp,
             "time_str": time.strftime("%m/%d %H:%M", time.localtime(c.timestamp)),
             "replies": [
@@ -407,6 +411,7 @@ async def create_cue(cue: CueCreate):
         "position": new_cue.position, "author": new_cue.author,
         "status": new_cue.status, "timestamp": new_cue.timestamp,
         "track_name": new_cue.track_name,
+        "assignee": new_cue.assignee, "in_progress": new_cue.in_progress,
     })
 
     return {
@@ -505,6 +510,149 @@ async def skip_cue(cue_id: str, name: str = Query("", description="Project name"
     })
 
     return {"status": "skipped"}
+
+
+@app.post("/api/cues/{cue_id}/assign")
+async def assign_cue(cue_id: str, name: str = Query("", description="Person to assign"),
+                     project: str = Query("", description="Project name")):
+    """Assign a cue to someone."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    if not name:
+        return JSONResponse({"error": "Name required"}, status_code=400)
+
+    cues_store = CueStore(proj.name, store=store)
+    result = cues_store.assign(cue_id, name)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    await broadcast_cue_event(proj.name, "cue_update", {
+        "cue_id": cue_id, "assignee": name, "in_progress": False,
+    })
+    return {"status": "assigned", "assignee": name}
+
+
+@app.post("/api/cues/{cue_id}/unassign")
+async def unassign_cue(cue_id: str, project: str = Query("", description="Project name")):
+    """Remove assignee from a cue."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    cues_store = CueStore(proj.name, store=store)
+    result = cues_store.unassign(cue_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    await broadcast_cue_event(proj.name, "cue_update", {
+        "cue_id": cue_id, "assignee": "", "in_progress": False,
+    })
+    return {"status": "unassigned"}
+
+
+@app.post("/api/cues/{cue_id}/start")
+async def start_cue(cue_id: str, project: str = Query("", description="Project name")):
+    """Mark a cue as in-progress."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    cues_store = CueStore(proj.name, store=store)
+    result = cues_store.start(cue_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    await broadcast_cue_event(proj.name, "cue_update", {
+        "cue_id": cue_id, "in_progress": True,
+    })
+    return {"status": "in_progress"}
+
+
+@app.post("/api/cues/{cue_id}/stop")
+async def stop_cue(cue_id: str, project: str = Query("", description="Project name")):
+    """Mark a cue as no longer in-progress."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    cues_store = CueStore(proj.name, store=store)
+    result = cues_store.stop(cue_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    await broadcast_cue_event(proj.name, "cue_update", {
+        "cue_id": cue_id, "in_progress": False,
+    })
+    return {"status": "stopped"}
+
+
+@app.delete("/api/cues/{cue_id}")
+async def delete_cue(cue_id: str, project: str = Query("", description="Project name")):
+    """Permanently delete a cue."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    cues_store = CueStore(proj.name, store=store)
+    if not cues_store.delete(cue_id):
+        raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    await broadcast_cue_event(proj.name, "cue_delete", {
+        "cue_id": cue_id,
+    })
+    return {"status": "deleted"}
+
+
+@app.post("/api/cues/{cue_id}/archive")
+async def archive_cue(cue_id: str, project: str = Query("", description="Project name")):
+    """Archive a specific cue (move to archive/ subdirectory)."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    cues_store = CueStore(proj.name, store=store)
+    dst = cues_store.archive(cue_id)
+    if not dst:
+        raise HTTPException(status_code=404, detail=f"Cue '{cue_id}' not found")
+
+    return {"status": "archived", "path": str(dst)}
+
+
+@app.get("/api/cues/archived")
+async def get_archived_cues(project: str = Query("", description="Project name")):
+    """List archived cues (in archive/ subdirectory)."""
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    archive_dir = store.root / "cues" / proj.name / "archive"
+    if not archive_dir.exists():
+        return {"total": 0, "cues": []}
+
+    archived = []
+    for f in sorted(archive_dir.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+            archived.append({
+                "id": data.get("id", f.stem),
+                "text": data.get("text", ""),
+                "position": data.get("position", ""),
+                "status": data.get("status", "archived"),
+                "time_str": time.strftime("%m/%d %H:%M", time.localtime(data.get("timestamp", 0))),
+            })
+        except (json.JSONDecodeError, OSError):
+            continue
+
+    return {"total": len(archived), "cues": archived}
 
 
 # ─── Stem Endpoints ───────────────────────────────────────────────────
@@ -678,6 +826,7 @@ async def sync_push(body: SyncPushBody, name: str = Query(..., description="Proj
             id=item.id, position=item.position, text=item.text,
             author=item.author, status=item.status, timestamp=item.timestamp,
             track_name=item.track_name, snapshot_hash=item.snapshot_hash,
+            assignee=item.assignee, in_progress=item.in_progress,
         )
         cues_store.import_cue(cue)
         merged += 1
@@ -848,6 +997,7 @@ def _generate_index_html() -> str:
           <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All</button>
           <button class="filter-btn" data-filter="pending" onclick="setFilter('pending')">Pending</button>
           <button class="filter-btn" data-filter="resolved" onclick="setFilter('resolved')">Resolved</button>
+          <button class="filter-btn" data-filter="archived" onclick="setFilter('archived')">Archived</button>
         </div>
       </div>
       <div class="cue-composer" id="cueComposer">
@@ -1327,6 +1477,32 @@ async function loadProject() {
 }
 
 async function loadCues() {
+  // Archived filter loads from separate endpoint
+  if (currentFilter === 'archived') {
+    const query = currentProject ? '?project=' + encodeURIComponent(currentProject) : '';
+    const data = await api('/cues/archived' + query);
+    if (data.error) {
+      $('cueList').innerHTML = '<div class=\"empty-state error\">⚠ Failed to load archived</div>';
+      return;
+    }
+    const cues = data.cues || [];
+    if (!cues.length) {
+      $('cueList').innerHTML = '<div class=\"empty-state\">No archived cues.</div>';
+      return;
+    }
+    $('cueList').innerHTML = cues.map(c => `
+      <div class="cue-card status-archived">
+        <div class="cue-card-header">
+          <span class="cue-position">@${escapeHtml(c.position)}</span>
+          <span class="cue-meta">${c.time_str}</span>
+        </div>
+        <div class="cue-text">${escapeHtml(c.text)}</div>
+        <div class="cue-muted">📦 Archived</div>
+      </div>
+    `).join('');
+    return;
+  }
+
   let url = '/cues?pending_only=' + (currentFilter === 'pending' ? 'true' : 'false');
   if (currentProject) url += '&name=' + encodeURIComponent(currentProject);
   const data = await api(url);
@@ -1353,7 +1529,8 @@ async function loadCues() {
       </div>
       <div class="cue-text">${escapeHtml(c.text)}</div>
     ${c.track_name ? `<div class="cue-meta" style="margin-top:2px">Track: ${escapeHtml(c.track_name)}</div>` : ''}
-      <div class="cue-status ${c.status}">${c.status}</div>
+    ${c.assignee ? `<div class="cue-meta" style="margin-top:2px">👤 ${escapeHtml(c.assignee)}${c.in_progress ? ' ▶' : ''}</div>` : ''}
+      <div class="cue-status ${c.status}">${c.status}${c.in_progress ? ' ▶' : ''}</div>
       ${(c.replies || []).map(r =>
         `<div class="cue-reply">
           <span class="reply-author">${escapeHtml(r.author)}:</span>
@@ -1361,19 +1538,27 @@ async function loadCues() {
         </div>`
       ).join('')}
       <div class="cue-actions">
+        <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
+        ${c.assignee ? `
+          <button class="cue-action-btn" onclick="assignCue('${c.id}','')">👤 Unassign</button>
+          ${c.in_progress
+            ? `<button class="cue-action-btn" onclick="stopCue('${c.id}')">⏸ Stop</button>`
+            : `<button class="cue-action-btn" onclick="startCue('${c.id}')">▶ Start</button>`
+          }
+        ` : `
+          <button class="cue-action-btn assign-btn" onclick="assignCue('${c.id}')">👤 Assign</button>
+        `}
         ${c.status === 'pending' ? `
-          <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
           <button class="cue-action-btn resolve" onclick="resolveCue('${c.id}')">✅ Resolve</button>
           <button class="cue-action-btn" onclick="skipCue('${c.id}')">⏭ Skip</button>
         ` : c.status === 'resolved' ? `
-          <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
           <button class="cue-action-btn" onclick="unresolveCue('${c.id}')">↩ Unresolve</button>
+          <button class="cue-action-btn" onclick="archiveCue('${c.id}')">📦 Archive</button>
         ` : c.status === 'skipped' ? `
-          <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
           <button class="cue-action-btn" onclick="unskipCue('${c.id}')">↩ Unskip</button>
-        ` : `
-          <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
-        `}
+          <button class="cue-action-btn" onclick="archiveCue('${c.id}')">📦 Archive</button>
+        ` : ''}
+        <button class="cue-action-btn delete" onclick="deleteCue('${c.id}')">🗑 Delete</button>
       </div>
       <div class="cue-reply-composer" id="reply-${c.id}" style="display:none">
         <input type="text" id="reply-text-${c.id}" placeholder="Type a reply..." onkeydown="if(event.key==='Enter')postReply('${c.id}')">
@@ -1444,6 +1629,46 @@ async function skipCue(cueId) {
 async function unskipCue(cueId) {
   const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
   await api('/cues/' + cueId + '/skip' + query, { method: 'POST' });
+  loadCues();
+}
+
+async function assignCue(cueId, presetName) {
+  let name = presetName;
+  if (!name) {
+    name = prompt('Assign cue to:');
+    if (!name) return;
+  }
+  const query = '?project=' + encodeURIComponent(currentProject) + '&name=' + encodeURIComponent(name);
+  if (name) {
+    await api('/cues/' + cueId + '/assign' + query, { method: 'POST' });
+  } else {
+    await api('/cues/' + cueId + '/unassign?project=' + encodeURIComponent(currentProject), { method: 'POST' });
+  }
+  loadCues();
+}
+
+async function startCue(cueId) {
+  const query = '?project=' + encodeURIComponent(currentProject);
+  await api('/cues/' + cueId + '/start' + query, { method: 'POST' });
+  loadCues();
+}
+
+async function stopCue(cueId) {
+  const query = '?project=' + encodeURIComponent(currentProject);
+  await api('/cues/' + cueId + '/stop' + query, { method: 'POST' });
+  loadCues();
+}
+
+async function deleteCue(cueId) {
+  if (!confirm('Delete this cue permanently?')) return;
+  const query = '?project=' + encodeURIComponent(currentProject);
+  await api('/cues/' + cueId + query, { method: 'DELETE' });
+  loadCues();
+}
+
+async function archiveCue(cueId) {
+  const query = '?project=' + encodeURIComponent(currentProject);
+  await api('/cues/' + cueId + '/archive' + query, { method: 'POST' });
   loadCues();
 }
 

@@ -133,6 +133,7 @@ def _cues_to_dicts(cues_store: CueStore) -> list[dict]:
         "id": c.id, "position": c.position, "text": c.text,
         "author": c.author, "status": c.status, "timestamp": c.timestamp,
         "track_name": c.track_name, "snapshot_hash": c.snapshot_hash,
+        "assignee": c.assignee, "in_progress": c.in_progress,
         "replies": [
             {"id": r.id, "text": r.text, "author": r.author,
              "timestamp": r.timestamp, "snapshot_hash": r.snapshot_hash}
@@ -222,6 +223,8 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> d
                 timestamp=c.get("timestamp", 0.0),
                 track_name=c.get("track_name", ""),
                 snapshot_hash=c.get("snapshot_hash", ""),
+                assignee=c.get("assignee", ""),
+                in_progress=c.get("in_progress", False),
             )
             cues_store.import_cue(cue)
 
@@ -283,6 +286,8 @@ def _apply_cue_event(store: BlobStore, proj: ClavusProject, event: str, data: di
             timestamp=data.get("timestamp", 0.0),
             track_name=data.get("track_name", ""),
             snapshot_hash=data.get("snapshot_hash", ""),
+            assignee=data.get("assignee", ""),
+            in_progress=data.get("in_progress", False),
         )
         cues_store.import_cue(cue)
         print(f"  📥 Incoming cue: {cue.text[:40]} @ {cue.position}")

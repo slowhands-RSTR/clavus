@@ -462,6 +462,76 @@ def cmd_cues(args: argparse.Namespace) -> None:
     print(format_cue_list(all_cues, verbose=args.verbose))
 
 
+def cmd_cue_assign(args: argparse.Namespace) -> None:
+    """Assign a cue to someone."""
+    store, proj = get_store_and_project()
+    cues = CueStore(proj.name, store=store)
+    result = cues.assign(args.cue_id, args.name)
+    if result:
+        print(f"👤 {args.name} assigned to cue {args.cue_id}")
+    else:
+        print(f"❌ Cue '{args.cue_id}' not found.")
+
+
+def cmd_cue_unassign(args: argparse.Namespace) -> None:
+    """Remove assignee from a cue."""
+    store, proj = get_store_and_project()
+    cues = CueStore(proj.name, store=store)
+    result = cues.unassign(args.cue_id)
+    if result:
+        print(f"👤 Unassigned cue {args.cue_id}")
+    else:
+        print(f"❌ Cue '{args.cue_id}' not found.")
+
+
+def cmd_cue_start(args: argparse.Namespace) -> None:
+    """Mark a cue as in-progress."""
+    store, proj = get_store_and_project()
+    cues = CueStore(proj.name, store=store)
+    result = cues.start(args.cue_id)
+    if result:
+        print(f"▶ Cue {args.cue_id} marked as in-progress")
+    else:
+        print(f"❌ Cue '{args.cue_id}' not found.")
+
+
+def cmd_cue_stop(args: argparse.Namespace) -> None:
+    """Mark a cue as no longer in-progress."""
+    store, proj = get_store_and_project()
+    cues = CueStore(proj.name, store=store)
+    result = cues.stop(args.cue_id)
+    if result:
+        print(f"⏸ Cue {args.cue_id} no longer in-progress")
+    else:
+        print(f"❌ Cue '{args.cue_id}' not found.")
+
+
+def cmd_cue_delete(args: argparse.Namespace) -> None:
+    """Permanently delete a cue."""
+    store, proj = get_store_and_project()
+    cues = CueStore(proj.name, store=store)
+    if cues.delete(args.cue_id):
+        print(f"🗑 Deleted cue {args.cue_id}")
+    else:
+        print(f"❌ Cue '{args.cue_id}' not found.")
+
+
+def cmd_cue_archive(args: argparse.Namespace) -> None:
+    """Archive a specific cue or all resolved/skipped cues."""
+    store, proj = get_store_and_project()
+    cues = CueStore(proj.name, store=store)
+
+    if args.cue_id:
+        dst = cues.archive(args.cue_id)
+        if dst:
+            print(f"📦 Archived cue {args.cue_id}")
+        else:
+            print(f"❌ Cue '{args.cue_id}' not found or not resolved/skipped.")
+    else:
+        count = cues.archive_resolved()
+        print(f"📦 Archived {count} resolved/skipped cue(s).")
+
+
 def cmd_branch(args: argparse.Namespace) -> None:
     """List or create branches."""
     store, proj = get_store_and_project()
@@ -975,6 +1045,25 @@ def main():
     p_cues.add_argument("--author", "-a", default="", help="Filter by author")
     p_cues.add_argument("--verbose", "-v", action="store_true", help="Show replies and resolved cues")
 
+    p_cue_assign = subparsers.add_parser("cue-assign", help="Assign a cue to someone")
+    p_cue_assign.add_argument("cue_id", help="ID of the cue to assign")
+    p_cue_assign.add_argument("name", help="Name of the person to assign to")
+
+    p_cue_unassign = subparsers.add_parser("cue-unassign", help="Remove assignee from a cue")
+    p_cue_unassign.add_argument("cue_id", help="ID of the cue to unassign")
+
+    p_cue_start = subparsers.add_parser("cue-start", help="Mark a cue as in-progress")
+    p_cue_start.add_argument("cue_id", help="ID of the cue to start")
+
+    p_cue_stop = subparsers.add_parser("cue-stop", help="Mark a cue as no longer in-progress")
+    p_cue_stop.add_argument("cue_id", help="ID of the cue to stop")
+
+    p_cue_delete = subparsers.add_parser("cue-delete", help="Permanently delete a cue")
+    p_cue_delete.add_argument("cue_id", help="ID of the cue to delete")
+
+    p_cue_archive = subparsers.add_parser("cue-archive", help="Archive a resolved/skipped cue")
+    p_cue_archive.add_argument("cue_id", nargs="?", default="", help="ID of the cue to archive (omit to archive all resolved/skipped)")
+
     # ── Remote / Push / Pull / Sync ──
     p_remote = subparsers.add_parser("remote", help="Manage remote clavus servers")
     p_remote.add_argument("action", nargs="?", choices=["list", "add", "remove"], default="list",
@@ -1079,6 +1168,12 @@ def main():
         "cue-skip": cmd_cue_skip,
         "cues": cmd_cues,
         "cue-render": cmd_cue_render,
+        "cue-assign": cmd_cue_assign,
+        "cue-unassign": cmd_cue_unassign,
+        "cue-start": cmd_cue_start,
+        "cue-stop": cmd_cue_stop,
+        "cue-delete": cmd_cue_delete,
+        "cue-archive": cmd_cue_archive,
     }
 
     if args.command in commands:

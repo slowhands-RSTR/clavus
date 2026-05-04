@@ -50,7 +50,7 @@ cmd_snapshot(Namespace(message="bumped tempo to 130", tag="arrangement",
                        parent=None, verbose=True, command="snapshot", clavus_dir=None))
 
 print("\n═══ 6. clavus log ═══")
-cmd_log(Namespace(limit=10, verbose=True, command="log", clavus_dir=None))
+cmd_log(Namespace(limit=10, verbose=True, graph=False, command="log", clavus_dir=None))
 
 print("\n═══ 7. Modifying again: rename track ═══")
 with gzip.open(test_als, "rb") as f:
