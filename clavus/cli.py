@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 from clavus import parse_als, project_summary
+from clavus.config import ClavusConfig
 from clavus.store import (
     BlobStore, ClavusProject, diff_projects, format_diff,
     DEFAULT_CLAVUS_DIR,
@@ -365,7 +366,10 @@ def cmd_serve(args: argparse.Namespace) -> None:
         print("❌ Web companion requires fastapi and uvicorn.")
         print("   Install with: pip install fastapi uvicorn")
         sys.exit(1)
-    run_web_server(host=args.host, port=args.port)
+    cfg = ClavusConfig.load()
+    host = args.host or cfg.host
+    port = args.port or cfg.port
+    run_web_server(host=host, port=port)
 
 
 def cmd_tui(args: argparse.Namespace) -> None:
@@ -376,7 +380,9 @@ def cmd_tui(args: argparse.Namespace) -> None:
         print("❌ TUI requires textual and httpx.")
         print("   Install with: pip install textual httpx")
         sys.exit(1)
-    run_tui(url=args.connect)
+    cfg = ClavusConfig.load()
+    url = args.connect or cfg.default_server
+    run_tui(url=url)
 
 
 def cmd_cue(args: argparse.Namespace) -> None:
@@ -460,6 +466,29 @@ def cmd_cues(args: argparse.Namespace) -> None:
 
     all_cues = cues.list_cues(filter_)
     print(format_cue_list(all_cues, verbose=args.verbose))
+
+
+def cmd_config(args: argparse.Namespace) -> None:
+    """View or edit clavus configuration."""
+    cfg = ClavusConfig.load()
+    if args.key and args.value is not None:
+        # Set a value
+        valid_keys = {"author", "port", "host", "default_server", "default_project"}
+        if args.key not in valid_keys:
+            print(f"❌ Unknown setting '{args.key}'.")
+            print(f"   Valid keys: {', '.join(sorted(valid_keys))}")
+            return
+        setattr(cfg, args.key, args.value)
+        cfg.save()
+        print(f"✅ {args.key} = {args.value}")
+    elif args.key:
+        # Show single value
+        val = getattr(cfg, args.key, "")
+        print(f"{args.key} = {val}")
+    else:
+        # Show all
+        for k, v in cfg.to_dict().items():
+            print(f"  {k} = {v}")
 
 
 def cmd_cue_assign(args: argparse.Namespace) -> None:
@@ -1065,6 +1094,11 @@ def main():
     p_cue_archive = subparsers.add_parser("cue-archive", help="Archive a resolved/skipped cue")
     p_cue_archive.add_argument("cue_id", nargs="?", default="", help="ID of the cue to archive (omit to archive all resolved/skipped)")
 
+    # Config
+    p_config = subparsers.add_parser("config", help="View or edit configuration")
+    p_config.add_argument("key", nargs="?", default="", help="Setting key to view or set")
+    p_config.add_argument("value", nargs="?", default=None, help="Value to set (omit to view)")
+
     # ── Remote / Push / Pull / Sync ──
     p_remote = subparsers.add_parser("remote", help="Manage remote clavus servers")
     p_remote.add_argument("action", nargs="?", choices=["list", "add", "remove"], default="list",
@@ -1113,15 +1147,15 @@ def main():
 
     # Serve (web companion)
     p_serve = subparsers.add_parser("serve", help="Start the web companion UI")
-    p_serve.add_argument("--host", default="0.0.0.0",
-                        help="Host to bind to (default: 0.0.0.0)")
-    p_serve.add_argument("--port", "-p", type=int, default=7890,
-                        help="Port to listen on (default: 7890)")
+    p_serve.add_argument("--host", default=None,
+                        help="Host to bind to (default: from config or 0.0.0.0)")
+    p_serve.add_argument("--port", "-p", type=int, default=None,
+                        help="Port to listen on (default: from config or 7890)")
 
     # TUI (terminal dashboard)
     p_tui = subparsers.add_parser("tui", help="Launch the TUI dashboard")
     p_tui.add_argument("--connect", "-c", default="",
-                       help="Clavus server URL (default: http://localhost:7890)")
+                       help="Clavus server URL (default: from config or http://localhost:7890)")
 
     # ── Stem subcommands ──
     p_stem = subparsers.add_parser("stem", help="Manage stems (audio exports)")
@@ -1175,6 +1209,7 @@ def main():
         "cue-stop": cmd_cue_stop,
         "cue-delete": cmd_cue_delete,
         "cue-archive": cmd_cue_archive,
+        "config": cmd_config,
     }
 
     if args.command in commands:
