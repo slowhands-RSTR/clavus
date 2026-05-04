@@ -1049,6 +1049,77 @@ async def sync_push_snapshots(body: SyncPushSnapshotsBody,
 
 # ─── Web UI: Main page ──────────────────────────────────────────────────
 
+@app.get("/api/m4l/status")
+async def m4l_status(name: str = Query("", description="Project name")):
+    """Lightweight status endpoint for M4L device.
+    
+    Returns only what the Max for Live device needs:
+    - Server alive check
+    - Pending cue count
+    - Last snapshot info
+    
+    This keeps the M4L HTTP payloads tiny.
+    """
+    try:
+        store, proj = _get_project(name)
+    except HTTPException:
+        return {"alive": False, "project": None}
+    
+    # Count pending cues
+    cues_store = CueStore(proj.name, store=store)
+    pending = cues_store.list_cues(CueFilter(status="pending"))
+    
+    # Last snapshot info
+    head = proj.head
+    snap_info = None
+    if head:
+        snap = store.load_snapshot(head)
+        if snap:
+            snap_info = {
+                "hash": snap.short_hash(),
+                "message": snap.message,
+                "timestamp": snap.timestamp,
+            }
+    
+    return {
+        "alive": True,
+        "project": proj.name,
+        "pending_cues": len(pending),
+        "head": snap_info,
+    }
+
+
+@app.post("/api/m4l/cue")
+async def m4l_add_cue(body: CueCreate):
+    """Minimal cue creation endpoint for M4L device.
+    
+    Same as POST /api/cues but returns only the fields
+    the M4L device cares about — tiny response body.
+    """
+    try:
+        store, proj = _get_project(body.project_name)
+    except HTTPException:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+    
+    cues_store = CueStore(proj.name, store=store)
+    head = store.read_ref("HEAD")
+    
+    new_cue = cues_store.add_cue(
+        text=body.text,
+        position=body.position or "0.0.0",
+        author=body.author or os.environ.get("USER", "Live"),
+        snapshot_hash=head or "",
+        track_name=body.track,
+    )
+    
+    return {
+        "id": new_cue.id,
+        "position": new_cue.position,
+        "text": new_cue.text,
+        "status": "created",
+    }
+
+
 def _read_template(name: str) -> str:
     """Read and cache an HTML template."""
     if name not in _HTML_CACHE:
