@@ -303,6 +303,27 @@ def cmd_diff(args: argparse.Namespace) -> None:
         parent_project = store.load_project(snap.parent)
         if parent_project:
             diff = diff_projects(parent_project, current_project)
+
+            if args.visual:
+                # Render visual timeline diff
+                try:
+                    from clavus.visual_diff import render_side_by_side
+                    print(f"📊 {snap.short_hash()} — '{snap.message}'")
+                    # Get BPM from both projects
+                    before_bpm = parent_project.bpm if hasattr(parent_project, "bpm") else None
+                    after_bpm = current_project.bpm if hasattr(current_project, "bpm") else None
+                    print(render_side_by_side(
+                        before=diff.tracks,
+                        after=diff.tracks,
+                        before_markers=diff.markers_removed,
+                        after_markers=diff.markers_added,
+                        before_bpm=before_bpm,
+                        after_bpm=after_bpm,
+                    ))
+                    return
+                except ImportError:
+                    pass  # Fall through to text diff
+
             print(f"📊 {snap.short_hash()} — '{snap.message}'")
             print()
             print(format_diff(diff, verbose=args.verbose))
@@ -1206,6 +1227,7 @@ def main():
     p_diff = subparsers.add_parser("diff", help="Show changes in a snapshot")
     p_diff.add_argument("hash", nargs="?", default=None, help="Snapshot hash or ref name (default: HEAD)")
     p_diff.add_argument("--verbose", "-v", action="store_true", help="Show unchanged tracks")
+    p_diff.add_argument("--visual", action="store_true", help="Show visual timeline diff")
 
     # Status
     subparsers.add_parser("status", help="Show current project status")
