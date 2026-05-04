@@ -139,7 +139,7 @@ cmd_log(Namespace(limit=20, verbose=True, graph=False, command="log",
                   clavus_dir=str(CLAVUS_DIR)))
 
 print("\n═══ 9. clavus diff HEAD ═══")
-cmd_diff(Namespace(hash=None, verbose=True, command="diff",
+cmd_diff(Namespace(hash=None, verbose=True, visual=False, command="diff",
                    clavus_dir=str(CLAVUS_DIR)))
 
 print("\n═══ 10. clavus status ═══")

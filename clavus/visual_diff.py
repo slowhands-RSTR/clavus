@@ -100,6 +100,8 @@ def _max_timeline_beats(projects: list[Project]) -> float:
     """Find the maximum end position across all clips in a list of projects."""
     max_beats = 0.0
     for proj in projects:
+        if proj is None:
+            continue
         for t in proj.tracks:
             for c in t.clips:
                 max_beats = max(max_beats, c.end_beats)
