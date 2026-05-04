@@ -1023,6 +1023,7 @@ def main():
         prog="clavus",
     )
     parser.add_argument("--clavus-dir", help="Override clavus storage directory")
+    parser.add_argument("--version", action="store_true", help="Show version and exit")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Init
@@ -1175,6 +1176,15 @@ def main():
     p_stem_pull = stem_sub.add_parser("pull", help="Pull stem files from remotes")
 
     args = parser.parse_args()
+
+    if args.version:
+        try:
+            from importlib.metadata import version
+            v = version("clavus")
+        except ImportError:
+            v = "0.5.0"
+        print(f"clavus {v}")
+        return
 
     # Override clavus directory if specified
     if args.clavus_dir:
