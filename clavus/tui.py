@@ -214,6 +214,31 @@ class ClavusClient:
                 pass
             self._ws = None
 
+    async def archive_cue(self, project: str, cue_id: str) -> bool:
+        """Archive a specific cue via the server API."""
+        try:
+            r = await self.client.post(
+                f"{self.base_url}/api/cues/{cue_id}/archive",
+                params={"name": project}, timeout=10,
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    async def archive_resolved(self, project: str) -> int:
+        """Archive all resolved/skipped cues. Returns count."""
+        try:
+            r = await self.client.get(
+                f"{self.base_url}/api/cues/archived",
+                params={"name": project}, timeout=10,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                return len(data.get("cues", []))
+            return 0
+        except Exception:
+            return 0
+
     # ─── WebSocket listener ────────────────────────────────────────────
 
     _ws = None  # type: ignore
@@ -297,6 +322,7 @@ class ClavusApp(App):
         Binding("R", "resolve", "Resolve"),
         Binding("a", "assign", "Assign"),
         Binding("S", "start", "Start/Stop"),
+        Binding("x", "archive", "Archive"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
         Binding("j", "cursor_down", "Down", show=False),
@@ -440,8 +466,10 @@ class ClavusApp(App):
             self._show_input("browse", "browse: ", prefill=arg or "~")
         elif cmd == "inject":
             self._run_inject()
+        elif cmd == "archive":
+            self.action_archive()
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, help")
+            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, archive, help")
         else:
             self._status(f"unknown: {cmd}")
 
@@ -651,6 +679,21 @@ class ClavusApp(App):
         self._save()
 
     @work(exclusive=True)
+    async def action_archive(self):
+        """Archive the selected cue via server API, then re-pull."""
+        cue = self._get_cue()
+        if not cue:
+            self._status("select a cue first")
+            return
+        self._status(f"archiving {cue.id[:8]}...")
+        ok = await self.api.archive_cue(self.project, cue.id)
+        if ok:
+            self._status("archived — re-pulling")
+            await self._do_pull()
+        else:
+            self._status("archive failed (server error)")
+
+    @work(exclusive=True)
     async def action_pull(self):
         self._status("pulling...")
         await self._do_pull()
@@ -833,6 +876,7 @@ class ClavusApp(App):
                 f"[{C['accent']}]s[/] skip  "
                 f"[{C['accent']}]a[/] assign  "
                 f"[{C['accent']}]S[/] start  "
+                f"[{C['accent']}]x[/] archive  "
                 f"[{C['accent']}]p[/] pull  "
                 f"[{C['accent']}]P[/] push  "
                 f"[{C['accent']}]q[/] quit  "
