@@ -789,24 +789,46 @@ def cmd_remote(args: argparse.Namespace) -> None:
 
 
 def cmd_find(args: argparse.Namespace) -> None:
-    """Discover Clavus servers on the local network via mDNS."""
-    try:
-        from clavus.discovery import discover_peers
-    except ImportError:
-        print("❌ LAN discovery requires zeroconf. Install: pip install zeroconf")
-        return
+    """Discover Clavus servers on the LAN or Tailscale tailnet."""
+    peers = []
 
-    print(f"📡 Scanning for Clavus servers on LAN ({args.timeout}s)...")
-    print()
+    if args.tailscale:
+        try:
+            from clavus.discovery import discover_tailscale_peers
+            print(f"📡 Scanning your Tailscale tailnet for Clavus servers ({args.timeout}s)...")
+            peers = discover_tailscale_peers(timeout=args.timeout)
+            if not peers:
+                print()
+                print("  No Clavus servers found on Tailscale.")
+                print()
+                print("  Make sure you're connected to Tailscale and your friends")
+                print("  are running 'clavus serve'.")
+                return
+        except ImportError:
+            peers = []
+    else:
+        try:
+            from clavus.discovery import discover_peers
+        except ImportError:
+            print("❌ LAN discovery requires zeroconf. Install: pip install zeroconf")
+            return
 
-    peers = discover_peers(timeout=args.timeout)
+        print(f"📡 Scanning for Clavus servers on LAN ({args.timeout}s)...")
+        peers = discover_peers(timeout=args.timeout)
 
     if not peers:
-        print("  No Clavus servers found.")
-        print()
-        print("  Make sure you or a friend is running 'clavus serve'.")
-        print("  Clavus advertises via mDNS (Bonjour) on the local network.")
-        print("  Both machines must be on the same subnet.")
+        if args.tailscale:
+            print()
+            print("  No Clavus servers found on Tailscale.")
+            print()
+            print("  Make sure you're connected to Tailscale and your friends")
+            print("  are running 'clavus serve'.")
+        else:
+            print("  No Clavus servers found.")
+            print()
+            print("  Make sure you or a friend is running 'clavus serve'.")
+            print("  Clavus advertises via mDNS (Bonjour) on the local network.")
+            print("  Both machines must be on the same subnet.")
         return
 
     print(f"  Found {len(peers)} Clavus server(s):")
@@ -1296,11 +1318,13 @@ def main():
                        help="Clavus server URL (default: from config or http://localhost:7890)")
 
     # Find (LAN discovery)
-    p_find = subparsers.add_parser("find", help="Find Clavus servers on your LAN")
+    p_find = subparsers.add_parser("find", help="Find Clavus servers on your LAN or Tailscale tailnet")
     p_find.add_argument("--timeout", "-t", type=int, default=3,
                         help="Seconds to scan for (default: 3)")
     p_find.add_argument("--pair", "-p", default="",
                         help="Auto-pair with a discovered server by hostname")
+    p_find.add_argument("--tailscale", action="store_true",
+                        help="Scan your Tailscale tailnet instead of LAN")
 
     # ── Stem subcommands ──
     p_stem = subparsers.add_parser("stem", help="Manage stems (audio exports)")

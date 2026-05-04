@@ -1086,6 +1086,7 @@ async def m4l_status(name: str = Query("", description="Project name")):
         "project": proj.name,
         "pending_cues": len(pending),
         "head": snap_info,
+        "user": os.environ.get("USER", "unknown"),
     }
 
 

@@ -217,3 +217,128 @@ def discover_peers(timeout: float = 3.0) -> list[ClavusPeer]:
         zc.close()
 
     return list(listener.peers.values())
+
+
+# ─── Tailscale Discovery ───────────────────────────────────────────────
+
+
+TAILSCALE_LOCALHOST = "http://100.100.100.100:8080"
+TAILSCALE_MAGICDNS = "http://tailscale"
+
+
+def _tailscale_api(path: str) -> Optional[dict]:
+    """Call the Tailscale local API.
+
+    Tries MagicDNS first, then the localhost IP.
+    Returns parsed JSON or None on failure.
+    """
+    for base in [TAILSCALE_MAGICDNS, TAILSCALE_LOCALHOST]:
+        try:
+            import httpx
+            r = httpx.get(f"{base}/localapi/v0/{path}", timeout=5)
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            continue
+
+    # Also try Unix socket
+    for sock in ["/var/run/tailscale/tailscaled.sock",
+                 "/run/tailscale/tailscaled.sock"]:
+        try:
+            import httpx
+            transport = httpx.HTTPTransport(uds=sock)
+            with httpx.Client(transport=transport) as client:
+                r = client.get(f"http://localhost/localapi/v0/{path}", timeout=5)
+                if r.status_code == 200:
+                    return r.json()
+        except Exception:
+            continue
+
+    return None
+
+
+def discover_tailscale_peers(timeout: float = 5.0) -> list[ClavusPeer]:
+    """Scan the Tailscale tailnet for Clavus servers.
+
+    Uses Tailscale's local API to list all devices in the tailnet,
+    then pings each one's clavus server to check if it's running.
+
+    Args:
+        timeout: Max seconds for the full scan
+
+    Returns:
+        List of discovered ClavusPeer objects (only online Clavus servers)
+    """
+    import time as _time
+    import concurrent.futures
+
+    status = _tailscale_api("status")
+    if not status:
+        return []  # Tailscale not running
+
+    peers: list[ClavusPeer] = []
+    device_list = []
+
+    # Collect all devices (self + peers)
+    self_dev = status.get("Self", {})
+    if self_dev:
+        device_list.append(("(you)", self_dev))
+
+    for peer_id, peer_data in status.get("Peer", {}).items():
+        if isinstance(peer_data, dict):
+            device_list.append((peer_id, peer_data))
+
+    def _check_device(device_info: tuple) -> Optional[ClavusPeer]:
+        peer_id, data = device_info
+        hostname = data.get("DNSName", "").split(".")[0] or data.get("HostName", peer_id)
+        ips = data.get("TailscaleIPs", [])
+        if not ips:
+            return None
+
+        ts_ip = ips[0]
+        # Try default Clavus port
+        for port in [7890]:
+            try:
+                import httpx
+                url = f"http://[{ts_ip}]:{port}" if ":" in ts_ip else f"http://{ts_ip}:{port}"
+                r = httpx.get(f"{url}/api/ping", timeout=3)
+                if r.status_code == 200:
+                    # Get more info from status endpoint
+                    try:
+                        sr = httpx.get(f"{url}/api/m4l/status", timeout=3)
+                        if sr.status_code == 200:
+                            info = sr.json()
+                            return ClavusPeer(
+                                name=hostname,
+                                host=ts_ip,
+                                port=port,
+                                project=info.get("project", "") or "",
+                                user=info.get("user", "") or "",
+                                version="",
+                                last_seen=_time.time(),
+                            )
+                    except Exception:
+                        pass
+                    return ClavusPeer(
+                        name=hostname,
+                        host=ts_ip,
+                        port=port,
+                        last_seen=_time.time(),
+                    )
+            except Exception:
+                continue
+        return None
+
+    start = _time.time()
+    remaining = max(1.0, timeout)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        fut_map = {pool.submit(_check_device, d): d for d in device_list}
+        for fut in concurrent.futures.as_completed(fut_map, timeout=remaining):
+            try:
+                result = fut.result()
+                if result:
+                    peers.append(result)
+            except Exception:
+                pass
+
+    return peers
