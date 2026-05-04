@@ -1011,6 +1011,7 @@ def main():
     p_log = subparsers.add_parser("log", help="Show snapshot history")
     p_log.add_argument("--limit", "-n", type=int, default=20, help="Max snapshots to show")
     p_log.add_argument("--verbose", "-v", action="store_true", help="Show detailed info per snapshot")
+    p_log.add_argument("--graph", action="store_true", help="Show branch topology")
 
     # Diff
     p_diff = subparsers.add_parser("diff", help="Show changes in a snapshot")
