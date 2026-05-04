@@ -156,7 +156,7 @@ class BlobStore:
                       parent: Optional[str] = None, tags: list[str] | None = None) -> Snapshot:
         """Serialize a project, hash it, and store as a snapshot."""
         # Serialize the project to JSON
-        project_data = self._project_to_dict(project)
+        project_data = _project_to_dict(project)
         serialized = json.dumps(project_data, sort_keys=True, default=str).encode("utf-8")
 
         # Content-address: hash the serialized project
@@ -196,7 +196,7 @@ class BlobStore:
         if data is None:
             return None
         project_dict = json.loads(data)
-        return self._dict_to_project(project_dict)
+        return _dict_to_project(project_dict)
 
     def _write_snapshot_meta(self, snapshot: Snapshot) -> None:
         """Write snapshot metadata alongside the content blob."""
@@ -392,105 +392,105 @@ class StemStore:
     def _write_json(path: Path, data: dict) -> None:
         path.write_text(json.dumps(data, indent=2, default=str))
 
-    # ── Serialization Helpers ──
+# ── Serialization Helpers ──
 
-    @staticmethod
-    def _project_to_dict(project: Project) -> dict:
-        """Convert a Project to a JSON-serializable dict."""
-        return {
-            "ableton_version": project.ableton_version,
-            "schema_version": project.schema_version,
-            "session_id": project.session_id,
-            "bpm": project.bpm,
-            "time_signature": project.time_signature,
-            "tracks": [
-                {
-                    "name": t.name,
-                    "track_type": t.track_type,
-                    "index": t.index,
-                    "color": t.color,
-                    "is_frozen": t.is_frozen,
-                    "is_muted": t.is_muted,
-                    "is_solo": t.is_solo,
-                    "devices": [
-                        {"name": d.name, "device_type": d.device_type}
-                        for d in t.devices
-                    ],
-                    "sends": dict(t.sends),
-                }
-                for t in project.tracks
-            ],
-            "return_tracks": [
-                {
-                    "name": t.name,
-                    "track_type": "Return",
-                    "devices": [
-                        {"name": d.name, "device_type": d.device_type}
-                        for d in t.devices
-                    ],
-                }
-                for t in project.return_tracks
-            ],
-            "master_track": {
-                "name": project.master_track.name if project.master_track else "",
+
+def _project_to_dict(project: Project) -> dict:
+    """Convert a Project to a JSON-serializable dict."""
+    return {
+        "ableton_version": project.ableton_version,
+        "schema_version": project.schema_version,
+        "session_id": project.session_id,
+        "bpm": project.bpm,
+        "time_signature": project.time_signature,
+        "tracks": [
+            {
+                "name": t.name,
+                "track_type": t.track_type,
+                "index": t.index,
+                "color": t.color,
+                "is_frozen": t.is_frozen,
+                "is_muted": t.is_muted,
+                "is_solo": t.is_solo,
                 "devices": [
                     {"name": d.name, "device_type": d.device_type}
-                    for d in (project.master_track.devices if project.master_track else [])
+                    for d in t.devices
                 ],
-            } if project.master_track else None,
-            "markers": [
-                {"time": m.time, "name": m.name}
-                for m in project.markers
+                "sends": dict(t.sends),
+            }
+            for t in project.tracks
+        ],
+        "return_tracks": [
+            {
+                "name": t.name,
+                "track_type": "Return",
+                "devices": [
+                    {"name": d.name, "device_type": d.device_type}
+                    for d in t.devices
+                ],
+            }
+            for t in project.return_tracks
+        ],
+        "master_track": {
+            "name": project.master_track.name if project.master_track else "",
+            "devices": [
+                {"name": d.name, "device_type": d.device_type}
+                for d in (project.master_track.devices if project.master_track else [])
             ],
-        }
+        } if project.master_track else None,
+        "markers": [
+            {"time": m.time, "name": m.name}
+            for m in project.markers
+        ],
+    }
 
-    @staticmethod
-    def _dict_to_project(data: dict) -> Project:
-        """Reconstruct a Project from a serialized dict."""
-        from clavus.parser import Project, Track, Marker, Device, TempoEvent
 
-        project = Project(
-            ableton_version=data.get("ableton_version", ""),
-            schema_version=data.get("schema_version", ""),
-            session_id=data.get("session_id", ""),
-            bpm=data.get("bpm", 120.0),
-            time_signature=data.get("time_signature", "4/4"),
+def _dict_to_project(data: dict) -> Project:
+    """Reconstruct a Project from a serialized dict."""
+    from clavus.parser import Project, Track, Marker, Device, TempoEvent
+
+    project = Project(
+        ableton_version=data.get("ableton_version", ""),
+        schema_version=data.get("schema_version", ""),
+        session_id=data.get("session_id", ""),
+        bpm=data.get("bpm", 120.0),
+        time_signature=data.get("time_signature", "4/4"),
+    )
+
+    for td in data.get("tracks", []):
+        track = Track(
+            name=td.get("name", "Unnamed"),
+            track_type=td.get("track_type", "Audio"),
+            index=td.get("index", 0),
+            color=td.get("color", 16777215),
+            is_frozen=td.get("is_frozen", False),
+            is_muted=td.get("is_muted", False),
+            is_solo=td.get("is_solo", False),
+            devices=[Device(**d) for d in td.get("devices", [])],
+            sends=td.get("sends", {}),
+        )
+        project.tracks.append(track)
+
+    for td in data.get("return_tracks", []):
+        track = Track(
+            name=td.get("name", "Return"),
+            track_type="Return",
+            devices=[Device(**d) for d in td.get("devices", [])],
+        )
+        project.return_tracks.append(track)
+
+    mt = data.get("master_track")
+    if mt:
+        project.master_track = Track(
+            name=mt.get("name", "Master"),
+            track_type="Master",
+            devices=[Device(**d) for d in mt.get("devices", [])],
         )
 
-        for td in data.get("tracks", []):
-            track = Track(
-                name=td.get("name", "Unnamed"),
-                track_type=td.get("track_type", "Audio"),
-                index=td.get("index", 0),
-                color=td.get("color", 16777215),
-                is_frozen=td.get("is_frozen", False),
-                is_muted=td.get("is_muted", False),
-                is_solo=td.get("is_solo", False),
-                devices=[Device(**d) for d in td.get("devices", [])],
-                sends=td.get("sends", {}),
-            )
-            project.tracks.append(track)
+    for md in data.get("markers", []):
+        project.markers.append(Marker(time=md.get("time", "0"), name=md.get("name", "")))
 
-        for td in data.get("return_tracks", []):
-            track = Track(
-                name=td.get("name", "Return"),
-                track_type="Return",
-                devices=[Device(**d) for d in td.get("devices", [])],
-            )
-            project.return_tracks.append(track)
-
-        mt = data.get("master_track")
-        if mt:
-            project.master_track = Track(
-                name=mt.get("name", "Master"),
-                track_type="Master",
-                devices=[Device(**d) for d in mt.get("devices", [])],
-            )
-
-        for md in data.get("markers", []):
-            project.markers.append(Marker(time=md.get("time", "0"), name=md.get("name", "")))
-
-        return project
+    return project
 
 
 # ─── Diff Engine ────────────────────────────────────────────────────────

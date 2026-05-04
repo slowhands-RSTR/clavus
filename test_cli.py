@@ -32,7 +32,7 @@ args = Namespace(message="brought kick up 2dB", tag="mix,kick",
 cmd_snapshot(args)
 
 print("\n═══ 5. clavus log ═══")
-args = Namespace(limit=10, verbose=True, command="log", clavus_dir=None)
+args = Namespace(limit=10, verbose=True, graph=False, command="log", clavus_dir=None)
 cmd_log(args)
 
 print("\n═══ 6. clavus diff HEAD ═══")

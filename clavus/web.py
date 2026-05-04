@@ -462,7 +462,7 @@ async def reply_to_cue(cue_id: str, reply: CueReply,
         "timestamp": time.time(),
     })
 
-    return {"status": "ok", "replies": len(result.replies) if result else 0}
+    return {"status": "ok", "replies": 0}
 
 
 @app.post("/api/cues/{cue_id}/resolve")
@@ -868,6 +868,9 @@ def _generate_index_html() -> str:
       </div>
       <div class="snapshot-list" id="snapshotList">
         <div class="empty-state">No snapshots</div>
+      </div>
+      <div style="padding:8px 12px;border-top:1px solid var(--border)">
+        <button class="cue-action-btn" onclick="injectCues()" style="width:100%">📌 Inject cues into .als</button>
       </div>
     </section>
   </main>
@@ -1349,7 +1352,8 @@ async function loadCues() {
         <span class="cue-meta">${c.author} · ${c.time_str}</span>
       </div>
       <div class="cue-text">${escapeHtml(c.text)}</div>
-      ${c.track_name ? `<div class="cue-meta" style="margin-top:2px">Track: ${escapeHtml(c.track_name)}</div>` : ''}
+    ${c.track_name ? `<div class="cue-meta" style="margin-top:2px">Track: ${escapeHtml(c.track_name)}</div>` : ''}
+      <div class="cue-status ${c.status}">${c.status}</div>
       ${(c.replies || []).map(r =>
         `<div class="cue-reply">
           <span class="reply-author">${escapeHtml(r.author)}:</span>
@@ -1357,11 +1361,19 @@ async function loadCues() {
         </div>`
       ).join('')}
       <div class="cue-actions">
-        <span class="cue-status ${c.status}">${c.status}</span>
         ${c.status === 'pending' ? `
           <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
           <button class="cue-action-btn resolve" onclick="resolveCue('${c.id}')">✅ Resolve</button>
-        ` : ''}
+          <button class="cue-action-btn" onclick="skipCue('${c.id}')">⏭ Skip</button>
+        ` : c.status === 'resolved' ? `
+          <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
+          <button class="cue-action-btn" onclick="unresolveCue('${c.id}')">↩ Unresolve</button>
+        ` : c.status === 'skipped' ? `
+          <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
+          <button class="cue-action-btn" onclick="unskipCue('${c.id}')">↩ Unskip</button>
+        ` : `
+          <button class="cue-action-btn" onclick="showReply('${c.id}')">💬 Reply</button>
+        `}
       </div>
       <div class="cue-reply-composer" id="reply-${c.id}" style="display:none">
         <input type="text" id="reply-text-${c.id}" placeholder="Type a reply..." onkeydown="if(event.key==='Enter')postReply('${c.id}')">
@@ -1417,6 +1429,24 @@ async function resolveCue(cueId) {
   loadCues();
 }
 
+async function unresolveCue(cueId) {
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  await api('/cues/' + cueId + '/resolve' + query, { method: 'POST' });
+  loadCues();
+}
+
+async function skipCue(cueId) {
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  await api('/cues/' + cueId + '/skip' + query, { method: 'POST' });
+  loadCues();
+}
+
+async function unskipCue(cueId) {
+  const query = currentProject ? '?name=' + encodeURIComponent(currentProject) : '';
+  await api('/cues/' + cueId + '/skip' + query, { method: 'POST' });
+  loadCues();
+}
+
 function setFilter(filter) {
   currentFilter = filter;
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -1426,6 +1456,13 @@ function setFilter(filter) {
 
 async function loadAll() {
   await Promise.all([loadProjectList(), loadProject(), loadCues()]);
+}
+
+async function injectCues() {
+  if (!currentProject) return alert('Select a project first');
+  const result = await api('/projects/inject?name=' + encodeURIComponent(currentProject), { method: 'POST' });
+  if (result.error) return alert('Inject failed: ' + result.error);
+  alert('Injected ' + (result.injected || 0) + ' cue(s) as markers');
 }
 
 async function loadProjectList() {
