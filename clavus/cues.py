@@ -285,10 +285,12 @@ class CueStore:
         """Move a resolved/skipped cue to an archive directory.
 
         Creates an 'archive' subdirectory in the cues folder.
-        Returns the archive path, or None if cue not found/resolved.
+        Returns the archive path, or None if cue not found or not resolved/skipped.
         """
         cue = self.get_cue(cue_id)
         if cue is None:
+            return None
+        if cue.status not in ("resolved", "skipped"):
             return None
         archive_path = archive_dir or (self.cues_dir / "archive")
         archive_path.mkdir(parents=True, exist_ok=True)

@@ -3,11 +3,13 @@ import sys
 import os
 import shutil
 import time
+import tempfile
+from pathlib import Path
+
+# Use isolated temp dir — never touch real ~/.clavus
+_TEST_CLAVUS_DIR = tempfile.mkdtemp(suffix="_clavus_test")
 
 sys.path.insert(0, os.path.expanduser("~/Developer/clavus"))
-
-# Clean state
-shutil.rmtree(os.path.expanduser("~/.clavus"), ignore_errors=True)
 
 from clavus.cues import CueStore, Cue, CueReply
 from clavus.store import BlobStore, ClavusProject
@@ -15,7 +17,7 @@ from clavus.store import BlobStore, ClavusProject
 
 def setup_module():
     """One-time test setup: create a project."""
-    store = BlobStore()
+    store = BlobStore(Path(_TEST_CLAVUS_DIR))
     store.init()
     proj = ClavusProject(
         name="SyncImportTest",
@@ -26,8 +28,15 @@ def setup_module():
     store.update_ref("HEAD", "abc123")
 
 
+def teardown_module():
+    """Clean up temp dir after all tests."""
+    shutil.rmtree(_TEST_CLAVUS_DIR, ignore_errors=True)
+
+
 # Reusable store factory
 def make_store():
+    """Return a CueStore for the test project."""
+    return CueStore("SyncImportTest", store=BlobStore(Path(_TEST_CLAVUS_DIR)))
     """Return a CueStore for the test project."""
     return CueStore("SyncImportTest", store=BlobStore())
 
@@ -48,7 +57,7 @@ def test_import_cue_adds_new_cue():
     cues.import_cue(cue)
 
     loaded = cues.get_cue("test-new-cue-001")
-    assert loaded is not None
+    assert loaded is not None, f"Cue not found, cues in store: {[c.id for c in cues.list_cues()]}"
     assert loaded.text == "New cue from sync"
     assert loaded.author == "alice"
     assert loaded.timestamp == 1000.0
