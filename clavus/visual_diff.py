@@ -7,16 +7,8 @@ Two output modes:
   1. Terminal (ANSI colors, Unicode box drawing) — for CLI and TUI
   2. HTML/SVG — for the web companion
 
-The parser doesn't extract individual clip positions yet, so the
-visual diff focuses on what we CAN extract:
-  - Track structure (added/removed/reordered tracks)
-  - BPM changes (timeline scaling)
-  - Marker positions (arrangement landmarks)
-  - Device chain changes
-  - Track state changes (mute/freeze)
-
-This gives a "forest level" view of arrangement changes.
-Clip-level detail can be added later when the parser extracts clip data.
+The renderer shows actual clip positions from the parser's clip extraction,
+giving a proper Ableton-style arrangement view of each track.
 """
 
 from __future__ import annotations
@@ -24,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from clavus.parser import Project, Clip
 from clavus.store import ProjectDiff, TrackDiff
 
 
@@ -55,114 +48,133 @@ ANSI = {
     "reset": "\033[0m",
     "orange": "\033[38;5;208m",
     "blue": "\033[34m",
+    "cyan": "\033[36m",
+    "magenta": "\033[35m",
 }
 
-# ─── Timeline Layout ──────────────────────────────────────────────────
+# ─── Clip Color Palette (Ableton-like) ────────────────────────────────
+# Maps Ableton color indices to ANSI colors for clip rendering
+ABLE_COLORS = {
+    1: ANSI["blue"],
+    2: ANSI["cyan"],
+    3: ANSI["green"],
+    5: ANSI["yellow"],
+    6: ANSI["orange"],
+    7: ANSI["red"],
+    8: ANSI["magenta"],
+    11: ANSI["dim"],  # Default grey
+    12: ANSI["accent"],
+    24: ANSI["cyan"],
+}
+ABLE_COLOR_BG = {
+    1: "\033[44m",      # Blue bg
+    2: "\033[46m",      # Cyan bg  
+    3: "\033[42m",      # Green bg
+    5: "\033[43m",      # Yellow bg
+    6: "\033[48;5;208m",# Orange bg
+    7: "\033[41m",      # Red bg
+    8: "\033[45m",      # Magenta bg
+    11: "\033[48;5;236m",# Dark grey bg
+    12: "\033[48;5;30m",# Teal bg
+    24: "\033[48;5;25m",# Blue bg
+}
 
 TIMELINE_WIDTH = 60  # Characters wide for each timeline
 TRACK_LABEL_WIDTH = 20  # Characters for track name column
+CLIP_BLOCK = "█"  # Filled block for a clip
+CLIP_EMPTY = "·"  # Dot for empty space
 
 
 def _format_bpm(bpm: float) -> str:
     return f"{bpm:.0f}"
 
 
-def _track_symbol(td: TrackDiff) -> str:
-    """Return a status symbol for a track diff."""
-    symbols = {
-        "added": ("+", ANSI["green"]),
-        "removed": ("-", ANSI["red"]),
-        "modified": ("~", ANSI["yellow"]),
-        "unchanged": (" ", ANSI["reset"]),
-    }
-    sym, color = symbols.get(td.status, (" ", ANSI["reset"]))
-    return f"{color}{sym}{ANSI['reset']}"
+def _clip_color_ansi(color: int, fg: bool = True) -> str:
+    """Get ANSI color code for a clip based on Ableton color index."""
+    if fg:
+        return ABLE_COLORS.get(color, ANSI["dim"])
+    return ABLE_COLOR_BG.get(color, "\033[48;5;236m")
 
 
-def _marker_bar(markers: list[str], highlight: set[str] | None = None) -> str:
-    """Render a marker/landmark bar for the timeline."""
-    if not markers:
-        return ""
-    # Place markers proportionally
-    highlight = highlight or set()
-    parts = []
-    spacing = max(1, TIMELINE_WIDTH // (len(markers) + 1))
-    for i, m in enumerate(markers):
-        pos = (i + 1) * spacing
-        if pos >= TIMELINE_WIDTH - 2:
-            pos = TIMELINE_WIDTH - 4
-        if m in highlight:
-            parts.append(f"{ANSI['accent']}▼{ANSI['reset']}")
-        else:
-            parts.append(f"{ANSI['dim']}◆{ANSI['reset']}")
-        # We'll just return a flat string — actual positioning needs more work
-        # For now, show markers inline
-    return "  " + " ".join(
-        f"{ANSI['accent'] if m in highlight else ANSI['dim']}[{m[:12]}]{ANSI['reset']}"
-        for m in markers[:8]
-    )
+def _max_timeline_beats(projects: list[Project]) -> float:
+    """Find the maximum end position across all clips in a list of projects."""
+    max_beats = 0.0
+    for proj in projects:
+        for t in proj.tracks:
+            for c in t.clips:
+                max_beats = max(max_beats, c.end_beats)
+    return max_beats or 64.0  # Default 8 bars if no clips
 
 
-# ─── ASCII Timeline Renderer ──────────────────────────────────────────
+# ─── Clip-Level Timeline Renderer ──────────────────────────────────
 
 
 def render_timeline_bar(
-    track_name: str,
-    status: str,
+    clips: list[Clip],
     width: int = TIMELINE_WIDTH,
+    max_beats: float = 64.0,
+    gap_start: float = 0.0,
+    gap_end: float | None = None,
 ) -> str:
-    """Render a single track's arrangement as a filled bar.
+    """Render a single track's arrangement as a clip-position timeline.
 
-    Different statuses get different fill patterns:
-      - added:    solid accent color
-      - removed:  dim with X pattern
-      - modified: striped yellow
-      - unchanged: dim solid
+    Args:
+        clips: List of Clip objects for this track
+        width: Character width of the timeline
+        max_beats: Total timeline length in beats (the "canvas" width)
+        gap_start: Beats before the timeline starts (for side-by-side offset)
+        gap_end: If set, beats AFTER the timeline ends (for alignment)
+
+    Returns:
+        ANSI-colored string representing clip positions
     """
-    bar = "█" * width
+    if not clips or max_beats <= 0:
+        return f"{ANSI['dim']}{CLIP_EMPTY * width}{ANSI['reset']}"
 
-    if status == "added":
-        return f"{ANSI['green']}{bar}{ANSI['reset']}"
-    elif status == "removed":
-        pattern = ""
-        for i in range(width):
-            pattern += "█" if i % 3 == 0 else " "
-        return f"{ANSI['red']}{pattern}{ANSI['reset']}"
-    elif status == "modified":
-        # Striped pattern
-        pattern = ""
-        for i in range(width):
-            pattern += "█" if i % 4 < 2 else "▓"
-        return f"{ANSI['yellow']}{pattern}{ANSI['reset']}"
-    else:
-        return f"{ANSI['dim']}{bar}{ANSI['reset']}"
+    # Build a character array for the timeline — use block chars, not spaces
+    # Each character gets: color_prefix + block + reset
+    timeline = [f"{ANSI['dim']}{CLIP_EMPTY}{ANSI['reset']}"] * width
+
+    for clip in clips:
+        # Map clip position to character index
+        start_char = int(clip.start_beats / max_beats * width)
+        end_char = int(clip.end_beats / max_beats * width)
+
+        # Clamp to bounds
+        start_char = max(0, min(start_char, width - 1))
+        end_char = max(0, min(end_char, width))
+
+        color_code = _clip_color_ansi(clip.color, fg=False)
+        block_char = CLIP_BLOCK if clip.color != 11 else "░"
+        for pos in range(start_char, end_char):
+            if 0 <= pos < width:
+                timeline[pos] = f"{color_code}{block_char}{ANSI['reset']}"
+
+    return "".join(timeline)
+
+
+# ─── Side-by-Side Visual Diff ──────────────────────────────────────
 
 
 def render_side_by_side(
-    before: list[TrackDiff],
-    after: list[TrackDiff],
+    before_proj: Project | None,
+    after_proj: Project | None,
+    before_track_diffs: list[TrackDiff],
+    after_track_diffs: list[TrackDiff],
     before_markers: list[str],
     after_markers: list[str],
     before_bpm: Optional[float] = None,
     after_bpm: Optional[float] = None,
 ) -> str:
-    """Render a side-by-side visual diff of before and after.
+    """Render a side-by-side visual diff of before and after states.
 
-    Layout:
-    ```
-    ┌─ Before ──────────────┐  ┌─ After ───────────────┐
-    │ Kick ████████████████  │  │ Kick ████████████████  │  ◄ unchanged
-    │ Clap ████████████████  │  │ Clap ████████████████  │
-    │ Hat  ████████████████  │  │ Hat  ████████████████  │
-    │                   │  │ BASS ████████████████  │  ◄ ▲ added
-    │ Vox  ████████████████  │  │ Vox  ████████████████  │
-    │ Markers: [Int][Verse]  │  │ Markers: [Int][Ver][Br]│
-    └────────────────────────┘  └────────────────────────┘
-    ```
+    This is the main entry point for CLI `clavus diff --visual`.
 
     Args:
-        before: Track diffs for the "before" snapshot
-        after: Track diffs for the "after" snapshot
+        before_proj: Full Project for the "before" state (None if no parent)
+        after_proj: Full Project for the "after" state
+        before_track_diffs: TrackDiff list for before
+        after_track_diffs: TrackDiff list for after
         before_markers: Marker names for before
         after_markers: Marker names for after
         before_bpm: BPM of before snapshot
@@ -174,32 +186,67 @@ def render_side_by_side(
     lines = []
     time_width = TIMELINE_WIDTH
 
+    # Determine total timeline range (union of both projects' clips)
+    projects = [p for p in [before_proj, after_proj] if p is not None]
+    max_beats = _max_timeline_beats(projects)
+    # Round up to next power-of-2 bar boundary for clean display
+    bar_size = 4.0  # Assume 4/4 at default
+    max_beats = max(64.0, ((max_beats + bar_size - 1) // bar_size) * bar_size)
+
+    # Show scale markers
+    beats_per_char = max_beats / time_width
+
     # ── Build ordered track lists ──
-    # Start with all track names from both sides
     before_tracks: dict[str, TrackDiff] = {}
     after_tracks: dict[str, TrackDiff] = {}
+    before_clips: dict[str, list[Clip]] = {}
+    after_clips: dict[str, list[Clip]] = {}
     all_names: list[str] = []
 
-    for td in before:
+    for td in before_track_diffs:
         before_tracks[td.name] = td
         if td.name not in all_names:
             all_names.append(td.name)
-    for td in after:
+
+    for td in after_track_diffs:
         after_tracks[td.name] = td
         if td.name not in all_names:
             all_names.append(td.name)
 
-    # ── Header ──
-    bpm_before = f" {_format_bpm(before_bpm)}bpm" if before_bpm else ""
-    bpm_after = f" {_format_bpm(after_bpm)}bpm" if after_bpm else ""
+    # Map clip data from projects to track names
+    if before_proj:
+        for t in before_proj.tracks:
+            before_clips[t.name] = t.clips
+    if after_proj:
+        for t in after_proj.tracks:
+            after_clips[t.name] = t.clips
+
+    # ── Scale ruler ──
+    bpm_display = f"  {ANSI['bold']}Before{ANSI['reset']}"
+    if before_bpm:
+        bpm_display += f" {ANSI['dim']}{_format_bpm(before_bpm)}bpm{ANSI['reset']}"
+    bpm_display2 = f"  {ANSI['bold']}After{ANSI['reset']}"
+    if after_bpm:
+        bpm_display2 += f" {ANSI['dim']}{_format_bpm(after_bpm)}bpm{ANSI['reset']}"
+
     lines.append("")
-    header_before = f"Before{bpm_before}"
-    header_after = f"After{bpm_after}"
-    half = time_width // 2
     lines.append(
-        f"  {ANSI['bold']}{header_before}{ANSI['reset']}"
-        f"{' ' * (TRACK_LABEL_WIDTH + time_width - len(header_before) - len(header_after) - 2)}"
-        f"{ANSI['bold']}{header_after}{ANSI['reset']}"
+        f"  {bpm_display}"
+        f"{' ' * (TRACK_LABEL_WIDTH + time_width - len(bpm_display) - len(bpm_display2) + 2)}"
+        f"{bpm_display2}"
+    )
+
+    # Beat scale ruler — show 16-beat marks
+    scale_before = ""
+    for i in range(0, int(max_beats), 16):  # 4-bar marks
+        pos = int(i / max_beats * time_width)
+        while len(scale_before) < pos:
+            scale_before += " "
+        scale_before += "│"
+    scale_before = scale_before.ljust(time_width)
+    
+    lines.append(
+        f"  {'Beat':<{TRACK_LABEL_WIDTH}}{ANSI['dim']}{scale_before}{ANSI['reset']}  {ANSI['dim']}{scale_before}{ANSI['reset']}"
     )
 
     divider = "  " + "─" * (TRACK_LABEL_WIDTH + time_width) + "  " + "─" * time_width
@@ -212,16 +259,16 @@ def render_side_by_side(
 
         # Determine row annotation
         annotation = ""
+        detail_parts = []
         if bt and not at:
             annotation = f" {ANSI['red']}◄ removed{ANSI['reset']}"
         elif at and not bt:
             annotation = f" {ANSI['green']}◄ ▲ added{ANSI['reset']}"
         elif bt and at and bt.status != "unchanged":
-            detail_parts = []
             if at.devices_added:
-                detail_parts.append(f"+{','.join(d[:8] for d in at.devices_added)}")
+                detail_parts.append(f"+{','.join(d[:10] for d in at.devices_added)}")
             if at.devices_removed:
-                detail_parts.append(f"-{','.join(d[:8] for d in at.devices_removed)}")
+                detail_parts.append(f"-{','.join(d[:10] for d in at.devices_removed)}")
             if at.frozen_changed is not None:
                 detail_parts.append("frozen" if at.frozen_changed else "unfrozen")
             if at.mute_changed is not None:
@@ -229,37 +276,50 @@ def render_side_by_side(
             if detail_parts:
                 annotation = f" {ANSI['yellow']}◄ {', '.join(detail_parts)}{ANSI['reset']}"
 
+        # Clip-count change indicator
+        if bt and at:
+            before_clip_count = len(before_clips.get(name, []))
+            after_clip_count = len(after_clips.get(name, []))
+            if before_clip_count != after_clip_count:
+                if not detail_parts:
+                    diff_count = after_clip_count - before_clip_count
+                    if diff_count > 0:
+                        annotation = f" {ANSI['accent']}◄ +{diff_count} clips{ANSI['reset']}"
+                    else:
+                        annotation = f" {ANSI['dim']}◄ {diff_count} clips{ANSI['reset']}"
+
         # Left side (before)
         left_label = f"{name:<{TRACK_LABEL_WIDTH}}"
         if bt:
-            left_bar = render_timeline_bar(name, bt.status, time_width)
+            left_clips = before_clips.get(name, [])
+            left_bar = render_timeline_bar(
+                left_clips, time_width, max_beats=max_beats,
+            )
         else:
-            left_bar = " " * time_width
+            left_bar = f"{ANSI['dim']}{CLIP_EMPTY * time_width}{ANSI['reset']}"
 
         # Right side (after)
         if at:
-            right_bar = render_timeline_bar(name, at.status, time_width)
+            right_clips = after_clips.get(name, [])
+            right_bar = render_timeline_bar(
+                right_clips, time_width, max_beats=max_beats,
+            )
         else:
-            right_bar = " " * time_width
+            right_bar = f"{ANSI['dim']}{CLIP_EMPTY * time_width}{ANSI['reset']}"
 
         lines.append(f"  {left_label}{left_bar}  {right_bar}{annotation}")
 
     # ── Marker rows ──
-    marker_tags_before = " ".join(
-        f"{ANSI['dim']}[{m[:10]}]{ANSI['reset']}"
-        for m in before_markers[:5]
-    )
-    marker_tags_after = " ".join(
-        f"{ANSI['accent'] if m in after_markers and m not in before_markers else ANSI['dim']}[{m[:10]}]{ANSI['reset']}"
-        for m in after_markers[:5]
-    )
-
-    # Highlight new markers
     new_markers = set(after_markers) - set(before_markers)
+    marker_tags_before = " ".join(
+        f"{ANSI['dim']}[{m[:12]}]{ANSI['reset']}"
+        for m in before_markers[:6]
+    ) if before_markers else f"{ANSI['dim']}—{ANSI['reset']}"
+    
     marker_tags_after = " ".join(
-        f"{ANSI['accent'] if m in new_markers else ANSI['dim']}[{m[:10]}]{ANSI['reset']}"
-        for m in after_markers[:5]
-    )
+        f"{ANSI['accent'] if m in new_markers else ANSI['dim']}[{m[:12]}]{ANSI['reset']}"
+        for m in after_markers[:6]
+    ) if after_markers else f"{ANSI['dim']}—{ANSI['reset']}"
 
     lines.append(
         f"  {'Markers':<{TRACK_LABEL_WIDTH}}{marker_tags_before}"
@@ -283,6 +343,17 @@ def render_side_by_side(
                          if before_tracks.get(t) and after_tracks.get(t)
                          and before_tracks[t].status != "unchanged"])
 
+    # Clip change summary
+    clip_diffs = []
+    for name in all_names:
+        bt = before_tracks.get(name)
+        at = after_tracks.get(name)
+        if bt and at:
+            bc = len(before_clips.get(name, []))
+            ac = len(after_clips.get(name, []))
+            if bc != ac:
+                clip_diffs.append((name, ac - bc))
+
     summary_parts = []
     if added_count:
         summary_parts.append(f"{ANSI['green']}+{added_count} tracks{ANSI['reset']}")
@@ -292,6 +363,13 @@ def render_side_by_side(
         summary_parts.append(f"{ANSI['yellow']}~{modified_count} modified{ANSI['reset']}")
     if new_markers:
         summary_parts.append(f"{ANSI['accent']}+{len(new_markers)} markers{ANSI['reset']}")
+    for name, diff_count in clip_diffs[:3]:
+        if diff_count > 0:
+            summary_parts.append(f"{ANSI['accent']}{name}: +{diff_count} clips{ANSI['reset']}")
+        else:
+            summary_parts.append(f"{ANSI['dim']}{name}: {diff_count} clips{ANSI['reset']}")
+    if len(clip_diffs) > 3:
+        summary_parts.append(f"{ANSI['dim']}... ({len(clip_diffs) - 3} more){ANSI['reset']}")
 
     if summary_parts:
         lines.append("")
@@ -301,32 +379,35 @@ def render_side_by_side(
     return "\n".join(lines)
 
 
-def render_diff_cli(diff: ProjectDiff) -> str:
+def render_diff_cli(diff: ProjectDiff, before_proj: Project | None = None, after_proj: Project | None = None) -> str:
     """Render a ProjectDiff as a visual timeline for the terminal/CLI.
 
     This is called by `clavus diff --visual`.
 
     Args:
         diff: The structured diff between two snapshots
+        before_proj: Full project data for the "before" snapshot (if available)
+        after_proj: Full project data for the "after" snapshot (if available)
 
     Returns:
         ANSI-colored visual diff string for terminal output
     """
-    # Extract before/after track state from the diff
-    # We don't have full Project objects here, just the diff summary
-    # The CLI calls this after loading both snapshots
     return render_side_by_side(
-        before=diff.tracks,
-        after=diff.tracks,  # Same list — the TrackDiff has status for each
+        before_proj=before_proj,
+        after_proj=after_proj,
+        before_track_diffs=diff.tracks,
+        after_track_diffs=diff.tracks,
         before_markers=diff.markers_removed,
         after_markers=diff.markers_added,
+        before_bpm=diff.bpm_changed[0] if diff.bpm_changed else None,
+        after_bpm=diff.bpm_changed[1] if diff.bpm_changed else None,
     )
 
 
 # ─── Web HTML Renderer ────────────────────────────────────────────────
 
 
-def render_diff_html(diff: ProjectDiff) -> str:
+def render_diff_html(diff: ProjectDiff, before_proj: Project | None = None, after_proj: Project | None = None) -> str:
     """Render a ProjectDiff as HTML for the web companion.
 
     Returns an HTML string with inline styles matching the CRUX theme.
@@ -403,5 +484,6 @@ def render_diff_html(diff: ProjectDiff) -> str:
         </tbody>
       </table>
       {marker_html}
+      {bpm_html}
     </div>
     """

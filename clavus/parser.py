@@ -34,6 +34,16 @@ class Device:
 
 
 @dataclass
+class Clip:
+    """A single clip in the arrangement view."""
+    start_beats: float  # Start position in beats
+    end_beats: float    # End position in beats
+    name: str = ""
+    color: int = 16777215
+    clip_type: str = "MidiClip"  # MidiClip or AudioClip
+
+
+@dataclass
 class Track:
     """A single track in the Ableton project."""
     name: str = "Unnamed"
@@ -44,6 +54,7 @@ class Track:
     is_solo: bool = False
     devices: list[Device] = field(default_factory=list)
     sends: dict[str, float] = field(default_factory=dict)
+    clips: list[Clip] = field(default_factory=list)
 
     # For index-based reference
     index: int = 0
@@ -116,6 +127,29 @@ def _get_value_attr(element: ET.Element, path: str, default: str = "") -> str:
     return target.get("Value", default)
 
 
+def _parse_track_name(track_elem: ET.Element) -> str:
+    """Extract the track name, supporting both Live 11 (Name attribute) and Live 12 (EffectiveName child)."""
+    name_elem = track_elem.find("Name")
+    if name_elem is not None:
+        # Live 12: <Name><EffectiveName Value="Kick"/></Name>
+        eff = name_elem.find("EffectiveName")
+        if eff is not None:
+            val = eff.get("Value", "")
+            if val:
+                return val
+        # Live 11: <Name Value="Kick"/>
+        val = name_elem.get("Value", "")
+        if val:
+            return val
+        # UserName fallback
+        user = name_elem.find("UserName")
+        if user is not None:
+            val = user.get("Value", "")
+            if val:
+                return val
+    return "Unnamed Track"
+
+
 def _parse_color(color_str: str) -> int:
     """Parse a color value from Ableton's format (integer string)."""
     try:
@@ -158,16 +192,27 @@ def parse_als(file_path: str | Path) -> Project:
         raise ValueError(f"Failed to parse XML from {path}: {e}")
 
     if root.tag != "LiveSet":
-        raise ValueError(f"Expected <LiveSet> root, got <{root.tag}>")
+        # Live 12 wraps <LiveSet> inside <Ableton>
+        if root.tag == "Ableton":
+            liveset = root.find("LiveSet")
+            if liveset is not None:
+                root = liveset
+            else:
+                raise ValueError("Expected <LiveSet> inside <Ableton>, but none found")
+        else:
+            raise ValueError(f"Expected <LiveSet> root, got <{root.tag}>")
+
+    # Live 12 stores tracks inside a <Tracks> wrapper
+    tracks_container = root.find("Tracks") or root
 
     project = Project(file_path=path)
     _parse_master_track(root, project)
     _parse_tempo(root, project)
     _parse_markers(root, project)
-    _parse_audio_tracks(root, project)
-    _parse_midi_tracks(root, project)
-    _parse_group_tracks(root, project)
-    _parse_return_tracks(root, project)
+    _parse_audio_tracks(tracks_container, project)
+    _parse_midi_tracks(tracks_container, project)
+    _parse_group_tracks(tracks_container, project)
+    _parse_return_tracks(tracks_container, project)
 
     return project
 
@@ -247,7 +292,7 @@ def _parse_markers(root: ET.Element, project: Project) -> None:
 
 def _parse_track_common(track_elem: ET.Element, track: Track) -> None:
     """Parse properties common to all track types."""
-    track.name = _get_value_attr(track_elem, "Name", "Unnamed Track")
+    track.name = _parse_track_name(track_elem)
     track.color = _parse_color(_get_value_attr(track_elem, "Color", "16777215"))
     track.is_frozen = _get_value_attr(track_elem, "IsFrozen", "false").lower() == "true"
     track.is_muted = _get_value_attr(track_elem, "Mute", "false").lower() == "true"
@@ -259,7 +304,7 @@ def _parse_track_common(track_elem: ET.Element, track: Track) -> None:
         devices = chain.find("Devices")
         if devices is not None:
             for device_elem in devices:
-                dev_name = _get_value_attr(device_elem, "Name", device_elem.tag)
+                dev_name = _parse_track_name(device_elem)
                 track.devices.append(Device(name=dev_name, device_type=device_elem.tag))
 
     # Sends
@@ -272,6 +317,39 @@ def _parse_track_common(track_elem: ET.Element, track: Track) -> None:
                 track.sends[send_name] = float(send_value_str)
             except ValueError:
                 track.sends[send_name] = 0.0
+
+    # Arranger clips (ClipTimeable > ArrangerAutomation > Events)
+    if chain is not None:
+        for ct in chain.iter("ClipTimeable"):
+            _parse_arranger_clips(ct, track)
+
+
+def _parse_arranger_clips(ct: ET.Element, track: Track) -> None:
+    """Extract arranger clips from a ClipTimeable element."""
+    arr_auto = ct.find("ArrangerAutomation")
+    if arr_auto is None:
+        return
+    events = arr_auto.find("Events")
+    if events is None:
+        return
+    for clip_elem in events:
+        if clip_elem.tag not in ("MidiClip", "AudioClip"):
+            continue
+        cs = clip_elem.find("CurrentStart")
+        ce = clip_elem.find("CurrentEnd")
+        cn = clip_elem.find("Name")
+        cc = clip_elem.find("Color")
+        start_val = float(cs.get("Value", "0")) if cs is not None else float(clip_elem.get("Time", "0"))
+        end_val = float(ce.get("Value", "0")) if ce is not None else start_val + 4.0
+        name_val = cn.get("Value", "") if cn is not None else ""
+        color_val = int(cc.get("Value", "16777215")) if cc is not None else 16777215
+        track.clips.append(Clip(
+            start_beats=start_val,
+            end_beats=end_val,
+            name=name_val,
+            color=color_val,
+            clip_type=clip_elem.tag,
+        ))
 
 
 def _parse_audio_tracks(root: ET.Element, project: Project) -> None:

@@ -454,6 +454,16 @@ def _project_to_dict(project: Project) -> dict:
                     for d in t.devices
                 ],
                 "sends": dict(t.sends),
+                "clips": [
+                    {
+                        "start_beats": c.start_beats,
+                        "end_beats": c.end_beats,
+                        "name": c.name,
+                        "color": c.color,
+                        "clip_type": c.clip_type,
+                    }
+                    for c in t.clips
+                ],
             }
             for t in project.tracks
         ],
@@ -484,7 +494,7 @@ def _project_to_dict(project: Project) -> dict:
 
 def _dict_to_project(data: dict) -> Project:
     """Reconstruct a Project from a serialized dict."""
-    from clavus.parser import Project, Track, Marker, Device, TempoEvent
+    from clavus.parser import Project, Track, Marker, Device, TempoEvent, Clip
 
     project = Project(
         ableton_version=data.get("ableton_version", ""),
@@ -505,6 +515,7 @@ def _dict_to_project(data: dict) -> Project:
             is_solo=td.get("is_solo", False),
             devices=[Device(**d) for d in td.get("devices", [])],
             sends=td.get("sends", {}),
+            clips=[Clip(**c) for c in td.get("clips", [])],
         )
         project.tracks.append(track)
 
@@ -544,6 +555,9 @@ class TrackDiff:
     solo_changed: Optional[bool] = None
     name_changed: Optional[str] = None
     color_changed: Optional[int] = None
+    clips_changed: Optional[bool] = None  # True if clip positions/counts differ
+    clips_before: int = 0  # Number of clips before
+    clips_after: int = 0   # Number of clips after
 
 
 @dataclass
@@ -611,7 +625,23 @@ def diff_projects(before: Project, after: Project) -> ProjectDiff:
             if bt.is_muted != at.is_muted:
                 mute_changed = at.is_muted
 
-            if devices_added or devices_removed or frozen_changed is not None or mute_changed is not None:
+            # Clip diff
+            clips_changed = None
+            clips_before = len(bt.clips)
+            clips_after = len(at.clips)
+            if clips_before != clips_after:
+                clips_changed = True
+            else:
+                # Check if any clip positions differ
+                for bc, ac in zip(bt.clips, at.clips):
+                    if (bc.start_beats != ac.start_beats or
+                        bc.end_beats != ac.end_beats or
+                        bc.name != ac.name):
+                        clips_changed = True
+                        break
+
+            if (devices_added or devices_removed or frozen_changed is not None or
+                mute_changed is not None or clips_changed):
                 diff.tracks.append(TrackDiff(
                     name=name,
                     status="modified",
@@ -619,6 +649,9 @@ def diff_projects(before: Project, after: Project) -> ProjectDiff:
                     devices_removed=devices_removed,
                     frozen_changed=frozen_changed,
                     mute_changed=mute_changed,
+                    clips_changed=clips_changed,
+                    clips_before=clips_before,
+                    clips_after=clips_after,
                 ))
             else:
                 diff.tracks.append(TrackDiff(name=name, status="unchanged"))
@@ -643,9 +676,21 @@ def diff_projects(before: Project, after: Project) -> ProjectDiff:
     removed = [t for t in diff.tracks if t.status == "removed"]
 
     if modified:
-        summary_parts.append(f"Modified: {', '.join(t.name for t in modified[:5])}")
-        if len(modified) > 5:
-            summary_parts[-1] += f" (+{len(modified) - 5} more)"
+        clip_modified = [t for t in modified if t.clips_changed]
+        other_modified = [t for t in modified if not t.clips_changed]
+        if other_modified:
+            summary_parts.append(f"Modified: {', '.join(t.name for t in other_modified[:5])}")
+            if len(other_modified) > 5:
+                summary_parts[-1] += f" (+{len(other_modified) - 5} more)"
+        if clip_modified:
+            for cm in clip_modified[:3]:
+                diff_count = cm.clips_after - cm.clips_before
+                if diff_count > 0:
+                    summary_parts.append(f"{cm.name}: +{diff_count} clips")
+                else:
+                    summary_parts.append(f"{cm.name}: {diff_count} clips")
+            if len(clip_modified) > 3:
+                summary_parts[-1] += f" (+{len(clip_modified) - 3} more clipped)"
     if added:
         summary_parts.append(f"Added: {', '.join(t.name for t in added[:3])}")
     if removed:
@@ -680,6 +725,12 @@ def format_diff(diff: ProjectDiff, verbose: bool = False) -> str:
             lines.append(f"       Frozen: {'yes' if td.frozen_changed else 'no'}")
         if td.mute_changed is not None:
             lines.append(f"       Muted: {'yes' if td.mute_changed else 'no'}")
+        if td.clips_changed:
+            diff_count = td.clips_after - td.clips_before
+            if diff_count > 0:
+                lines.append(f"       +{diff_count} clips")
+            else:
+                lines.append(f"       {diff_count} clips")
 
     if diff.markers_added:
         lines.append(f"\n  📍 Markers added: {', '.join(diff.markers_added[:5])}")

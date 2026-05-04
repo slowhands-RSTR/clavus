@@ -305,20 +305,15 @@ def cmd_diff(args: argparse.Namespace) -> None:
             diff = diff_projects(parent_project, current_project)
 
             if args.visual:
-                # Render visual timeline diff
+                # Render visual timeline diff with clip-level detail
                 try:
-                    from clavus.visual_diff import render_side_by_side
+                    from clavus.visual_diff import render_diff_cli
                     print(f"📊 {snap.short_hash()} — '{snap.message}'")
-                    # Get BPM from both projects
-                    before_bpm = parent_project.bpm if hasattr(parent_project, "bpm") else None
-                    after_bpm = current_project.bpm if hasattr(current_project, "bpm") else None
-                    print(render_side_by_side(
-                        before=diff.tracks,
-                        after=diff.tracks,
-                        before_markers=diff.markers_removed,
-                        after_markers=diff.markers_added,
-                        before_bpm=before_bpm,
-                        after_bpm=after_bpm,
+                    diff = diff_projects(parent_project, current_project)
+                    print(render_diff_cli(
+                        diff=diff,
+                        before_proj=parent_project,
+                        after_proj=current_project,
                     ))
                     return
                 except ImportError:
