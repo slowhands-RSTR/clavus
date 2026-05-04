@@ -146,10 +146,18 @@ def _snapshots_to_dicts(store: BlobStore, proj: ClavusProject) -> list[dict]:
     """Serialize snapshot history for transport."""
     history = []
     current = proj.head
+    seen: set[str] = set()
     while current:
+        if current in seen:
+            store.repair_snapshot(current)
+            break
+        seen.add(current)
         snap = store.load_snapshot(current)
         if not snap:
             break
+        if snap.parent == current:
+            store.repair_snapshot(current)
+            snap.parent = None
         history.append({
             "hash": snap.hash, "full_hash": snap.hash,
             "timestamp": snap.timestamp, "message": snap.message,
@@ -158,6 +166,8 @@ def _snapshots_to_dicts(store: BlobStore, proj: ClavusProject) -> list[dict]:
             "tags": snap.tags,
             "parent": snap.parent,
         })
+        if snap.parent == current:
+            break
         current = snap.parent
     return history
 

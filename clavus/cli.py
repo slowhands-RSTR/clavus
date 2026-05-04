@@ -895,6 +895,79 @@ def cmd_cue_render(args: argparse.Namespace) -> None:
         print(f"   Import into Ableton by merging <CuePoints> into your .als file.")
 
 
+# ─── Snapshot Restore ─────────────────────────────────────────────────────
+
+def cmd_restore(args: argparse.Namespace) -> None:
+    """Restore a snapshot's .als file from the stored raw bytes."""
+    store, proj = get_store_and_project()
+
+    if args.hash:
+        hash_str = resolve_snapshot(store, args.hash)
+        if not hash_str:
+            print(f"❌ Could not resolve '{args.hash}'")
+            sys.exit(1)
+    else:
+        hash_str = store.read_ref("HEAD")
+        if not hash_str:
+            print("❌ No snapshots to restore from.")
+            sys.exit(1)
+
+    snap = store.load_snapshot(hash_str)
+    if not snap:
+        print(f"❌ Snapshot not found: {hash_str}")
+        sys.exit(1)
+
+    if not snap.als_hash:
+        print(f"❌ Snapshot {snap.short_hash()} has no raw .als backup.")
+        print("   Only snapshots created *after* the restore feature was built")
+        print("   store raw .als data. Create a fresh snapshot first.")
+        sys.exit(1)
+
+    raw_als = store.get_object(snap.als_hash)
+    if not raw_als:
+        print(f"❌ Raw .als data missing for snapshot {snap.short_hash()}.")
+        print(f"   Looked for blob: {snap.als_hash[:16]}...")
+        sys.exit(1)
+
+    als_path = Path(proj.root_als)
+    if not als_path.exists():
+        print(f"❌ Project .als file not found at {als_path}")
+        sys.exit(1)
+
+    # Confirmation
+    snap_time = time.strftime("%Y-%m-%d %H:%M", time.localtime(snap.timestamp))
+    print(f"📋 Restore snapshot: {snap.short_hash()}")
+    print(f"   Message: {snap.message}")
+    print(f"   Captured: {snap_time}")
+    print(f"   Tracks: {snap.track_count}  BPM: {snap.bpm}")
+    print(f"   Will overwrite: {als_path}")
+    print()
+    print(f"⚠️  This will overwrite your current .als file. A backup will be saved as:")
+    print(f"   {als_path}.bak (if one doesn't already exist)")
+    print()
+    confirm = input("  Continue? (y/N): ").strip().lower()
+    if confirm != "y":
+        print("❌ Restore cancelled.")
+        return
+
+    # Backup existing .als (only first time)
+    bak_path = als_path.with_suffix(".als.bak")
+    if not bak_path.exists():
+        bak_path.write_bytes(als_path.read_bytes())
+        print(f"   💾 Current .als backed up to: {bak_path}")
+
+    # Write the restored .als
+    als_path.write_bytes(raw_als)
+    print(f"✅ Restored {als_path.name} to snapshot {snap.short_hash()}")
+    print(f"   '{snap.message}' — from {snap_time}")
+
+    # Update HEAD to point at this snapshot
+    store.update_ref("HEAD", hash_str)
+    proj.head = hash_str
+    store.set_index(proj)
+    print(f"   HEAD updated to {snap.short_hash()}")
+
+
 # ─── Stem Commands ─────────────────────────────────────────────────────
 
 
@@ -1042,6 +1115,11 @@ def main():
     p_log.add_argument("--limit", "-n", type=int, default=20, help="Max snapshots to show")
     p_log.add_argument("--verbose", "-v", action="store_true", help="Show detailed info per snapshot")
     p_log.add_argument("--graph", action="store_true", help="Show branch topology")
+
+    # Restore
+    p_restore = subparsers.add_parser("restore", help="Restore .als from a snapshot")
+    p_restore.add_argument("hash", nargs="?", default=None,
+                          help="Snapshot hash or ref name (default: HEAD)")
 
     # Diff
     p_diff = subparsers.add_parser("diff", help="Show changes in a snapshot")
@@ -1207,6 +1285,7 @@ def main():
         "pull": cmd_pull,
         "sync": cmd_sync,
         "merge": cmd_merge,
+        "restore": cmd_restore,
         "cue": cmd_cue,
         "cue-reply": cmd_cue_reply,
         "cue-resolve": cmd_cue_resolve,

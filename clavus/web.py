@@ -321,10 +321,20 @@ def get_project_sync(name: str = Query("", description="Project name to load")):
     # Snapshot history
     history = []
     current = proj.head
+    seen: set[str] = set()
     while current:
+        if current in seen:
+            # Self-referencing parent — break and auto-repair
+            store.repair_snapshot(current)
+            break
+        seen.add(current)
         snap = store.load_snapshot(current)
         if not snap:
             break
+        # Auto-repair if parent points to self
+        if snap.parent == current:
+            store.repair_snapshot(current)
+            snap.parent = None
         history.append({
             "hash": snap.hash[:8],
             "full_hash": snap.hash,
@@ -335,6 +345,9 @@ def get_project_sync(name: str = Query("", description="Project name to load")):
             "bpm": snap.bpm,
             "is_head": current == store.read_ref("HEAD"),
         })
+        if snap.parent == current:
+            # Self-referencing parent — stop here
+            break
         current = snap.parent
 
     return {
@@ -444,6 +457,132 @@ async def inject_cues(name: str = Query("", description="Project name to inject 
     if not result:
         return {"injected": 0, "message": "All cues already present in the project"}
     return {"injected": len(unresolved), "message": f"Injected {len(unresolved)} cue(s) as markers"}
+
+
+@app.post("/api/projects/restore")
+async def restore_snapshot_endpoint(
+    hash: str = Query("", description="Snapshot hash to restore (default: HEAD)"),
+    name: str = Query("", description="Project name"),
+):
+    """Restore a project's .als file from a snapshot's raw backup."""
+    try:
+        store, proj = _get_project(name)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    als_path = Path(proj.root_als)
+    if not als_path.exists():
+        return JSONResponse({"error": f".als file not found: {als_path}"}, status_code=404)
+
+    hash_str = hash or store.read_ref("HEAD")
+    if not hash_str:
+        return JSONResponse({"error": "No snapshots to restore from"}, status_code=404)
+
+    # Resolve hash prefix
+    if len(hash_str) < 64:
+        # Short hash — try to find it
+        prefix = hash_str
+        hash_str = store.read_ref(f"refs/tags/{prefix}")
+        if not hash_str:
+            # Search by prefix in objects
+            for obj_dir in store.objects_dir.iterdir():
+                if obj_dir.is_dir():
+                    for f in obj_dir.iterdir():
+                        if f.name.endswith(".meta") and f.stem.startswith(prefix):
+                            hash_str = f.stem
+                            break
+                    if hash_str and len(hash_str) >= 8:
+                        break
+
+    snap = store.load_snapshot(hash_str) if hash_str else None
+    if not snap:
+        return JSONResponse({"error": f"Snapshot not found: {hash}"}, status_code=404)
+
+    if not snap.als_hash:
+        return JSONResponse({
+            "error": "Snapshot has no raw .als backup",
+            "detail": "Only snapshots created after the restore feature was built store raw .als data. Create a fresh snapshot first.",
+        }, status_code=400)
+
+    raw_als = store.get_object(snap.als_hash)
+    if not raw_als:
+        return JSONResponse({"error": "Raw .als data missing from blob store"}, status_code=404)
+
+    # Backup existing .als (only first time)
+    bak_path = als_path.with_suffix(".als.bak")
+    if not bak_path.exists():
+        bak_path.write_bytes(als_path.read_bytes())
+
+    # Write the restored .als
+    als_path.write_bytes(raw_als)
+
+    # Update HEAD
+    store.update_ref("HEAD", hash_str)
+    proj.head = hash_str
+    store.set_index(proj)
+
+    snap_time = time.strftime("%Y-%m-%d %H:%M", time.localtime(snap.timestamp))
+    return {
+        "status": "ok",
+        "hash": snap.short_hash(),
+        "message": snap.message,
+        "captured": snap_time,
+        "tracks": snap.track_count,
+        "bpm": snap.bpm,
+        "backup": str(bak_path) if bak_path.exists() else "",
+    }
+
+
+class SnapshotCreate(BaseModel):
+    message: str
+    tags: str = ""
+
+
+@app.post("/api/projects/snapshot")
+async def create_snapshot_endpoint(
+    body: SnapshotCreate,
+    name: str = Query("", description="Project name"),
+):
+    """Create a new snapshot of the current project state."""
+    from clavus import parse_als
+
+    try:
+        store, proj = _get_project(name)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    als_path = Path(proj.root_als)
+    if not als_path.exists():
+        return JSONResponse({"error": f".als file not found: {als_path}"}, status_code=404)
+
+    project = parse_als(als_path)
+    snap = store.save_snapshot(
+        project,
+        message=body.message,
+        parent=proj.head,
+        tags=body.tags.split(",") if body.tags else [],
+    )
+
+    # Check if anything actually changed
+    if snap.hash == proj.head and proj.head is not None:
+        return {
+            "status": "no_change",
+            "hash": snap.short_hash(),
+            "message": "No changes detected — project state is identical to last snapshot.",
+        }
+
+    # Update references
+    store.update_ref("HEAD", snap.hash)
+    proj.head = snap.hash
+    store.set_index(proj)
+
+    return {
+        "status": "ok",
+        "hash": snap.short_hash(),
+        "message": body.message,
+        "tracks": snap.track_count,
+        "bpm": snap.bpm,
+    }
 
 
 @app.post("/api/cues/{cue_id}/reply")
@@ -789,16 +928,26 @@ async def sync_pull(name: str = Query(..., description="Project name")):
     # Snapshot history
     history = []
     current = proj.head
+    seen: set[str] = set()
     while current:
+        if current in seen:
+            store.repair_snapshot(current)
+            break
+        seen.add(current)
         snap = store.load_snapshot(current)
         if not snap:
             break
+        if snap.parent == current:
+            store.repair_snapshot(current)
+            snap.parent = None
         history.append({
             "hash": snap.hash[:8], "full_hash": snap.hash,
             "timestamp": snap.timestamp, "message": snap.message,
             "track_count": snap.track_count, "bpm": snap.bpm,
             "is_head": current == store.read_ref("HEAD"),
         })
+        if snap.parent == current:
+            break
         current = snap.parent
 
     return {

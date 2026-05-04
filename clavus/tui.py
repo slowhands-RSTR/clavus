@@ -159,6 +159,46 @@ class ClavusClient:
             pass
         return None
 
+    async def restore_snapshot(self, project: str, hash: str = "") -> Optional[dict]:
+        """Restore a project's .als from a snapshot backup."""
+        try:
+            params = {"name": project}
+            if hash:
+                params["hash"] = hash
+            r = await self.client.post(
+                f"{self.base_url}/api/projects/restore",
+                params=params,
+                timeout=15,
+            )
+            if r.status_code == 200:
+                return r.json()
+            # Return error dict for non-200
+            try:
+                return r.json()
+            except Exception:
+                return {"error": f"HTTP {r.status_code}"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def create_snapshot(self, project: str, message: str, tags: str = "") -> Optional[dict]:
+        """Create a new snapshot of the current project state."""
+        try:
+            params = {"name": project}
+            r = await self.client.post(
+                f"{self.base_url}/api/projects/snapshot",
+                params=params,
+                json={"message": message, "tags": tags},
+                timeout=15,
+            )
+            if r.status_code == 200:
+                return r.json()
+            try:
+                return r.json()
+            except Exception:
+                return {"error": f"HTTP {r.status_code}"}
+        except Exception as e:
+            return {"error": str(e)}
+
     async def pull(self, project: str) -> tuple[list[Cue], list[Snap]]:
         try:
             r = await self.client.get(
@@ -319,6 +359,7 @@ class ClavusApp(App):
         Binding("e", "edit", "Edit"),
         Binding("c", "cue_new", "New cue"),
         Binding("s", "skip", "Skip"),
+        Binding("T", "restore_snapshot", "Restore"),
         Binding("R", "resolve", "Resolve"),
         Binding("a", "assign", "Assign"),
         Binding("S", "start", "Start/Stop"),
@@ -466,10 +507,14 @@ class ClavusApp(App):
             self._show_input("browse", "browse: ", prefill=arg or "~")
         elif cmd == "inject":
             self._run_inject()
+        elif cmd == "restore":
+            self._run_restore(arg)
+        elif cmd == "snapshot":
+            self._run_snapshot(arg)
         elif cmd == "archive":
             self.action_archive()
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, archive, help")
+            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, restore [hash], snapshot <msg>, archive, help")
         else:
             self._status(f"unknown: {cmd}")
 
@@ -576,7 +621,59 @@ class ClavusApp(App):
         injected = result.get("injected", 0)
         self._status(f"injected {injected} cue(s) as Ableton markers")
         if injected > 0:
-            self._status(f"💾 save + reopen the .als in Ableton to see markers")
+            self._status(f"save + reopen the .als in Ableton to see markers")
+
+    @work(exclusive=False)
+    async def _run_restore(self, hash_str: str = ""):
+        """Restore the .als from a snapshot backup."""
+        if not self.project:
+            self._status("no project selected")
+            return
+        self._status(f"restoring from {'HEAD' if not hash_str else hash_str}...")
+        result = await self.api.restore_snapshot(self.project, hash_str)
+        if result is None:
+            self._status("failed to restore — server unreachable")
+            return
+        if "error" in result:
+            detail = result.get("detail", "")
+            msg = f"error: {result['error']}"
+            if detail:
+                msg += f" — {detail}"
+            self._status(msg)
+            return
+        msg = result.get("message", "?")
+        captured = result.get("captured", "?")
+        self._status(f"restored to snapshot: '{msg}' ({captured})")
+        # Re-pull to update cues/snapshots display
+        await self._do_pull()
+
+    @work(exclusive=False)
+    async def _run_snapshot(self, message: str = ""):
+        """Create a new snapshot of the current project state."""
+        if not self.project:
+            self._status("no project selected")
+            return
+        if not message:
+            self._status("usage: :snapshot <message>")
+            return
+        self._status("creating snapshot...")
+        result = await self.api.create_snapshot(self.project, message)
+        if result is None:
+            self._status("failed to create snapshot — server unreachable")
+            return
+        if "error" in result:
+            self._status(f"error: {result['error']}")
+            return
+        status = result.get("status", "?")
+        if status == "no_change":
+            self._status(f"no changes — HEAD already at {result.get('hash', '?')}")
+        else:
+            h = result.get("hash", "?")
+            t = result.get("tracks", "?")
+            b = result.get("bpm", "?")
+            self._status(f"snapshot {h} — {t} tracks @ {b}bpm")
+        # Re-pull to show new snapshot in history
+        await self._do_pull()
 
     # ─── Cue operations ────────────────────────────────────────────────
 
@@ -649,6 +746,24 @@ class ClavusApp(App):
         self._render()
         self._status("skipped" if cue.status == "skipped" else "unskipped")
         self._save()
+
+    def action_restore_snapshot(self):
+        """Restore the most recently selected snapshot from the history pane."""
+        # Find the focused snapshot — works regardless of which pane has focus
+        if not self.snaps:
+            self._status("no snapshots to restore from")
+            return
+        # Use the history list view's index, or default to the most recent
+        try:
+            hlv = self.query_one("#hlv", ListView)
+            idx = hlv.index
+        except (NoMatches, AttributeError):
+            idx = 0
+        if idx >= len(self.snaps):
+            idx = 0
+        snap = self.snaps[idx]
+        self._status(f"restoring to {snap.hash} ('{snap.message[:40]}')...")
+        self._run_restore(snap.hash)
 
     def action_assign(self):
         cue = self._get_cue()
@@ -736,8 +851,16 @@ class ClavusApp(App):
                 self.connected = True
                 self._status(f"project: {self.project}")
             else:
-                self.connected = False
-                self._status("no project — run clavus init")
+                # Fallback: list all projects and auto-select the first one
+                projects = await self.api.list_projects()
+                if projects:
+                    first = projects[0]
+                    self.project = first.get("name", "")
+                    self.connected = True
+                    self._status(f"project: {self.project}")
+                else:
+                    self.connected = False
+                    self._status("no project — run clavus init or :projects to switch")
         else:
             self.connected = False
             self._status("server offline — start clavus serve")
@@ -870,10 +993,11 @@ class ClavusApp(App):
         try:
             self.query_one("#footer-keys", Static).update(
                 f"[{C['accent']}]r[/] reply  "
-                f"[{C['accent']}]R[/] resolve  "
+                f"[{C['accent']}]t[/] resolve  "
                 f"[{C['accent']}]e[/] edit  "
                 f"[{C['accent']}]c[/] cue  "
                 f"[{C['accent']}]s[/] skip  "
+                f"[{C['accent']}]T[/] restore  "
                 f"[{C['accent']}]a[/] assign  "
                 f"[{C['accent']}]S[/] start  "
                 f"[{C['accent']}]x[/] archive  "

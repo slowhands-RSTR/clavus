@@ -50,6 +50,7 @@ class Snapshot:
     track_count: int = 0
     bpm: float = 120.0
     tags: list[str] = field(default_factory=list)  # User tags
+    als_hash: Optional[str] = None  # SHA256 of raw .als bytes (for restore)
 
     def short_hash(self, length: int = 8) -> str:
         return self.hash[:length]
@@ -154,7 +155,11 @@ class BlobStore:
 
     def save_snapshot(self, project: Project, message: str,
                       parent: Optional[str] = None, tags: list[str] | None = None) -> Snapshot:
-        """Serialize a project, hash it, and store as a snapshot."""
+        """Serialize a project, hash it, and store as a snapshot.
+
+        Also stores the raw .als file bytes alongside the parsed data
+        so the snapshot can be restored later (dumb-but-bulletproof approach).
+        """
         # Serialize the project to JSON
         project_data = _project_to_dict(project)
         serialized = json.dumps(project_data, sort_keys=True, default=str).encode("utf-8")
@@ -164,6 +169,13 @@ class BlobStore:
 
         # Store the content
         self.put_object(serialized, content_hash)
+
+        # Also store raw .als bytes (for restore) — hash of the raw file
+        als_hash = None
+        if project.file_path and Path(project.file_path).exists():
+            raw_als = Path(project.file_path).read_bytes()
+            als_hash = hashlib.sha256(raw_als).hexdigest()
+            self.put_object(raw_als, als_hash)
 
         # Create the snapshot metadata
         snapshot = Snapshot(
@@ -175,10 +187,18 @@ class BlobStore:
             track_count=project.track_count,
             bpm=project.bpm,
             tags=tags or [],
+            als_hash=als_hash,
         )
 
         # Store snapshot metadata (indexed by hash)
-        self._write_snapshot_meta(snapshot)
+        # If the content already existed (dedup) but the old meta lacked als_hash,
+        # update the existing metadata on disk
+        existing_snap = self.load_snapshot(content_hash)
+        if existing_snap and existing_snap.als_hash is None and als_hash is not None:
+            existing_snap.als_hash = als_hash
+            self._write_snapshot_meta(existing_snap)
+        else:
+            self._write_snapshot_meta(snapshot)
 
         return snapshot
 
@@ -200,9 +220,26 @@ class BlobStore:
 
     def _write_snapshot_meta(self, snapshot: Snapshot) -> None:
         """Write snapshot metadata alongside the content blob."""
+        # Safety: prevent self-referencing parent (causes infinite history walks)
+        if snapshot.parent == snapshot.hash:
+            snapshot.parent = None
         meta_dir = self.objects_dir / snapshot.hash[:2]
         meta_path = meta_dir / f"{snapshot.hash}.meta"
         meta_path.write_text(json.dumps(asdict(snapshot), indent=2, default=str))
+
+    def repair_snapshot(self, hash_str: str) -> bool:
+        """Check a snapshot for self-referencing parent and fix it.
+        Returns True if the snapshot was repaired."""
+        import json
+        meta_path = self.objects_dir / hash_str[:2] / f"{hash_str}.meta"
+        if not meta_path.exists():
+            return False
+        data = json.loads(meta_path.read_text())
+        if data.get("parent") == hash_str:
+            data["parent"] = None
+            meta_path.write_text(json.dumps(data, indent=2, default=str))
+            return True
+        return False
 
     # ── Reference Management (tags / branches / HEAD) ──
 
