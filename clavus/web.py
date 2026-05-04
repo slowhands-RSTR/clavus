@@ -2017,6 +2017,45 @@ def run_web_server(host: str = "0.0.0.0", port: int = 7890) -> None:
         print(f"  Share via Tailscale or Cloudflare tunnel.")
     print(f"  {'─' * 40}")
     print()
+
+    # Start LAN advertising
+    try:
+        from clavus.discovery import ClavusAdvertiser
+        from clavus.config import ClavusConfig
+
+        cfg = ClavusConfig.load()
+        proj_name = ""
+        # Try to get current project name from store
+        try:
+            from clavus.store import BlobStore
+            store = BlobStore()
+            projects = store.list_projects()
+            if projects:
+                proj_name = projects[0].name
+        except Exception:
+            pass
+
+        advertiser = ClavusAdvertiser()
+        advertiser.start(
+            port=port,
+            project=proj_name,
+            user=cfg.author,
+            version="0.5.0",
+        )
+        # Store on app for lifecycle
+        app.state.advertiser = advertiser
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"  ⚠️  LAN advertising failed: {e}")
+
     print(f"  Press Ctrl+C to stop.")
     print()
     uvicorn.run(app, host=host, port=port, log_level="warning")
+
+    # Stop advertising on shutdown
+    try:
+        if hasattr(app.state, "advertiser"):
+            app.state.advertiser.stop()
+    except Exception:
+        pass

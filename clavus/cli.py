@@ -788,6 +788,65 @@ def cmd_remote(args: argparse.Namespace) -> None:
         print()
 
 
+def cmd_find(args: argparse.Namespace) -> None:
+    """Discover Clavus servers on the local network via mDNS."""
+    try:
+        from clavus.discovery import discover_peers
+    except ImportError:
+        print("❌ LAN discovery requires zeroconf. Install: pip install zeroconf")
+        return
+
+    print(f"📡 Scanning for Clavus servers on LAN ({args.timeout}s)...")
+    print()
+
+    peers = discover_peers(timeout=args.timeout)
+
+    if not peers:
+        print("  No Clavus servers found.")
+        print()
+        print("  Make sure you or a friend is running 'clavus serve'.")
+        print("  Clavus advertises via mDNS (Bonjour) on the local network.")
+        print("  Both machines must be on the same subnet.")
+        return
+
+    print(f"  Found {len(peers)} Clavus server(s):")
+    print()
+    for peer in peers:
+        host = peer.host or "?"
+        port = peer.port or 7890
+        proj = peer.project or "unknown project"
+        user = f" [{peer.user}]" if peer.user else ""
+        print(f"  {peer.name:<20} {host:>15}:{port:<5}  {proj}{user}")
+
+    print()
+    print("  To connect:")
+    for peer in peers:
+        print(f"    clavus remote add {peer.name} http://{peer.host}:{peer.port}")
+    print()
+    print("    Or launch the TUI pointing at one:")
+    for peer in peers:
+        print(f"    clavus tui --connect http://{peer.host}:{peer.port}")
+
+    # Auto-pair if requested
+    if args.pair:
+        matches = [p for p in peers if p.name.lower() == args.pair.lower()]
+        if not matches:
+            print(f"  ❌ No server found with hostname '{args.pair}'")
+            return
+        peer = matches[0]
+        from clavus.store import BlobStore
+        from clavus.sync import save_remotes, Remote, load_remotes
+        store = BlobStore()
+        remotes = load_remotes(store)
+        for r in remotes:
+            if r.name == peer.name:
+                print(f"  ⚠️  Remote '{peer.name}' already exists")
+                return
+        remotes.append(Remote(name=peer.name, url=peer.url))
+        save_remotes(store, remotes)
+        print(f"  ✅ Paired with '{peer.name}' → {peer.url}")
+    print()
+
 def cmd_push(args: argparse.Namespace) -> None:
     """Push cues and snapshots to all remotes."""
     store, proj = get_store_and_project()
@@ -1236,6 +1295,13 @@ def main():
     p_tui.add_argument("--connect", "-c", default="",
                        help="Clavus server URL (default: from config or http://localhost:7890)")
 
+    # Find (LAN discovery)
+    p_find = subparsers.add_parser("find", help="Find Clavus servers on your LAN")
+    p_find.add_argument("--timeout", "-t", type=int, default=3,
+                        help="Seconds to scan for (default: 3)")
+    p_find.add_argument("--pair", "-p", default="",
+                        help="Auto-pair with a discovered server by hostname")
+
     # ── Stem subcommands ──
     p_stem = subparsers.add_parser("stem", help="Manage stems (audio exports)")
     stem_sub = p_stem.add_subparsers(dest="stem_action", help="Stem commands")
@@ -1299,6 +1365,7 @@ def main():
         "cue-delete": cmd_cue_delete,
         "cue-archive": cmd_cue_archive,
         "config": cmd_config,
+        "find": cmd_find,
     }
 
     if args.command in commands:

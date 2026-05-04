@@ -31,6 +31,7 @@ dependencies = [
     "uvicorn",
     "websockets",
     "textual",
+    "zeroconf",
 ]
 
 [tool.setuptools.packages.find]
