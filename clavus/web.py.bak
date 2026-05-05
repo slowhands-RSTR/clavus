@@ -1507,22 +1507,13 @@ main {
 .track-list { padding: 6px 12px; flex: 1; overflow-y: auto; }
 .track-item {
   display: flex; align-items: center; gap: 8px;
-  padding: 5px 8px; font-size: 12px;
-  border-left: 3px solid transparent;
-  border-radius: 0 var(--radius) var(--radius) 0;
-  margin: 1px 0;
+  padding: 4px 0; font-size: 12px;
 }
-.track-item:hover { background: var(--bg-sec); }
 .track-dot {
-  width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
-.track-name { flex: 1; font-weight: 500; }
+.track-name { flex: 1; }
 .track-type { font-size: 10px; color: var(--fg-muted); }
-.track-clip-count {
-  font-size: 10px; color: var(--accent-dim);
-  background: var(--bg-ter); padding: 1px 6px;
-  border-radius: 8px; white-space: nowrap;
-}
 
 /* ── Markers ── */
 .marker-list { padding: 6px 12px; border-top: 1px solid var(--border); }
@@ -1649,46 +1640,21 @@ main {
 .cue-reply .reply-text { color: var(--fg-dim); }
 
 /* ── Snapshot List ── */
-.snapshot-list { padding: 0; flex: 1; overflow-y: auto; }
-.snapshot-timeline { position: relative; padding: 4px 0; }
-.snapshot-timeline::before {
-  content: ''; position: absolute; left: 20px; top: 10px;
-  bottom: 10px; width: 1px;
-  background: var(--border);
-}
+.snapshot-list { padding: 6px 0; flex: 1; overflow-y: auto; }
 .snapshot-item {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 8px 12px 8px 8px;
-  cursor: pointer; position: relative;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
 }
 .snapshot-item:hover { background: var(--bg-sec); }
 .snapshot-item.noselect { opacity: 0.5; }
-.snapshot-dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  background: var(--bg-ter);
-  border: 2px solid var(--border);
-  flex-shrink: 0; margin-top: 3px;
-  position: relative; z-index: 1;
-}
-.snapshot-item.active .snapshot-dot {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.snapshot-item.compare-selected .snapshot-dot {
-  background: var(--warning);
-  border-color: var(--warning);
-}
-.snapshot-content { flex: 1; min-width: 0; }
-.snapshot-top {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-}
 .snapshot-item .snap-hash { font-size: 11px; color: var(--accent); font-weight: 600; }
-.snapshot-item .snap-delta { font-size: 10px; }
-.snapshot-item .snap-time { font-size: 10px; color: var(--fg-muted); }
-.snapshot-item .snap-msg { font-size: 12px; margin-top: 1px; color: var(--fg); }
-.snapshot-item .snap-meta { font-size: 10px; color: var(--fg-dim); margin-top: 1px; }
-.snapshot-item.active { background: var(--bg-ter); }
-.snapshot-item.compare-selected { background: var(--bg-ter); }
+.snapshot-item .snap-time { font-size: 10px; color: var(--fg-muted); float: right; }
+.snapshot-item .snap-msg { font-size: 12px; margin-top: 2px; }
+.snapshot-item .snap-meta { font-size: 10px; color: var(--fg-dim); margin-top: 2px; }
+.snapshot-item .head-indicator { color: var(--success); font-size: 10px; }
+.snapshot-item.active { background: var(--bg-ter); border-left: 3px solid var(--accent); }
+.snapshot-item.compare-selected { background: var(--bg-ter); border-left: 3px solid var(--warning); }
 .snapshot-diff-panel {
   padding: 8px 12px;
   border-top: 1px solid var(--border);
@@ -1853,17 +1819,13 @@ async function loadProject() {
     // Tracks
     const trackList = $('trackList');
     if (p.tracks && p.tracks.length) {
-      trackList.innerHTML = p.tracks.map(t => {
-        const color = '#' + (t.color ? t.color.toString(16).padStart(6,'0') : '333');
-        const clipCount = t.clips ? t.clips.length : 0;
-        return `
-        <div class="track-item" style="border-left-color:${color}">
-          <span class="track-dot" style="background:${color}"></span>
+      trackList.innerHTML = p.tracks.map(t => `
+        <div class="track-item">
+          <span class="track-dot" style="background:#${t.color.toString(16).padStart(6,'0')}"></span>
           <span class="track-name">${escapeHtml(t.name)}</span>
           <span class="track-type">${t.type}</span>
-          ${clipCount > 0 ? `<span class="track-clip-count">${clipCount} clip${clipCount !== 1 ? 's' : ''}</span>` : ''}
-        </div>`;
-      }).join('');
+        </div>
+      `).join('');
     } else {
       trackList.innerHTML = '<div class="empty-state">No tracks loaded</div>';
     }
@@ -1882,24 +1844,16 @@ async function loadProject() {
   // History
   if (data.history && data.history.length) {
     $('snapshotCount').textContent = data.history.length;
-    $('snapshotList').innerHTML = '<div class="snapshot-timeline">'
-      + data.history.map((s, i) => {
-        const prev = i < data.history.length - 1 ? data.history[i + 1] : null;
-        const klass = (s.is_head ? 'active' : '') + (prev && prev.is_head ? ' noselect' : '');
-        return `
-      <div class="snapshot-item ${klass}" onclick="handleSnapshotClick('${s.hash}','${s.full_hash}',event)">
-        <div class="snapshot-dot"></div>
-        <div class="snapshot-content">
-          <div class="snapshot-top">
-            <span class="snap-hash">${s.is_head ? '➡ ' : ''}${s.hash}</span>
-            ${prev ? snapDelta(prev, s) : ''}
-            <span class="snap-time">${timeAgo(s.timestamp)}</span>
-          </div>
-          <div class="snap-msg">${escapeHtml(s.message)}</div>
-          <div class="snap-meta">${s.track_count} tracks @ ${s.bpm}bpm</div>
+    $('snapshotList').innerHTML = data.history.map(s => `
+      <div class="snapshot-item ${s.is_head ? 'active' : 'noselect'}" onclick="handleSnapshotClick('${s.hash}','${s.full_hash}',event)">
+        <div>
+          <span class="snap-hash">${s.is_head ? '➡ ' : ''}${s.hash}</span>
+          <span class="snap-time">${s.time_str}</span>
         </div>
-      </div>`;
-      }).join('') + '</div>';
+        <div class="snap-msg">${escapeHtml(s.message)}</div>
+        <div class="snap-meta">${s.track_count} tracks @ ${s.bpm}bpm</div>
+      </div>
+    `).join('');
   } else {
     $('snapshotCount').textContent = '0';
     $('snapshotList').innerHTML = '<div class="empty-state">No snapshots</div>';
@@ -2233,27 +2187,6 @@ function showServerInfo() {
   function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function timeAgo(timestamp) {
-  const diff = Date.now() / 1000 - timestamp;
-  if (diff < 60) return 'now';
-  if (diff < 3600) return Math.floor(diff / 60) + 'm';
-  if (diff < 86400) return Math.floor(diff / 3600) + 'h';
-  if (diff < 604800) return Math.floor(diff / 86400) + 'd';
-  return new Date(timestamp * 1000).toLocaleDateString();
-}
-
-function snapDelta(prev, curr) {
-  if (!prev) return '';
-  const pClips = (prev.project && prev.project.tracks) ?
-    prev.project.tracks.reduce((s,t) => s + (t.clips ? t.clips.length : 0), 0) : 0;
-  const cClips = (curr.project && curr.project.tracks) ?
-    curr.project.tracks.reduce((s,t) => s + (t.clips ? t.clips.length : 0), 0) : 0;
-  const diff = cClips - pClips;
-  if (diff > 0) return '<span class="snap-delta" style="color:var(--success)">✅ +' + diff + '</span>';
-  if (diff < 0) return '<span class="snap-delta" style="color:var(--danger)">❌ ' + diff + '</span>';
-  return '<span class="snap-delta" style="color:var(--fg-muted)">➡ 0</span>';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
