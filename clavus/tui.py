@@ -829,21 +829,63 @@ class ClavusApp(App):
         self._run_restore(snap.hash)
 
     def action_diff(self):
-        """Show visual diff of the selected snapshot vs its parent, printed to terminal."""
+        """Show visual diff of the selected snapshot vs its parent in a full-screen overlay."""
         if not self.snaps:
             self._status("no snapshots to diff")
             return
         idx = self._get_history_idx()
         snap = self.snaps[idx]
-        import subprocess
         self._status(f"diff of {snap.hash}...")
-        self._refresh()  # flush UI
-        result = subprocess.run(
-            ["python3", "-m", "clavus", "diff", snap.hash, "--visual"],
-            capture_output=True, text=True, timeout=15,
-        )
-        output = result.stdout or result.stderr
-        print(f"\n{output}\n")
+        self.refresh()
+
+        import io, contextlib
+        from clavus.cli import get_store_and_project
+
+        store, proj = get_store_and_project()
+        from clavus.helpers import resolve_snapshot
+        hash_str = resolve_snapshot(store, snap.hash)
+        current_snap = store.load_snapshot(hash_str) if hash_str else None
+
+        if not current_snap or not current_snap.parent:
+            self._status("no parent snapshot to diff against")
+            return
+
+        parent_project = store.load_project(current_snap.parent)
+        current_project = store.load_project(hash_str)
+        if not parent_project or not current_project:
+            self._status("could not load project data")
+            return
+
+        from clavus.visual_diff import render_diff_cli
+        from clavus.store import diff_projects
+
+        diff = diff_projects(parent_project, current_project)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print(f"📊 {current_snap.short_hash()} — '{current_snap.message}'")
+            print(render_diff_cli(
+                diff=diff,
+                before_proj=parent_project,
+                after_proj=current_project,
+            ))
+
+        from textual.screen import Screen
+        from textual.widgets import Static, Footer
+        from textual.binding import Binding as ScrBinding
+
+        class DiffScreen(Screen):
+            BINDINGS = [
+                ScrBinding("escape", "dismiss_popup", "Close"),
+                ScrBinding("q", "dismiss_popup", "Close"),
+                ScrBinding("d", "dismiss_popup", "Close"),
+            ]
+            def compose(self):
+                yield Static(buf.getvalue(), id="diff-output")
+                yield Footer()
+            def action_dismiss_popup(self):
+                self.app.pop_screen()
+
+        self.push_screen(DiffScreen())
 
     def action_snapshot(self):
         """Prompt for a snapshot message then create one."""
