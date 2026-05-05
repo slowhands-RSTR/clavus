@@ -251,6 +251,8 @@ class ClavusClient:
             payload = [{"id": c.id, "position": c.position, "text": c.text,
                         "author": c.author, "status": c.status,
                         "timestamp": c.timestamp,
+                        "assignee": c.assignee, "in_progress": c.in_progress,
+                        "track_name": c.track_name, "snapshot_hash": c.snapshot_hash,
                         "replies": [to_dict(r) for r in c.replies]}
                        for c in cues]
             r = await self.client.post(
@@ -276,6 +278,17 @@ class ClavusClient:
             r = await self.client.post(
                 f"{self.base_url}/api/cues/{cue_id}/archive",
                 params={"name": project}, timeout=10,
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    async def delete_cue(self, project: str, cue_id: str) -> bool:
+        """Delete a cue permanently via the server API."""
+        try:
+            r = await self.client.delete(
+                f"{self.base_url}/api/cues/{cue_id}",
+                params={"project": project}, timeout=10,
             )
             return r.status_code == 200
         except Exception:
@@ -349,7 +362,10 @@ class ClavusApp(App):
     #cues-list ListView {{ height: 100%; border: none; background: transparent; }}
     #cues-list ListItem {{ background: transparent; padding: 0 2; min-height: 1; max-height: 8; }}
     #cues-list ListItem:hover {{ background: {C['surface']}; }}
-    #clv:focus .list-item--focused {{ background: {C['surface2']}; text-style: bold; }}
+    #clv > ListItem.-highlight {{ background: {C['surface']}80; text-style: bold; border-left: solid transparent; padding-left: 1; }}
+    #clv:focus > ListItem.-highlight {{ background: {C['surface2']}; text-style: bold; border-left: solid #d4a030; padding-left: 1; }}
+    #hlv > ListItem.-highlight {{ background: {C['surface']}80; text-style: bold; border-left: solid transparent; padding-left: 1; }}
+    #hlv:focus > ListItem.-highlight {{ background: {C['surface2']}; text-style: bold; border-left: solid #d4a030; padding-left: 1; }}
 
     #history {{ height: 100%; background: {C['surface']}; padding: 0 1; border-right: solid transparent; }}
     #history:focus-within {{ border-right: solid {C['accent']}; }}
@@ -386,6 +402,7 @@ class ClavusApp(App):
         Binding("d", "diff", "Diff"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
+        Binding("D", "delete_cue", "Delete"),
         Binding("tab", "focus_next_pane", "Pane"),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
@@ -981,6 +998,21 @@ class ClavusApp(App):
             self._status("archive failed (server error)")
 
     @work(exclusive=True)
+    async def action_delete_cue(self):
+        """Delete the selected cue permanently."""
+        cue = self._get_cue()
+        if not cue:
+            self._status("select a cue first")
+            return
+        self._status(f"deleting {cue.id[:8]}...")
+        ok = await self.api.delete_cue(self.project, cue.id)
+        if ok:
+            self._status("deleted — re-pulling")
+            await self._do_pull()
+        else:
+            self._status("delete failed (server error)")
+
+    @work(exclusive=True)
     async def action_pull(self):
         self._status("pulling...")
         await self._do_pull()
@@ -1134,22 +1166,30 @@ class ClavusApp(App):
     # ─── Navigation ─────────────────────────────────────────────────────
 
     def action_cursor_down(self):
-        try:
-            if self.focused and getattr(self.focused, "id", None) == "hlv":
-                self.query_one("#hlv", ListView).action_cursor_down()
-            else:
-                self.query_one("#clv", ListView).action_cursor_down()
-        except NoMatches:
-            pass
+        target = self._focused_list_view()
+        if target:
+            target.action_cursor_down()
 
     def action_cursor_up(self):
+        target = self._focused_list_view()
+        if target:
+            target.action_cursor_up()
+
+    def _focused_list_view(self) -> Optional[ListView]:
+        """Return whichever ListView has focus: #clv (cues) or #hlv (history)."""
         try:
-            if self.focused and getattr(self.focused, "id", None) == "hlv":
-                self.query_one("#hlv", ListView).action_cursor_up()
-            else:
-                self.query_one("#clv", ListView).action_cursor_up()
+            hlv = self.query_one("#hlv", ListView)
+            if hlv.has_focus:
+                return hlv
         except NoMatches:
             pass
+        try:
+            clv = self.query_one("#clv", ListView)
+            if clv.has_focus:
+                return clv
+        except NoMatches:
+            pass
+        return None
 
     def action_focus_next_pane(self):
         """Tab between cues list and history pane."""
@@ -1199,16 +1239,12 @@ class ClavusApp(App):
         try:
             self.query_one("#footer-keys", Static).update(
                 f"[{C['accent']}]r[/] reply  "
-                f"[{C['accent']}]t[/] resolve  "
+                f"[{C['accent']}]R[/] resolve  "
                 f"[{C['accent']}]e[/] edit  "
                 f"[{C['accent']}]c[/] cue  "
-                f"[{C['accent']}]s[/] skip  "
-                f"[{C['accent']}]T[/] restore  "
                 f"[{C['accent']}]a[/] assign  "
-                f"[{C['accent']}]S[/] start  "
+                f"[{C['accent']}]D[/] delete  "
                 f"[{C['accent']}]x[/] archive  "
-                f"[{C['accent']}]p[/] pull  "
-                f"[{C['accent']}]P[/] push  "
                 f"[{C['accent']}]q[/] quit  "
                 f"[{C['accent']}]:[/] cmd"
             )
@@ -1246,7 +1282,7 @@ class ClavusApp(App):
                 C["green"] if c.status == "resolved" else C["muted"])
             dot = "●" if c.status == "pending" else ("✓" if c.status == "resolved" else "–")
             rc = f" [{C['dim']}]{len(c.replies)}r[/]" if c.replies else ""
-            assignee_part = f" [{C['accent']}]@{c.assignee}[/]" if c.assignee else ""
+            assignee_part = f" 👤 {c.assignee}" if c.assignee else ""
             in_prog = f" [{C['yellow']}]▶[/]" if c.in_progress else ""
             safe_text = c.text[:60].replace("[", "\\[").replace("]", "\\]")
             lines = [
