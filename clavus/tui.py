@@ -357,8 +357,8 @@ class ClavusApp(App):
 
     #content {{ layout: grid; grid-size: 2 1; grid-columns: 5fr 2fr; height: 100%; }}
 
-    #cues-list {{ height: 100%; min-height: 5; border-right: solid {C['border']}; }}
-    #cues-list:focus-within {{ border-right: solid {C['accent']}; }}
+    #cues-list {{ height: 100%; min-height: 5; border: solid {C['border']}; border-left: solid transparent; background: transparent; }}
+    #cues-list:focus-within {{ border: solid {C['accent']}; background: rgba(26,158,158,0.03); }}
     #cues-list ListView {{ height: 100%; border: none; background: transparent; }}
     #cues-list ListItem {{ background: transparent; padding: 0 2; min-height: 1; max-height: 10; }}
     #cues-list ListItem:hover {{ background: {C['surface']}; }}
@@ -367,8 +367,8 @@ class ClavusApp(App):
     #hlv > ListItem.-highlight {{ background: {C['surface']}80; text-style: bold; border-left: solid transparent; padding-left: 1; }}
     #hlv:focus > ListItem.-highlight {{ background: {C['surface2']}; text-style: bold; border-left: solid #d4a030; padding-left: 1; }}
 
-    #history {{ height: 100%; background: {C['surface']}; padding: 0 1; border-right: solid transparent; }}
-    #history:focus-within {{ border-right: solid {C['accent']}; }}
+    #history {{ height: 100%; background: {C['surface']}; padding: 0 1; border: solid transparent; }}
+    #history:focus-within {{ border: solid {C['accent']}; background: rgba(26,158,158,0.03); }}
     #history-list {{ height: 100%; }}
     #history-list ListView {{ height: 100%; border: none; background: transparent; }}
     #history-list ListItem {{ background: transparent; padding: 0 1; min-height: 1; }}
