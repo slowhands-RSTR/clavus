@@ -355,7 +355,7 @@ class ClavusApp(App):
     #header-title {{ color: {C['accent']}; text-style: bold; }}
     #header-status {{ color: {C['dim']}; }}
 
-    #content {{ layout: grid; grid-size: 2 1; grid-columns: 3fr 2fr; height: 100%; }}
+    #content {{ layout: grid; grid-size: 2 1; grid-columns: 5fr 2fr; height: 100%; }}
 
     #cues-list {{ height: 100%; min-height: 5; border-right: solid {C['border']}; }}
     #cues-list:focus-within {{ border-right: solid {C['accent']}; }}
