@@ -157,13 +157,25 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
         print(f"❌ .als file not found: {als_path}")
         sys.exit(1)
 
+    # Prompt for message if not provided
+    message = args.message
+    if not message:
+        try:
+            message = input("  Snapshot message (or blank to cancel): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n❌ Snapshot cancelled.")
+            return
+        if not message:
+            print("❌ Snapshot cancelled.")
+            return
+
     # Parse current state
     project = parse_als(als_path)
 
     # Create snapshot
     snap = store.save_snapshot(
         project,
-        message=args.message,
+        message=message,
         parent=proj.head,
         tags=args.tag.split(",") if args.tag else [],
     )
@@ -1261,7 +1273,8 @@ def main():
 
     # Snapshot
     p_snap = subparsers.add_parser("snapshot", help="Create a new snapshot")
-    p_snap.add_argument("message", help="Description of what changed")
+    p_snap.add_argument("message", nargs="?", default="",
+                        help="Description of what changed (prompts if omitted)")
     p_snap.add_argument("--tag", "-t", default="", help="Comma-separated tags")
     p_snap.add_argument("--parent", "-p", default=None, help="Override parent snapshot hash")
     p_snap.add_argument("--verbose", "-v", action="store_true", help="Show detailed diff")

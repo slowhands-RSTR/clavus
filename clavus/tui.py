@@ -402,7 +402,7 @@ class ClavusApp(App):
         Binding("d", "diff", "Diff"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
-        Binding("D", "delete_cue", "Delete"),
+        Binding("ctrl+d", "delete_cue", "Delete", show=False),
         Binding("U", "stem_push", "Stem↑", show=False),
         Binding("tab", "focus_next_pane", "Pane"),
         Binding("j", "cursor_down", "Down", show=False),
@@ -561,7 +561,10 @@ class ClavusApp(App):
         elif cmd == "restore":
             self._run_restore(arg)
         elif cmd == "snapshot":
-            self._run_snapshot(arg)
+            if arg:
+                self._run_snapshot(arg)
+            else:
+                self._show_input("command", "snapshot <message>: ", prefill="")
         elif cmd == "stem":
             if arg == "push":
                 self.action_stem_push()
@@ -571,8 +574,10 @@ class ClavusApp(App):
                 self._status("stem push  |  stem pull")
         elif cmd == "archive":
             self.action_archive()
+        elif cmd in ("delete", "del"):
+            self.action_delete_cue()
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, restore [hash], snapshot <msg>, archive, help | C=snapshot")
+            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, restore [hash], snapshot <msg>, archive, delete, help | C=snapshot")
         else:
             self._status(f"unknown: {cmd}")
 
@@ -1311,7 +1316,6 @@ class ClavusApp(App):
                 f"[{C['accent']}]c[/] cue  "
                 f"[{C['accent']}]C[/] snap  "
                 f"[{C['accent']}]a[/] assign  "
-                f"[{C['accent']}]D[/] delete  "
                 f"[{C['accent']}]x[/] archive  "
                 f"[{C['accent']}]U[/] stems  "
                 f"[{C['accent']}]q[/] quit  "
