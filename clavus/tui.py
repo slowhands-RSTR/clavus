@@ -856,18 +856,71 @@ class ClavusApp(App):
             self._status("could not load project data")
             return
 
-        from clavus.visual_diff import render_diff_cli
         from clavus.store import diff_projects
+        from clavus.visual_diff import render_timeline_bar
 
         diff = diff_projects(parent_project, current_project)
+
+        # Build clip maps
+        def _clip_map(proj):
+            return {t.name: t.clips for t in proj.tracks}
+
+        before_clips = _clip_map(parent_project)
+        after_clips = _clip_map(current_project)
+
+        # Compute max beats
+        all_clips = list(before_clips.values()) + list(after_clips.values())
+        max_beats = 64.0
+        for clist in all_clips:
+            for c in clist:
+                if c.end_beats > max_beats:
+                    max_beats = ((c.end_beats + 3) // 4) * 4
+
+        time_width = 48  # narrower for TUI
+
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            print(f"📊 {current_snap.short_hash()} — '{current_snap.message}'")
-            print(render_diff_cli(
-                diff=diff,
-                before_proj=parent_project,
-                after_proj=current_project,
-            ))
+            print(f"  {current_snap.short_hash()} — '{current_snap.message}'")
+
+            # CHANGED tracks only — show after-timeline with before/after label
+            changed = [td for td in diff.tracks if td.status != "unchanged"]
+            for td in changed:
+                label = f"{td.name:<{36}}"
+                after_bar = render_timeline_bar(
+                    after_clips.get(td.name, []), time_width, max_beats=max_beats,
+                )
+                status_ch = {"added": "+", "removed": "-", "modified": "~"}.get(td.status, " ")
+                print(f"  [{status_ch}] {label}{after_bar}")
+
+            # Show tracks with clip count changes (even if status is unchanged)
+            clip_changed = []
+            for td in diff.tracks:
+                if td.status == "unchanged":
+                    bc = len(before_clips.get(td.name, []))
+                    ac = len(after_clips.get(td.name, []))
+                    if bc != ac:
+                        clip_changed.append((td.name, bc, ac))
+            if clip_changed:
+                print()
+                for name, bc, ac in clip_changed:
+                    delta = ac - bc
+                    sign = "+" if delta > 0 else ""
+                    print(f"  · {name:<32} {sign}{delta} clips")
+
+            # Summary line
+            added = [t for t in changed if t.status == "added"]
+            removed = [t for t in changed if t.status == "removed"]
+            modified = [t for t in changed if t.status == "modified"]
+            parts = []
+            if added:
+                parts.append(f"+{len(added)} tracks")
+            if removed:
+                parts.append(f"-{len(removed)} tracks")
+            if modified:
+                parts.append(f"~{len(modified)} modified")
+            if parts:
+                print()
+                print(f"  {' | '.join(parts)}")
 
         from textual.screen import Screen
         from textual.widgets import Static, Footer
