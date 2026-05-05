@@ -63,6 +63,7 @@ class ClavusProject:
     root_als: str  # Path to the .als file
     created_at: float
     head: Optional[str] = None  # Current snapshot hash
+    description: str = ""  # Optional human-readable notes
     branch: str = "main"
     sync_url: str = ""  # Remote sync address (for Phase 5+)
 

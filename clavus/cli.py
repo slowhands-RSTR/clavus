@@ -24,6 +24,7 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import sys
 import time
@@ -60,7 +61,7 @@ except ImportError:
 # ─── Commands ──────────────────────────────────────────────────────────
 
 def cmd_init(args: argparse.Namespace) -> None:
-    """Initialize a new Clavus project."""
+    """Initialize a new Clavus project — friendly, guided setup."""
     target = args.path or os.getcwd()
     target = Path(target).resolve()
 
@@ -69,6 +70,26 @@ def cmd_init(args: argparse.Namespace) -> None:
         print(f"❌ No .als file found at {target}")
         print("   Specify the path to an .als file or a directory containing one.")
         sys.exit(1)
+
+    # ── Config check: prompt for author if not set ──
+    config = ClavusConfig.load()
+    if not config.author or config.author == getpass.getuser():
+        print("👋 First, who's the author for this project?")
+        author_input = input(f"   Author [{config.author or getpass.getuser()}]: ").strip()
+        if author_input:
+            config.author = author_input
+            config.save()
+            print(f"   Saved to {CONFIG_PATH}")
+        else:
+            # Keep the default (getpass.getuser())
+            pass
+        print()
+
+    # ── Welcome ──
+    print("╭──────────────────────────────────────────────╮")
+    print("│  🎹  Clavus — Ableton Live collaboration     │")
+    print("╰──────────────────────────────────────────────╯")
+    print()
 
     store = BlobStore()
     store.init()
@@ -79,30 +100,61 @@ def cmd_init(args: argparse.Namespace) -> None:
         print(f"⚠️  Project '{als_path.stem}' already tracked at {existing.root_als}")
         return
 
-    # Parse the .als to get initial info
+    # ── Project name ──
+    suggested = als_path.stem
+    print(f"📁 Project: {suggested}")
+    name_input = input(f"   Name [{suggested}]: ").strip()
+    project_name = name_input if name_input else suggested
+    print()
+
+    # ── Description (optional) ──
+    print("📝 Optional description (what is this project?)")
+    desc_input = input(f"   Description []: ").strip()
+    print()
+
+    # ── Parse ──
+    print("🔍 Scanning .als file...")
     project = parse_als(als_path)
+    print()
+
+    # ── Summary ──
+    print(project_summary(project))
+    print()
+
+    # ── Confirm ──
+    confirm = input("   Ready to track this project? [Y/n]: ").strip().lower()
+    if confirm and confirm not in ("y", "yes", ""):
+        print("✋ Cancelled. Nothing was saved.")
+        return
+    print()
+
+    # ── Init ──
     clavus_proj = ClavusProject(
-        name=als_path.stem,
+        name=project_name,
         root_als=str(als_path),
         created_at=time.time(),
+        description=desc_input,
     )
 
-    # Create initial snapshot
     snap = store.save_snapshot(project, "Initial import", parent=None)
     clavus_proj.head = snap.hash
     store.update_ref("HEAD", snap.hash)
     store.update_ref(f"refs/tags/initial", snap.hash)
-
-    # Save to index
     store.set_index(clavus_proj)
 
-    print(f"📁 Initialized Clavus project '{clavus_proj.name}'")
+    # ── Done ──
+    print(f"✅ Initialized Clavus project '{clavus_proj.name}'")
     print(f"   .als: {als_path}")
-    print(f"   Tracking {project.track_count} tracks @ {project.bpm}bpm")
-    print(f"   Created snapshot: {snap.short_hash()}")
-    print(f"")  # blank line for readability
-    print(f"   Next: open the project, make changes, then run:")
-    print(f"   clavus snapshot \"your message here\"")
+    print(f"   Tracks: {project.track_count} @ {project.bpm}bpm")
+    print(f"   Snapshot: {snap.short_hash()}")
+    if clavus_proj.description:
+        print(f"   Notes: {clavus_proj.description}")
+    print()
+    print("   Next steps:")
+    print(f"     clavus project \"{project_name}\"    Switch to this project")
+    print(f'     clavus snapshot "my changes"     Save a snapshot')
+    print(f"     clavus log                       View history")
+    print(f"     clavus --help                    All commands")
 
 
 def cmd_projects(args: argparse.Namespace) -> None:
