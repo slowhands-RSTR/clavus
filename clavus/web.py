@@ -360,6 +360,128 @@ def get_project_sync(name: str = Query("", description="Project name to load")):
     }
 
 
+@app.get("/api/snapshots/{snap_hash}")
+def get_snapshot_detail(snap_hash: str, name: str = Query("", description="Project name")):
+    """Get full snapshot data including parsed project for visual diff."""
+    try:
+        store, proj = _get_project(name)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    # Resolve short hash by walking the history chain
+    head = store.read_ref("HEAD")
+    resolved = _resolve_hash(store, proj, snap_hash, head)
+    if not resolved:
+        return JSONResponse({"error": f"Snapshot '{snap_hash}' not found"}, status_code=404)
+
+    snap = store.load_snapshot(resolved)
+    if not snap:
+        return JSONResponse({"error": f"Failed to load snapshot '{snap_hash}'"}, status_code=404)
+
+    # Parse project data from the .als
+    project_data = None
+    try:
+        proj_obj = parse_als(Path(proj.root_als))
+        if proj_obj:
+            project_data = {
+                "ableton_version": proj_obj.ableton_version,
+                "tracks": [{"name": t.name, "type": t.track_type, "color": t.color,
+                            "clips": [{"name": c.name, "start": c.start_beats, "end": c.end_beats}
+                                     for c in getattr(t, "clips", [])]}
+                           for t in proj_obj.tracks],
+                "return_tracks": [{"name": t.name} for t in proj_obj.return_tracks],
+                "bpm": proj_obj.bpm,
+                "time_signature": proj_obj.time_signature,
+                "markers": [{"time": m.time, "name": m.name} for m in proj_obj.markers],
+                "track_count": len(proj_obj.tracks),
+            }
+    except Exception:
+        project_data = None
+
+    return {
+        "hash": snap.hash[:8],
+        "full_hash": snap.hash,
+        "timestamp": snap.timestamp,
+        "time_str": time.strftime("%Y-%m-%d %H:%M", time.localtime(snap.timestamp)),
+        "message": snap.message,
+        "track_count": snap.track_count,
+        "bpm": snap.bpm,
+        "parent": snap.parent[:8] if snap.parent else None,
+        "is_head": snap.hash == head,
+        "project": project_data,
+    }
+
+
+def _resolve_hash(store: BlobStore, proj: ClavusProject, short_hash: str, head: str | None) -> str | None:
+    """Walk the snapshot chain to resolve a short hash to a full hash."""
+    if head is None:
+        return None
+    current = head
+    seen: set[str] = set()
+    while current:
+        if current in seen:
+            return None
+        seen.add(current)
+        if current.startswith(short_hash):
+            return current
+        snap = store.load_snapshot(current)
+        if not snap or snap.parent == current:
+            return None
+        current = snap.parent
+    return None
+
+
+@app.get("/api/projects/compare")
+def compare_snapshots(
+    before: str = Query(..., description="Before snapshot hash"),
+    after: str = Query(..., description="After snapshot hash"),
+    name: str = Query("", description="Project name"),
+):
+    """Compare two snapshots and return visual diff HTML."""
+    try:
+        store, proj = _get_project(name)
+    except HTTPException:
+        return JSONResponse({"error": "No clavus project found"}, status_code=404)
+
+    # Resolve short hashes by walking the chain
+    head = store.read_ref("HEAD")
+    before_full = _resolve_hash(store, proj, before, head)
+    after_full = _resolve_hash(store, proj, after, head)
+    if not before_full:
+        return JSONResponse({"error": f"Snapshot '{before}' not found"}, status_code=404)
+    if not after_full:
+        return JSONResponse({"error": f"Snapshot '{after}' not found"}, status_code=404)
+
+    snap_before = store.load_snapshot(before_full)
+    snap_after = store.load_snapshot(after_full)
+    if not snap_before or not snap_after:
+        return JSONResponse({"error": "Failed to load one or both snapshots"}, status_code=404)
+
+    # Parse the .als to get before/after Project objects
+    als_path = Path(proj.root_als)
+    proj_before = None
+    proj_after = None
+    if als_path.exists():
+        try:
+            parsed = _parse_with_timeout(als_path, timeout=5.0)
+            if parsed:
+                proj_before = parsed
+                proj_after = parsed
+        except Exception:
+            pass
+
+    # Build diff
+    from clavus.visual_diff import render_diff_html
+
+    diff = diff_projects(before_full, after_full, store)
+    if not diff:
+        return JSONResponse({"error": "Diff computation failed"}, status_code=500)
+
+    html = render_diff_html(diff, before_proj=proj_before, after_proj=proj_after)
+
+    return HTMLResponse(html)
+
+
 @app.get("/api/cues")
 async def get_cues(pending_only: bool = False, name: str = Query("", description="Project name")):
     """List all cues."""
@@ -1237,8 +1359,19 @@ def _generate_index_html() -> str:
         <h2>History</h2>
         <span class="pane-badge" id="snapshotCount">—</span>
       </div>
+      <div class="compare-bar" id="compareBar">
+        <span class="compare-info" id="compareInfo">Select another snapshot to compare</span>
+        <button onclick="clearCompare()">✕ Clear</button>
+      </div>
       <div class="snapshot-list" id="snapshotList">
         <div class="empty-state">No snapshots</div>
+      </div>
+      <div class="snapshot-diff-panel" id="snapshotDiffPanel" style="display:none">
+        <div class="diff-header">
+          <span id="diffTitle">Diff</span>
+          <button onclick="hideDiff()">✕</button>
+        </div>
+        <div id="diffContent"></div>
       </div>
       <div style="padding:8px 12px;border-top:1px solid var(--border)">
         <button class="cue-action-btn" onclick="injectCues()" style="width:100%">📌 Inject cues into .als</button>
@@ -1531,6 +1664,45 @@ main {
 .snapshot-item .snap-meta { font-size: 10px; color: var(--fg-dim); margin-top: 2px; }
 .snapshot-item .head-indicator { color: var(--success); font-size: 10px; }
 .snapshot-item.active { background: var(--bg-ter); border-left: 3px solid var(--accent); }
+.snapshot-item.compare-selected { background: var(--bg-ter); border-left: 3px solid var(--warning); }
+.snapshot-diff-panel {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sec);
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+.snapshot-diff-panel .diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.snapshot-diff-panel .diff-header span { color: var(--accent); font-size: 11px; font-weight: 600; }
+.snapshot-diff-panel .diff-header button {
+  background: none; border: 1px solid var(--border);
+  color: var(--fg-dim); padding: 2px 8px; border-radius: var(--radius);
+  cursor: pointer; font-family: var(--font); font-size: 10px;
+}
+.snapshot-diff-panel .diff-header button:hover { border-color: var(--accent); color: var(--accent); }
+.snapshot-diff-panel .diff-loading { color: var(--fg-muted); padding: 12px; text-align: center; }
+.compare-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--bg-ter);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.compare-bar.visible { display: flex; }
+.compare-bar .compare-info { color: var(--warning); }
+.compare-bar button {
+  background: none; border: 1px solid var(--accent-dim);
+  color: var(--accent); padding: 2px 10px; border-radius: var(--radius);
+  cursor: pointer; font-family: var(--font); font-size: 10px;
+}
 
 /* ── Filters ── */
 .pane-filters { display: flex; gap: 2px; }
@@ -1682,7 +1854,7 @@ async function loadProject() {
   if (data.history && data.history.length) {
     $('snapshotCount').textContent = data.history.length;
     $('snapshotList').innerHTML = data.history.map(s => `
-      <div class="snapshot-item ${s.is_head ? 'active' : 'noselect'}">
+      <div class="snapshot-item ${s.is_head ? 'active' : 'noselect'}" onclick="handleSnapshotClick('${s.hash}','${s.full_hash}',event)">
         <div>
           <span class="snap-hash">${s.is_head ? '➡ ' : ''}${s.hash}</span>
           <span class="snap-time">${s.time_str}</span>
@@ -1939,7 +2111,89 @@ function showServerInfo() {
   alert('Clavus Web Companion\nURL: ' + url + '\n' + info);
 }
 
-function escapeHtml(str) {
+  // ─── Snapshot Compare / Diff ─────────────────────────────────────────
+  let compareHash = null;
+  let compareFullHash = null;
+
+  function hideDiff() {
+    $('snapshotDiffPanel').style.display = 'none';
+    $('diffContent').innerHTML = '';
+  }
+
+  function clearCompare() {
+    compareHash = null;
+    compareFullHash = null;
+    $('compareBar').classList.remove('visible');
+    document.querySelectorAll('.snapshot-item.compare-selected').forEach(el => {
+      el.classList.remove('compare-selected');
+    });
+  }
+
+  async function showDiff(snapHash) {
+    $('diffContent').innerHTML = '<div class="diff-loading">⬤ Loading diff...</div>';
+    $('snapshotDiffPanel').style.display = 'block';
+    $('diffTitle').textContent = 'Diff ' + snapHash;
+
+    // Load snapshot to find its parent
+    const snapData = await api('/snapshots/' + snapHash + '?name=' + encodeURIComponent(currentProject));
+    if (snapData.error || !snapData.parent) {
+      $('diffContent').innerHTML = '<div class="diff-loading">No parent snapshot to compare against</div>';
+      return;
+    }
+
+    // Compare against parent
+    const url = '/projects/compare?before=' + snapData.parent
+      + '&after=' + snapHash
+      + '&name=' + encodeURIComponent(currentProject);
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      $('diffContent').innerHTML = '<div class="diff-loading">⚠ Failed to load diff</div>';
+      return;
+    }
+    const html = await resp.text();
+    $('diffContent').innerHTML = html;
+  }
+
+  async function showCompareDiff(beforeHash, afterHash) {
+    $('diffContent').innerHTML = '<div class="diff-loading">⬤ Loading diff...</div>';
+    $('snapshotDiffPanel').style.display = 'block';
+    $('diffTitle').textContent = 'Diff ' + beforeHash + ' → ' + afterHash;
+
+    const url = '/projects/compare?before=' + beforeHash
+      + '&after=' + afterHash
+      + '&name=' + encodeURIComponent(currentProject);
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      $('diffContent').innerHTML = '<div class="diff-loading">⚠ Failed to load diff</div>';
+      return;
+    }
+    const html = await resp.text();
+    $('diffContent').innerHTML = html;
+  }
+
+  function handleSnapshotClick(snapHash, snapFullHash, event) {
+    if (event.ctrlKey || event.metaKey) {
+      // Compare mode: first click selects, second click diffs
+      if (!compareHash) {
+        compareHash = snapHash;
+        compareFullHash = snapFullHash;
+        event.currentTarget.classList.add('compare-selected');
+        $('compareBar').classList.add('visible');
+        $('compareInfo').textContent = 'Compare: ' + snapHash + ' — click another snapshot';
+      } else if (compareHash === snapHash) {
+        clearCompare();
+      } else {
+        // Two selected — show diff
+        showCompareDiff(compareHash, snapHash);
+        clearCompare();
+      }
+    } else {
+      // Single click — show diff vs parent
+      showDiff(snapHash);
+    }
+  }
+
+  function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
