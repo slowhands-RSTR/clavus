@@ -829,7 +829,7 @@ class ClavusApp(App):
         self._run_restore(snap.hash)
 
     def action_diff(self):
-        """Show visual diff of the selected snapshot vs its parent in a full-screen overlay."""
+        """Show a concise text summary of changes in the selected snapshot."""
         if not self.snaps:
             self._status("no snapshots to diff")
             return
@@ -857,57 +857,48 @@ class ClavusApp(App):
             return
 
         from clavus.store import diff_projects
-        from clavus.visual_diff import render_timeline_bar
 
         diff = diff_projects(parent_project, current_project)
-
-        # Build clip maps
-        def _clip_map(proj):
-            return {t.name: t.clips for t in proj.tracks}
-
-        before_clips = _clip_map(parent_project)
-        after_clips = _clip_map(current_project)
-
-        # Compute max beats
-        all_clips = list(before_clips.values()) + list(after_clips.values())
-        max_beats = 64.0
-        for clist in all_clips:
-            for c in clist:
-                if c.end_beats > max_beats:
-                    max_beats = ((c.end_beats + 3) // 4) * 4
-
-        time_width = 48  # narrower for TUI
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             print(f"  {current_snap.short_hash()} — '{current_snap.message}'")
+            print()
 
-            # CHANGED tracks only — show after-timeline with before/after label
-            changed = [td for td in diff.tracks if td.status != "unchanged"]
-            for td in changed:
-                label = f"{td.name:<{36}}"
-                after_bar = render_timeline_bar(
-                    after_clips.get(td.name, []), time_width, max_beats=max_beats,
-                )
-                status_ch = {"added": "+", "removed": "-", "modified": "~"}.get(td.status, " ")
-                print(f"  [{status_ch}] {label}{after_bar}")
+            # Changed tracks
+            changed = [t for t in diff.tracks if t.status != "unchanged"]
+            if changed:
+                for td in changed:
+                    icon = {"added": "+", "removed": "-", "modified": "~"}.get(td.status, " ")
+                    desc = td.status
+                    if td.devices_added:
+                        desc += f" +{','.join(d[:12] for d in td.devices_added[:2])}"
+                    if td.devices_removed:
+                        desc += f" -{','.join(d[:12] for d in td.devices_removed[:2])}"
+                    print(f"  {icon} {td.name}")
+                    print(f"    {desc}")
+            else:
+                print("  (no structural track changes)")
 
-            # Show tracks with clip count changes (even if status is unchanged)
-            clip_changed = []
+            # Clip count changes
+            parent_name_map = {t.name: t for t in parent_project.tracks}
+            current_name_map = {t.name: t for t in current_project.tracks}
+            clip_changes = []
             for td in diff.tracks:
-                if td.status == "unchanged":
-                    bc = len(before_clips.get(td.name, []))
-                    ac = len(after_clips.get(td.name, []))
-                    if bc != ac:
-                        clip_changed.append((td.name, bc, ac))
-            if clip_changed:
+                pt = parent_name_map.get(td.name)
+                ct = current_name_map.get(td.name)
+                bc = len(pt.clips) if pt else 0
+                ac = len(ct.clips) if ct else 0
+                if bc != ac:
+                    clip_changes.append((td.name, bc, ac))
+            if clip_changes:
                 print()
-                for name, bc, ac in clip_changed:
+                for name, bc, ac in clip_changes:
                     delta = ac - bc
                     sign = "+" if delta > 0 else ""
-                    print(f"  · {name:<32} {sign}{delta} clips")
+                    print(f"  · {name}: {bc}→{ac} clips ({sign}{delta})")
 
-            # Summary line
+            # Summary
             added = [t for t in changed if t.status == "added"]
             removed = [t for t in changed if t.status == "removed"]
             modified = [t for t in changed if t.status == "modified"]
@@ -921,6 +912,9 @@ class ClavusApp(App):
             if parts:
                 print()
                 print(f"  {' | '.join(parts)}")
+
+            print()
+            print(f"  For visual diff: open the web companion (port 7890)")
 
         from textual.screen import Screen
         from textual.widgets import Static, Footer
