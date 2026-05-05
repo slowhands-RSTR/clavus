@@ -457,25 +457,15 @@ def compare_snapshots(
     if not snap_before or not snap_after:
         return JSONResponse({"error": "Failed to load one or both snapshots"}, status_code=404)
 
-    # Parse the .als to get before/after Project objects
-    als_path = Path(proj.root_als)
-    proj_before = None
-    proj_after = None
-    if als_path.exists():
-        try:
-            parsed = _parse_with_timeout(als_path, timeout=5.0)
-            if parsed:
-                proj_before = parsed
-                proj_after = parsed
-        except Exception:
-            pass
-
-    # Build diff
+    # Build diff from stored project data
     from clavus.visual_diff import render_diff_html
 
-    diff = diff_projects(before_full, after_full, store)
-    if not diff:
-        return JSONResponse({"error": "Diff computation failed"}, status_code=500)
+    proj_before = store.load_project(before_full)
+    proj_after = store.load_project(after_full)
+    if not proj_before or not proj_after:
+        return JSONResponse({"error": "Failed to load project data for one or both snapshots"}, status_code=404)
+
+    diff = diff_projects(proj_before, proj_after)
 
     html = render_diff_html(diff, before_proj=proj_before, after_proj=proj_after)
 
