@@ -410,7 +410,7 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def cmd_watch(args: argparse.Namespace) -> None:
     """Start the file watcher daemon."""
-    store, proj = _get_store_and_project()
+    store, proj = get_store_and_project()
     cmd_watch_daemon(
         store,
         proj,
@@ -461,6 +461,7 @@ def cmd_cue(args: argparse.Namespace) -> None:
         text=args.text,
         position=position,
         track=args.track or "",
+        author=args.author or "",
         store=store,
     )
 
@@ -470,6 +471,8 @@ def cmd_cue(args: argparse.Namespace) -> None:
         print(f"   id: {cue.id}")
         if args.track:
             print(f"   Track: {args.track}")
+        if args.author:
+            print(f"   Author: {args.author}")
         print(f"   📋 Reply: clavus cue reply {cue.id} \"your response\"")
 
 
@@ -944,18 +947,19 @@ def cmd_push(args: argparse.Namespace) -> None:
     for remote in remotes:
         print(f"📤 Pushing to '{remote.name}' ({remote.url})...")
         result = push_to_remote(store, proj, remote)
+        parts = []
         if result["error"]:
-            print(f"  ❌ {result['error']}")
+            parts = [f"❌ {result['error']}"]
         else:
             parts = [f"✅ {result['cues']} cues, {result['snapshots']} snapshots"]
 
-        # Push stems for current HEAD
-        head = store.read_ref("HEAD")
-        stem_store = StemStore(proj.name, store)
-        if head and stem_store.get_manifest(head):
-            from clavus.sync import push_stems_to_remote
-            stem_count = push_stems_to_remote(store, proj, remote, stem_store, head)
-            parts.append(f"{stem_count} stem{'s' if stem_count != 1 else ''}")
+            # Push stems for current HEAD
+            head = store.read_ref("HEAD")
+            stem_store = StemStore(proj.name, store)
+            if head and stem_store.get_manifest(head):
+                from clavus.sync import push_stems_to_remote
+                stem_count = push_stems_to_remote(store, proj, remote, stem_store, head)
+                parts.append(f"{stem_count} stem{'s' if stem_count != 1 else ''}")
         print(f"  {' — '.join(parts)}")
         print()
 
@@ -972,24 +976,25 @@ def cmd_pull(args: argparse.Namespace) -> None:
     for remote in remotes:
         print(f"📥 Pulling from '{remote.name}' ({remote.url})...")
         result = pull_from_remote(store, proj, remote)
+        parts = []
         if result["error"]:
-            print(f"  ❌ {result['error']}")
+            parts = [f"❌ {result['error']}"]
         else:
             parts = [f"✅ {result['cues']} cues, {result['snapshots']} snapshots"]
 
-        # Pull stems for current HEAD
-        head = store.read_ref("HEAD")
-        if head:
-            from clavus.sync import pull_stems_from_remote
-            stem_count = pull_stems_from_remote(store, proj, remote)
-            if stem_count:
-                parts.append(f"{stem_count} stem{'s' if stem_count != 1 else ''}")
-                # Materialize after pull
-                stem_store = StemStore(proj.name, store)
-                manifest = stem_store.get_manifest(head)
-                if manifest and manifest.stems:
-                    paths = stem_store.materialize_stems(head)
-                    parts.append(f"materialized {len(paths)} file{'s' if len(paths) != 1 else ''}")
+            # Pull stems for current HEAD
+            head = store.read_ref("HEAD")
+            if head:
+                from clavus.sync import pull_stems_from_remote
+                stem_count = pull_stems_from_remote(store, proj, remote)
+                if stem_count:
+                    parts.append(f"{stem_count} stem{'s' if stem_count != 1 else ''}")
+                    # Materialize after pull
+                    stem_store = StemStore(proj.name, store)
+                    manifest = stem_store.get_manifest(head)
+                    if manifest and manifest.stems:
+                        paths = stem_store.materialize_stems(head)
+                        parts.append(f"materialized {len(paths)} file{'s' if len(paths) != 1 else ''}")
         print(f"  {' — '.join(parts)}")
         print()
 
@@ -1088,10 +1093,11 @@ def cmd_restore(args: argparse.Namespace) -> None:
     print(f"⚠️  This will overwrite your current .als file. A backup will be saved as:")
     print(f"   {als_path}.bak (if one doesn't already exist)")
     print()
-    confirm = input("  Continue? (y/N): ").strip().lower()
-    if confirm != "y":
-        print("❌ Restore cancelled.")
-        return
+    if not args.yes:
+        confirm = input("  Continue? (y/N): ").strip().lower()
+        if confirm != "y":
+            print("❌ Restore cancelled.")
+            return
 
     # Backup existing .als (only first time)
     bak_path = als_path.with_suffix(".als.bak")
@@ -1270,6 +1276,8 @@ def main():
     p_restore = subparsers.add_parser("restore", help="Restore .als from a snapshot")
     p_restore.add_argument("hash", nargs="?", default=None,
                           help="Snapshot hash or ref name (default: HEAD)")
+    p_restore.add_argument("-y", "--yes", action="store_true",
+                          help="Skip confirmation prompt")
 
     # Diff
     p_diff = subparsers.add_parser("diff", help="Show changes in a snapshot")

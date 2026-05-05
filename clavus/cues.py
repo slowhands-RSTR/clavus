@@ -598,6 +598,7 @@ def render_cues_as_markers(cues: list[Cue], output_path: str,
 # ─── CLI Integration ───────────────────────────────────────────────────
 
 def add_cue_command(text: str, position: str, track: str = "",
+                    author: str = "",
                     store: Optional[BlobStore] = None) -> Cue:
     """CLI-level cue addition with store lookup."""
     blobs = store or BlobStore()
@@ -613,6 +614,7 @@ def add_cue_command(text: str, position: str, track: str = "",
     cue = cues.add_cue(
         text=text,
         position=position,
+        author=author,
         snapshot_hash=head or "",
         track_name=track,
     )

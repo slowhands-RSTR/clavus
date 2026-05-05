@@ -514,6 +514,16 @@ class ClavusApp(App):
             self._do_assign(text)
         elif mode == "browse":
             self._run_browse(text)
+        elif mode == "confirm_delete":
+            if text.lower() in ("y", "yes"):
+                self._do_delete_cue()
+            else:
+                self._focus_cues()
+        elif mode == "confirm_archive":
+            if text.lower() in ("y", "yes"):
+                self._do_archive_cue()
+            else:
+                self._focus_cues()
         elif mode == "command":
             self._do_command(text)
 
@@ -992,10 +1002,22 @@ class ClavusApp(App):
 
     @work(exclusive=True)
     async def action_archive(self):
-        """Archive the selected cue via server API, then re-pull."""
+        """Archive the selected cue — ask for confirmation first."""
         cue = self._get_cue()
         if not cue:
             self._status("select a cue first")
+            return
+        if not self.project:
+            self._status("no project selected")
+            return
+        self._show_input("confirm_archive",
+                         f"archive @{cue.position} '{cue.text[:30]}'? (y/N) ▼",
+                         prefill="")
+
+    async def _do_archive_cue(self):
+        """Actually archive the cue (after confirmation)."""
+        cue = self._get_cue()
+        if not cue:
             return
         self._status(f"archiving {cue.id[:8]}...")
         ok = await self.api.archive_cue(self.project, cue.id)
@@ -1003,14 +1025,26 @@ class ClavusApp(App):
             self._status("archived — re-pulling")
             await self._do_pull()
         else:
-            self._status("archive failed (server error)")
+            self._status("archive failed")
 
     @work(exclusive=True)
     async def action_delete_cue(self):
-        """Delete the selected cue permanently."""
+        """Delete the selected cue permanently — ask for confirmation first."""
         cue = self._get_cue()
         if not cue:
             self._status("select a cue first")
+            return
+        if not self.project:
+            self._status("no project selected")
+            return
+        self._show_input("confirm_delete",
+                         f"delete @{cue.position} '{cue.text[:30]}' — PERMANENT? (y/N) ▼",
+                         prefill="")
+
+    async def _do_delete_cue(self):
+        """Actually delete the cue (after confirmation)."""
+        cue = self._get_cue()
+        if not cue:
             return
         self._status(f"deleting {cue.id[:8]}...")
         ok = await self.api.delete_cue(self.project, cue.id)
@@ -1018,7 +1052,7 @@ class ClavusApp(App):
             self._status("deleted — re-pulling")
             await self._do_pull()
         else:
-            self._status("delete failed (server error)")
+            self._status("delete failed")
 
     @work(exclusive=True)
     async def action_pull(self):
@@ -1229,7 +1263,7 @@ class ClavusApp(App):
         try:
             hlv = self.query_one("#hlv", ListView)
             clv = self.query_one("#clv", ListView)
-            if self.query_one("#history").has_focus:
+            if hlv.has_focus:
                 clv.focus()
                 self._status("cues")
             elif self.query_one("#cues-list").has_focus or clv.has_focus:
