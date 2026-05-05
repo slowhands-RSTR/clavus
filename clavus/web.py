@@ -1807,6 +1807,7 @@ async function loadProject() {
   }
   $('connStatus').textContent = '⬤ connected';
   $('connStatus').className = 'connection-status';
+  currentProject = data.name || currentProject;
 
   if (data.project) {
     const p = data.project;
@@ -2098,7 +2099,7 @@ function showServerInfo() {
   const url = window.location.href;
   const ts = document.getElementById('tailscaleUrl');
   const info = ts && ts.textContent ? ts.textContent : 'Local only';
-  alert('Clavus Web Companion\nURL: ' + url + '\n' + info);
+  alert('Clavus Web Companion\\nURL: ' + url + '\\n' + info);
 }
 
   // ─── Snapshot Compare / Diff ─────────────────────────────────────────
