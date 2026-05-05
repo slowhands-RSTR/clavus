@@ -472,6 +472,8 @@ class ClavusApp(App):
             self._do_new_cue(self._pending_cue_text, text)
         elif mode == "switch_proj":
             self._run_switch_project(text)
+        elif mode == "assign":
+            self._do_assign(text)
         elif mode == "browse":
             self._run_browse(text)
         elif mode == "command":
@@ -719,6 +721,16 @@ class ClavusApp(App):
         self._status("edited")
         self._save()
 
+    def _do_assign(self, name: str):
+        cue = self._get_cue()
+        if not cue:
+            return
+        cue.assignee = name.strip()
+        cue.in_progress = False
+        self._render()
+        self._status(f"assigned to {cue.assignee}")
+        self._save()
+
     def action_reply(self):
         cue = self._get_cue()
         if not cue:
@@ -784,12 +796,11 @@ class ClavusApp(App):
             cue.assignee = ""
             cue.in_progress = False
             self._status("unassigned")
-        else:
-            cue.assignee = self.author or os.environ.get("USER", "self")
-            cue.in_progress = False
-            self._status(f"assigned to {cue.assignee}")
-        self._render()
-        self._save()
+            self._render()
+            self._save()
+            return
+        # Toggle: if already assigned to someone, unassign. Otherwise prompt for name.
+        self._show_input("assign", "assign to:")
 
     def action_start(self):
         cue = self._get_cue()
