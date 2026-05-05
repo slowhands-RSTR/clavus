@@ -7,6 +7,7 @@ CLI flags: highest priority (override both config and env)
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 from dataclasses import dataclass, field
@@ -17,7 +18,7 @@ from typing import Optional
 
 DEFAULT_PORT = 7890
 DEFAULT_HOST = "0.0.0.0"
-DEFAULT_AUTHOR = ""
+DEFAULT_AUTHOR = getpass.getuser()
 DEFAULT_SERVER = f"http://localhost:{DEFAULT_PORT}"
 CONFIG_DIR = Path.home() / ".config" / "clavus"
 CONFIG_PATH = CONFIG_DIR / "config.json"

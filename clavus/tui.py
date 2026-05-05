@@ -423,21 +423,19 @@ class ClavusApp(App):
         self.idx: int = 0
         self._input_mode: str = ""  # "reply", "edit", "cue", "cue_pos", ""
         self._pending_cue_text: str = ""
-        self._config_path = os.path.expanduser("~/.config/clavus/config.json")
-        self.author = self._load_config()
+        from clavus.config import ClavusConfig
+        _cfg = ClavusConfig.load()
+        self.author = _cfg.author
+        self._clavus_cfg = _cfg
 
     def _load_config(self) -> str:
-        try:
-            with open(self._config_path) as f:
-                cfg = json.load(f)
-                return cfg.get("author", "you")
-        except (FileNotFoundError, json.JSONDecodeError):
-            return "you"
+        from clavus.config import ClavusConfig
+        return ClavusConfig.load().author
 
     def _save_config(self):
-        os.makedirs(os.path.dirname(self._config_path), exist_ok=True)
-        with open(self._config_path, "w") as f:
-            json.dump({"author": self.author}, f)
+        from clavus.config import ClavusConfig
+        self._clavus_cfg.author = self.author
+        self._clavus_cfg.save()
 
     def compose(self):
         with Container(id="main"):
