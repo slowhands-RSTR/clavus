@@ -1034,6 +1034,7 @@ async def sync_pull(name: str = Query(..., description="Project name")):
         "id": c.id, "position": c.position, "text": c.text,
         "author": c.author, "status": c.status, "timestamp": c.timestamp,
         "track_name": c.track_name,
+        "assignee": c.assignee, "in_progress": c.in_progress,
         "replies": [{"id": r.id, "author": r.author, "text": r.text,
                      "timestamp": r.timestamp, "snapshot_hash": r.snapshot_hash}
                    for r in (c.replies or [])],

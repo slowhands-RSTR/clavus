@@ -360,7 +360,7 @@ class ClavusApp(App):
     #cues-list {{ height: 100%; min-height: 5; border-right: solid {C['border']}; }}
     #cues-list:focus-within {{ border-right: solid {C['accent']}; }}
     #cues-list ListView {{ height: 100%; border: none; background: transparent; }}
-    #cues-list ListItem {{ background: transparent; padding: 0 2; min-height: 1; max-height: 8; }}
+    #cues-list ListItem {{ background: transparent; padding: 0 2; min-height: 1; max-height: 10; }}
     #cues-list ListItem:hover {{ background: {C['surface']}; }}
     #clv > ListItem.-highlight {{ background: {C['surface']}80; text-style: bold; border-left: solid transparent; padding-left: 1; }}
     #clv:focus > ListItem.-highlight {{ background: {C['surface2']}; text-style: bold; border-left: solid #d4a030; padding-left: 1; }}
@@ -570,7 +570,7 @@ class ClavusApp(App):
         self._update_header()
         cues, snaps = await self.api.pull(self.project) if self.project else (None, None)
         if cues:
-            self.cues = cues
+            self.cues = self._sort_cues(cues)
         if snaps:
             self.snaps = snaps
         self.idx = 0
@@ -1121,12 +1121,22 @@ class ClavusApp(App):
             pass
         self._ws_listener()
 
+    def _sort_cues(self, cues: list[Cue]) -> list[Cue]:
+        """Sort cues by timeline position, then by creation timestamp."""
+        def sort_key(c: Cue) -> tuple:
+            parts = c.position.split(".")
+            bars = int(parts[0]) if len(parts) > 0 and parts[0] else 0
+            beats = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+            sixteenths = int(parts[2]) if len(parts) > 2 and parts[2] else 0
+            return (bars, beats, sixteenths, c.timestamp)
+        return sorted(cues, key=sort_key)
+
     async def _do_pull(self):
         if not self.project:
             return
         cues, snaps = await self.api.pull(self.project)
         if cues:
-            self.cues = cues
+            self.cues = self._sort_cues(cues)
         self.snaps = snaps
         self.idx = min(self.idx, len(self.cues) - 1) if self.cues else 0
         self._update_header()
@@ -1159,7 +1169,7 @@ class ClavusApp(App):
             idx = hlv.index
         except (NoMatches, AttributeError):
             idx = 0
-        if idx >= len(self.snaps):
+        if idx is None or idx >= len(self.snaps):
             idx = 0
         return idx
 
@@ -1282,15 +1292,19 @@ class ClavusApp(App):
                 C["green"] if c.status == "resolved" else C["muted"])
             dot = "●" if c.status == "pending" else ("✓" if c.status == "resolved" else "–")
             rc = f" [{C['dim']}]{len(c.replies)}r[/]" if c.replies else ""
-            assignee_part = f" 👤 {c.assignee}" if c.assignee else ""
+            assignee_part = f"  👤 {c.assignee}" if c.assignee else ""
             in_prog = f" [{C['yellow']}]▶[/]" if c.in_progress else ""
             safe_text = c.text[:60].replace("[", "\\[").replace("]", "\\]")
-            lines = [
+            cue_line = (
                 f"  [{color}]{dot}[/] [dim]@{c.position}[/] "
                 f"[{C['fg']}]{safe_text}[/]"
-                f"{assignee_part}{in_prog}"
                 f" [{C['muted']}]{c.id[:8]}[/]{rc}"
-            ]
+            )
+            lines = [cue_line]
+            if assignee_part:
+                lines.append(f"  [{C['dim']}]├──[/]{assignee_part}{in_prog}")
+            elif in_prog:
+                lines.append(f"  [{C['dim']}]├──[/]  [{C['yellow']}]▶[/]")
             if c.replies:
                 for j, r in enumerate(c.replies):
                     tag = r.author or "anon"
