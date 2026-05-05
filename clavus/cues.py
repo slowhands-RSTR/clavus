@@ -281,39 +281,28 @@ class CueStore:
                 return True
         return False
 
-    def archive(self, cue_id: str, archive_dir: Optional[Path] = None) -> Optional[Path]:
-        """Move a resolved/skipped cue to an archive directory.
+    def archive(self, cue_id: str, archive_dir: Optional[Path] = None) -> bool:
+        """Set a cue's status to 'archived'. Any cue can be archived regardless of status.
 
-        Creates an 'archive' subdirectory in the cues folder.
-        Returns the archive path, or None if cue not found or not resolved/skipped.
+        Cue stays in the cues directory with status='archived'.
+        Returns True if the cue was found and updated.
         """
         cue = self.get_cue(cue_id)
         if cue is None:
-            return None
-        if cue.status not in ("resolved", "skipped"):
-            return None
-        archive_path = archive_dir or (self.cues_dir / "archive")
-        archive_path.mkdir(parents=True, exist_ok=True)
-        src = self.cues_dir / f"{cue.id}.json"
-        dst = archive_path / f"{cue.id}.json"
-        if src.exists():
-            import shutil
-            shutil.move(str(src), str(dst))
-            return dst
-        return None
+            return False
+        cue.status = "archived"
+        self._save_cue(cue)
+        return True
 
     def archive_resolved(self) -> int:
-        """Move all resolved and skipped cues to archive. Returns count."""
-        import shutil
-        archive_path = self.cues_dir / "archive"
-        archive_path.mkdir(parents=True, exist_ok=True)
+        """Set all cues to 'archived'. Returns count."""
         count = 0
         for f in list(self.cues_dir.glob("*.json")):
             try:
                 data = json.loads(f.read_text())
-                if data.get("status") in ("resolved", "skipped"):
-                    dst = archive_path / f.name
-                    shutil.move(str(f), str(dst))
+                if data.get("status") not in ("archived",):
+                    data["status"] = "archived"
+                    f.write_text(json.dumps(data, indent=2, default=str))
                     count += 1
             except (json.JSONDecodeError, OSError):
                 continue
@@ -659,10 +648,12 @@ def format_cue_list(cues: list[Cue], verbose: bool = False) -> str:
     resolved = [c for c in cues if c.status == "resolved"]
     skipped = [c for c in cues if c.status == "skipped"]
     deferred = [c for c in cues if c.status == "deferred"]
+    archived = [c for c in cues if c.status == "archived"]
 
     parts = []
     parts.append(f"💬 Cues ({len(unresolved)} pending, {len(resolved)} resolved, "
-                 f"{len(skipped)} skipped, {len(deferred)} deferred)")
+                 f"{len(skipped)} skipped, {len(deferred)} deferred"
+                 f"{f', {len(archived)} archived' if archived else ''})")
 
     if unresolved:
         parts.append(f"\n  ⏺ Pending ({len(unresolved)}):")

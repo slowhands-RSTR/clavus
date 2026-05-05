@@ -741,19 +741,19 @@ def cmd_cue_delete(args: argparse.Namespace) -> None:
 
 
 def cmd_cue_archive(args: argparse.Namespace) -> None:
-    """Archive a specific cue or all resolved/skipped cues."""
+    """Archive a specific cue, or all cues."""
     store, proj = get_store_and_project()
     cues = CueStore(proj.name, store=store)
 
     if args.cue_id:
-        dst = cues.archive(args.cue_id)
-        if dst:
+        ok = cues.archive(args.cue_id)
+        if ok:
             print(f"📦 Archived cue {args.cue_id}")
         else:
-            print(f"❌ Cue '{args.cue_id}' not found or not resolved/skipped.")
+            print(f"❌ Cue '{args.cue_id}' not found.")
     else:
         count = cues.archive_resolved()
-        print(f"📦 Archived {count} resolved/skipped cue(s).")
+        print(f"📦 Archived {count} cue(s).")
 
 
 def cmd_branch(args: argparse.Namespace) -> None:
@@ -1561,7 +1561,7 @@ def main():
             from importlib.metadata import version
             v = version("clavus")
         except ImportError:
-            v = "0.5.0"
+            v = "0.6.0"
         print(f"clavus {v}")
         return
 

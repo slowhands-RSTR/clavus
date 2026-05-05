@@ -1,16 +1,37 @@
 # Clavus — Ableton Live Project Collaboration
 
-**Version:** 0.2.0 (stable)
+**Version:** 0.6.0
 
 Clavus is a Git-for-Ableton collaboration tool. It parses `.als` files, snapshots project state, tracks threaded comments (cues) pinned to timeline positions, computes visual diffs between versions, and syncs everything over Tailscale or LAN — no cloud, no plugins, no hassle.
 
 ## Quick Start
 
+```bash
+pip install clavus          # or: pip install -e .   (from source)
+clavus init                  # guided project setup
+clavus tui                   # terminal dashboard
 ```
-pip install -e .
-clavus serve          # start the web companion
-clavus tui            # terminal dashboard (main interface)
+
+**First time?** Run `clavus config --wizard` to set your author name.
+
+```bash
+# Typical workflow:
+clavus project "My Track"       # switch to a saved project
+clavus cue "fix the kick @2"    # add a cue at bar 2
+clavus snapshot "arranged intro" # save a checkpoint
+clavus log                       # view history
 ```
+
+## Environment
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAVUS_AUTHOR` | system username | Author name for cues and snapshots |
+| `CLAVUS_PORT` | `7890` | Server port for sync |
+| `CLAVUS_HOST` | `0.0.0.0` | Server bind address |
+| `CLAVUS_SERVER` | `http://localhost:7890` | Server URL for TUI/peers |
+
+CLI flags (`--author`, `--port`) override env vars, which override config file.
 
 ## Features
 
@@ -20,8 +41,8 @@ clavus tui            # terminal dashboard (main interface)
 - **Stem sync** — content-addressed audio WAV transfer between peers
 - **P2P sync** — pull/push over Tailscale or LAN, no server needed
 - **TUI dashboard** — keyboard-driven terminal interface (main way to use it)
-- **Web companion** — mobile-friendly browser view with Project/Cues/Snapshots tabs
 - **Auto-snapshot** — file watcher daemon for automatic checkpoints
+- **Web companion** *(optional)* — mobile-friendly browser view (`pip install clavus[web]`)
 
 ## Keybindings (TUI)
 
@@ -77,13 +98,34 @@ clavus/
 - Full TUI with cues list, snapshot history, assignee tracking
 - P2P push/pull of cues and audio stems over Tailscale/LAN
 - Snapshots with visual diffs (arrangement, tracks, clips, BPM)
-- Mobile-friendly web companion with tabbed layout
 - Live 12 `.als` format support (Ableton wrapper, tracks container, palette colors)
 - Cue injection as Ableton markers
-- Assignees survive push/pull cycles (fix applied)
+- Assignees survive push/pull cycles
 - Cues sorted by timeline position
-- Full teal border focus indicator on active panel + orange highlight on active item
-- `j`/`k` navigation works on both cues and snapshot panes
+- `j`/`k` navigation on both cues and snapshot panes
+- Full teal border focus indicator on active panel
+- Interactive init wizard with .als summary and project description
+- Config wizard for first-time setup
+- Archive uses status change (no file moving, full history preserved)
+
+## Install
+
+```bash
+# Core (TUI + sync):
+pip install clavus
+
+# With optional web companion:
+pip install "clavus[web]"
+
+# From source:
+git clone https://github.com/slowhands/clavus
+cd clavus
+pip install -e .
+```
+
+## Collaborator Setup
+
+See [SETUP_STEVEN.md](SETUP_STEVEN.md) — step-by-step Windows setup guide.
 
 ## License
 
