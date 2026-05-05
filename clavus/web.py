@@ -1854,7 +1854,7 @@ async function loadProject() {
     const trackList = $('trackList');
     if (p.tracks && p.tracks.length) {
       trackList.innerHTML = p.tracks.map(t => {
-        const color = '#' + (t.color ? t.color.toString(16).padStart(6,'0') : '333');
+        const color = ABLETON_COLORS[t.color] || ('#' + t.color.toString(16).padStart(6,'0'));
         const clipCount = t.clips ? t.clips.length : 0;
         return `
         <div class="track-item" style="border-left-color:${color}">
@@ -2234,6 +2234,13 @@ function showServerInfo() {
   if (!str) return '';
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// Ableton Live 12 color palette (indices 0-119 mapped to visible hex)
+const ABLETON_COLORS = [
+  '#e8e8e8','#cc5050','#e88c50','#e8c850','#50cc50','#50cc8c','#50cccc','#508ce8',
+  '#8c50e8','#cc50cc','#cc508c','#e8a060','#a0e860','#60e8a0','#60e8e8','#a060e8',
+  '#e860cc','#e860a0','#404040','#808080','#b0b0b0','#d08040','#40d080','#6080d0'
+];
 
 function timeAgo(timestamp) {
   const diff = Date.now() / 1000 - timestamp;
