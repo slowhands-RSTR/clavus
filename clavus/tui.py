@@ -364,6 +364,7 @@ class ClavusApp(App):
         Binding("a", "assign", "Assign"),
         Binding("S", "start", "Start/Stop"),
         Binding("x", "archive", "Archive"),
+        Binding("C", "snapshot", "Snapshot"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
         Binding("j", "cursor_down", "Down", show=False),
@@ -514,7 +515,7 @@ class ClavusApp(App):
         elif cmd == "archive":
             self.action_archive()
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, restore [hash], snapshot <msg>, archive, help")
+            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, restore [hash], snapshot <msg>, archive, help | C=snapshot")
         else:
             self._status(f"unknown: {cmd}")
 
@@ -764,6 +765,10 @@ class ClavusApp(App):
         snap = self.snaps[idx]
         self._status(f"restoring to {snap.hash} ('{snap.message[:40]}')...")
         self._run_restore(snap.hash)
+
+    def action_snapshot(self):
+        """Prompt for a snapshot message then create one."""
+        self._show_input("command", ":", prefill="snapshot ")
 
     def action_assign(self):
         cue = self._get_cue()
