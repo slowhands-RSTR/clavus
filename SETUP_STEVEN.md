@@ -13,9 +13,12 @@
 
 ## 2. Install Clavus
 
-In Command Prompt:
-```
-pip install clavus
+Open Command Prompt and clone the repo:
+```cmd
+cd Desktop
+git clone https://github.com/chrisrcarr/clavus.git
+cd clavus
+pip install -e .
 ```
 
 To verify:
