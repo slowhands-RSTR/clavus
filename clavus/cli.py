@@ -3,6 +3,8 @@ Clavus CLI — the primary user interface.
 
 Commands:
   clavus init [path]          Initialize + git init
+  clavus projects             List all tracked projects
+  clavus project <name>       Switch active project
   clavus snapshot "message"   Snapshot + git commit .als
   clavus log                  Show clavus + git history
   clavus log --graph          Show branch topology
@@ -101,6 +103,50 @@ def cmd_init(args: argparse.Namespace) -> None:
     print(f"")  # blank line for readability
     print(f"   Next: open the project, make changes, then run:")
     print(f"   clavus snapshot \"your message here\"")
+
+
+def cmd_projects(args: argparse.Namespace) -> None:
+    """List all tracked projects."""
+    store = BlobStore()
+    projects = store.list_projects()
+    if not projects:
+        print("📁 No Clavus projects found.")
+        print("   Run 'clavus init <path>' to add one.")
+        return
+
+    print(f"📁 Clavus projects ({len(projects)}):")
+    print()
+    for p in sorted(projects, key=lambda x: x.name):
+        head_str = f" @ {p.head[:8]}" if p.head else " (no snapshots)"
+        als_exists = "✅" if Path(p.root_als).exists() else "❌"
+        print(f"  {p.name:<30} {als_exists} {p.root_als}{head_str}")
+    print()
+    print(f"  Current: {store.read_ref('_last_project') or 'none'}")
+
+    # Show which is active
+    try:
+        _, active = get_store_and_project()
+        print(f"  Active: {active.name}")
+    except SystemExit:
+        pass
+
+
+def cmd_project(args: argparse.Namespace) -> None:
+    """Switch the active project."""
+    store = BlobStore()
+    proj = store.get_index(args.name)
+    if not proj:
+        print(f"❌ Project '{args.name}' not found.")
+        print("   Run 'clavus projects' to see available projects.")
+        sys.exit(1)
+    store.set_index(proj)
+    print(f"✅ Switched to project '{args.name}'")
+    print(f"   Path: {proj.root_als}")
+    if proj.head:
+        print(f"   HEAD: {proj.head[:8]}")
+    else:
+        print(f"   (no snapshots yet)")
+    print(f"   Branch: {proj.branch}")
 
 
 def cmd_snapshot(args: argparse.Namespace) -> None:
@@ -1200,6 +1246,13 @@ def main():
     p_init = subparsers.add_parser("init", help="Initialize a new clavus project")
     p_init.add_argument("path", nargs="?", default=None, help="Path to .als file or project directory")
 
+    # Projects (list)
+    subparsers.add_parser("projects", help="List all tracked projects")
+
+    # Project (switch active)
+    p_project = subparsers.add_parser("project", help="Switch active project")
+    p_project.add_argument("name", help="Project name to switch to")
+
     # Snapshot
     p_snap = subparsers.add_parser("snapshot", help="Create a new snapshot")
     p_snap.add_argument("message", help="Description of what changed")
@@ -1378,6 +1431,8 @@ def main():
     # Dispatch
     commands = {
         "init": cmd_init,
+        "projects": cmd_projects,
+        "project": cmd_project,
         "snapshot": cmd_snapshot,
         "log": cmd_log,
         "diff": cmd_diff,

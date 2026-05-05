@@ -538,10 +538,16 @@ class ClavusApp(App):
     async def _run_list_projects(self):
         projects = await self.api.list_projects()
         if not projects:
-            self._status("no projects found")
+            self._status("no projects found  —  run :init <path> to add one")
             return
-        names = ", ".join(p["name"] for p in projects)
-        self._status(f"projects: {names}")
+        lines = []
+        for p in projects:
+            name = p.get("name", "?")
+            head = p.get("head", "")
+            branch = p.get("branch", "main")
+            active = " ◀" if name == self.project else ""
+            lines.append(f"{name:30s} @ {head or '(no snaps)':12s} [{branch}]{active}")
+        self._status("projects:\n" + "\n".join(lines))
         self._show_input("switch_proj", "project name to switch:")
 
     @work(exclusive=False)
