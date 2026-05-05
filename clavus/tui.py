@@ -329,12 +329,14 @@ class ClavusApp(App):
     #content {{ layout: grid; grid-size: 2 1; grid-columns: 3fr 1fr; height: 100%; }}
 
     #cues-list {{ height: 100%; min-height: 5; border-right: solid {C['border']}; }}
+    #cues-list:focus-within {{ border-right: solid {C['accent']}; }}
     #cues-list ListView {{ height: 100%; border: none; background: transparent; }}
     #cues-list ListItem {{ background: transparent; padding: 0 2; min-height: 1; max-height: 8; }}
     #cues-list ListItem:hover {{ background: {C['surface']}; }}
     #clv:focus .list-item--focused {{ background: {C['surface2']}; text-style: bold; }}
 
-    #history {{ height: 100%; background: {C['surface']}; padding: 0 1; }}
+    #history {{ height: 100%; background: {C['surface']}; padding: 0 1; border-right: solid transparent; }}
+    #history:focus-within {{ border-right: solid {C['accent']}; }}
     #history-list {{ height: 100%; }}
     #history-list ListView {{ height: 100%; border: none; background: transparent; }}
     #history-list ListItem {{ background: transparent; padding: 0 1; min-height: 1; }}
@@ -367,6 +369,7 @@ class ClavusApp(App):
         Binding("C", "snapshot", "Snapshot"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
+        Binding("tab", "focus_next_pane", "Pane"),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("down", "cursor_down", "Down", show=False),
@@ -1013,6 +1016,23 @@ class ClavusApp(App):
     def action_cursor_up(self):
         try:
             self.query_one("#clv", ListView).action_cursor_up()
+        except NoMatches:
+            pass
+
+    def action_focus_next_pane(self):
+        """Tab between cues list and history pane."""
+        try:
+            hlv = self.query_one("#hlv", ListView)
+            clv = self.query_one("#clv", ListView)
+            if self.query_one("#history").has_focus:
+                clv.focus()
+                self._status("cues")
+            elif self.query_one("#cues-list").has_focus or clv.has_focus:
+                hlv.focus()
+                self._status("history")
+            else:
+                clv.focus()
+                self._status("cues")
         except NoMatches:
             pass
 
