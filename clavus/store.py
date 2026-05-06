@@ -109,6 +109,8 @@ class BlobStore:
         self.objects_dir.mkdir(exist_ok=True)
         self.refs_dir.mkdir(exist_ok=True)
         if not self.index_path.exists():
+            self._try_restore_index()
+        if not self.index_path.exists():
             self._write_json(self.index_path, {})
         if not self.config_path.exists():
             self._write_json(self.config_path, {
@@ -261,14 +263,91 @@ class BlobStore:
         if ref_path.exists():
             ref_path.unlink()
 
+    # ── Index Backup & Recovery ──
+
+    def _backup_index(self) -> None:
+        """Rotating backup of index.json before each write.
+        Keeps the last 3 backups as index.json.bak, .bak2, .bak3.
+        """
+        if not self.index_path.exists():
+            return
+        import shutil
+        # Rotate: .bak2 → .bak3, .bak → .bak2, current → .bak
+        for dst, src in [(".bak3", ".bak2"), (".bak2", ".bak")]:
+            src_path = self.index_path.with_suffix(self.index_path.suffix + src)
+            dst_path = self.index_path.with_suffix(self.index_path.suffix + dst)
+            if src_path.exists():
+                shutil.copy2(src_path, dst_path)
+        bak_path = self.index_path.with_suffix(self.index_path.suffix + ".bak")
+        shutil.copy2(self.index_path, bak_path)
+
+    def _try_restore_index(self) -> bool:
+        """Try to restore index.json from backup or scan refs/cues dirs.
+        Returns True if restored, False if nothing to recover.
+        """
+        import json, time
+
+        # Level 1: restore from .bak file
+        for bak_suffix in [".bak", ".bak2", ".bak3"]:
+            bak_path = self.index_path.with_suffix(self.index_path.suffix + bak_suffix)
+            if bak_path.exists():
+                try:
+                    data = json.loads(bak_path.read_text())
+                    if isinstance(data, dict) and any(
+                        isinstance(v, dict) and "root_als" in v for v in data.values()
+                    ):
+                        self._write_json(self.index_path, data)
+                        print(f"⚠️  index.json was missing — restored from {bak_path.name}")
+                        return True
+                except (json.JSONDecodeError, OSError):
+                    continue
+
+        # Level 2: reconstruct from refs/ directory
+        ref_files = list(self.refs_dir.glob("**/*"))
+        if ref_files:
+            projects = {}
+            head_hash = self.read_ref("HEAD")
+            # Scan for refs/heads/* and refs/tags/*
+            for ref_file in ref_files:
+                if ref_file.is_file():
+                    ref_name = str(ref_file.relative_to(self.refs_dir))
+                    ref_value = ref_file.read_text().strip()
+
+            # Try to find cues dirs as project names
+            cues_root = self.root / "cues"
+            if cues_root.exists():
+                for proj_dir in sorted(cues_root.iterdir()):
+                    if proj_dir.is_dir() and not proj_dir.name.startswith("."):
+                        cue_files = list(proj_dir.glob("*.json"))
+                        if cue_files:
+                            proj = ClavusProject(
+                                name=proj_dir.name,
+                                root_als="",
+                                created_at=time.time(),
+                                head=head_hash,
+                                description="(recovered — run 'clavus repair' to set .als path)",
+                            )
+                            projects[proj.name] = asdict(proj)
+
+            if projects:
+                projects["_last_project"] = list(projects.keys())[0]
+                self._write_json(self.index_path, projects)
+                print(f"⚠️  index.json was missing — recovered {len(projects)} project(s) from cues/refs")
+                return True
+
+        return False
+
     # ── Index (Active Project) ──
 
     def set_index(self, project: ClavusProject) -> None:
         """Set the active tracked project in the index."""
+        self._backup_index()
         index = json.loads(self.index_path.read_text()) if self.index_path.exists() else {}
         index[project.name] = asdict(project)
         index["_last_project"] = project.name
         self._write_json(self.index_path, index)
+        # Also persist as a ref for recovery safety
+        self.update_ref("_last_project", project.name)
 
     def get_index(self, name: str) -> Optional[ClavusProject]:
         """Get an active project from the index."""
