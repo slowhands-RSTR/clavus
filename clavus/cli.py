@@ -224,13 +224,19 @@ def cmd_init(args: argparse.Namespace) -> None:
     # ── Project name ──
     suggested = als_path.stem
     print(f"📁 Project: {suggested}")
-    name_input = input(f"   Name [{suggested}]: ").strip()
-    project_name = name_input if name_input else suggested
+    if sys.stdin.isatty():
+        name_input = input(f"   Name [{suggested}]: ").strip()
+        project_name = name_input if name_input else suggested
+    else:
+        project_name = suggested
     print()
 
     # ── Description (optional) ──
     print("📝 Optional description (what is this project?)")
-    desc_input = input(f"   Description []: ").strip()
+    if sys.stdin.isatty():
+        desc_input = input(f"   Description []: ").strip()
+    else:
+        desc_input = ""
     print()
 
     # ── Parse ──
@@ -243,10 +249,11 @@ def cmd_init(args: argparse.Namespace) -> None:
     print()
 
     # ── Confirm ──
-    confirm = input("   Ready to track this project? [Y/n]: ").strip().lower()
-    if confirm and confirm not in ("y", "yes", ""):
-        print("✋ Cancelled. Nothing was saved.")
-        return
+    if sys.stdin.isatty():
+        confirm = input("   Ready to track this project? [Y/n]: ").strip().lower()
+        if confirm and confirm not in ("y", "yes", ""):
+            print("✋ Cancelled. Nothing was saved.")
+            return
     print()
 
     # ── Init ──
