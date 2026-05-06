@@ -609,6 +609,7 @@ class ClavusApp(App):
             self._status(f"unknown: {cmd}")
 
     @work(exclusive=False)
+    @work(exclusive=False)
     async def _run_switch_project(self, name: str):
         self._status(f"switching to {name}...")
         info = await self.api.get_project_info(name)
