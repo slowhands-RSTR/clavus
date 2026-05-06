@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>slowhands — tools for music makers</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #0b1418;
+    --surface: #0f1a20;
+    --surface2: #162a34;
+    --border: #1e3540;
+    --text: #c8d6d9;
+    --text-dim: #6a8a94;
+    --accent: #1a9e9e;
+    --yellow: #d4a030;
+    --red: #d43a3a;
+    --radius: 8px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    background-image:
+      linear-gradient(rgba(26, 158, 158, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(26, 158, 158, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+  }
+
+  .container {
+    max-width: 740px;
+    width: 100%;
+  }
+
+  /* ── Header ── */
+  header {
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+
+  .suite-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.5rem;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.5rem;
+  }
+
+  .suite-name .dot {
+    color: var(--accent);
+  }
+
+  .suite-tagline {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    font-weight: 400;
+  }
+
+  /* ── Cards ── */
+  .cards { display: flex; flex-direction: column; gap: 1.25rem; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 1.5rem 1.75rem;
+    transition: background 0.15s, border-color 0.15s, transform 0.15s;
+    cursor: default;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+  }
+  .card:hover {
+    background: var(--surface2);
+    border-left-color: #2bc8c8;
+    transform: translateY(-1px);
+  }
+  .card.crux { border-left-color: var(--yellow); }
+  .card.crux:hover { border-left-color: #e8b840; }
+
+  .card-top {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .card-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .card.clavus .card-icon {
+    background: rgba(26, 158, 158, 0.12);
+    color: var(--accent);
+    border: 1px solid rgba(26, 158, 158, 0.25);
+  }
+  .card.crux .card-icon {
+    background: rgba(212, 160, 48, 0.12);
+    color: var(--yellow);
+    border: 1px solid rgba(212, 160, 48, 0.25);
+  }
+
+  .card-name-group { flex: 1; }
+
+  .card-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.15rem;
+    font-weight: 500;
+    color: var(--accent);
+    display: block;
+    line-height: 1.3;
+  }
+  .card.crux .card-name { color: var(--yellow); }
+
+  .card-version {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    background: var(--bg);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .card-desc {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-bottom: 0.85rem;
+  }
+
+  .card-features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .feature-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    background: var(--bg);
+    padding: 0.2rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  .install-block {
+    background: #070e12;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.55rem 1rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    overflow-x: auto;
+    user-select: all;
+  }
+  .card.crux .install-block { border-left: 2px solid var(--yellow); }
+  .install-block .prompt { color: var(--text-dim); user-select: none; }
+  .install-block .cmd { color: var(--accent); }
+  .card.crux .install-block .cmd { color: var(--yellow); }
+
+  /* ── Suite Badge ── */
+  .suite-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin: 1rem 0;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+  }
+  .suite-bar::before,
+  .suite-bar::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+  }
+  .suite-bar .tilde {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+    opacity: 0.4;
+  }
+
+  /* ── Footer ── */
+  footer {
+    margin-top: 4rem;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+  }
+  footer a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  footer a:hover { text-decoration: underline; }
+  .footer-links { margin-top: 0.75rem; display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap; }
+  .footer-links a { color: var(--text-dim); font-size: 0.8rem; }
+  .footer-links a:hover { color: var(--text); }
+
+  .donate-btn {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.5rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .donate-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  @media (max-width: 500px) {
+    .suite-name { font-size: 1.8rem; }
+    .card { padding: 1.15rem 1.25rem; }
+    .card-icon { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="suite-name">slowhands<span class="dot">.</span></div>
+    <p class="suite-tagline">tools for music makers</p>
+  </header>
+
+  <div class="cards">
+    <!-- clavus -->
+    <a class="card clavus" href="#" target="_blank">
+      <div class="card-top">
+        <div class="card-icon">~▼~</div>
+        <div class="card-name-group">
+          <span class="card-name">clavus</span>
+        </div>
+        <span class="card-version">v0.6.0</span>
+      </div>
+      <p class="card-desc">
+        Git-for-Ableton collaboration tool. Track project versions, leave cues at timeline positions,
+        snapshot your arrangement, and sync stems with your bandmates — without leaving Live.
+      </p>
+      <div class="card-features">
+        <span class="feature-tag">.als parsing</span>
+        <span class="feature-tag">snapshot &amp; diff</span>
+        <span class="feature-tag">cue system</span>
+        <span class="feature-tag">stem sync</span>
+        <span class="feature-tag">TUI</span>
+        <span class="feature-tag">max4live</span>
+      </div>
+      <div class="install-block">
+        <span class="prompt">$</span>
+        <span class="cmd">pip install clavus</span>
+      </div>
+    </a>
+
+    <!-- crux -->
+    <a class="card crux" href="#" target="_blank">
+      <div class="card-top">
+        <div class="card-icon">~▲~</div>
+        <div class="card-name-group">
+          <span class="card-name">crux</span>
+        </div>
+        <span class="card-version">v1.0.0</span>
+      </div>
+      <p class="card-desc">
+        Sample librarian for producers. Tag, search, and organize your sample library with
+        AI-powered tagging, FTS5 search, and a terminal UI that stays out of your way.
+      </p>
+      <div class="card-features">
+        <span class="feature-tag">ai tagging</span>
+        <span class="feature-tag">fts5 search</span>
+        <span class="feature-tag">batch curation</span>
+        <span class="feature-tag">TUI</span>
+        <span class="feature-tag">sqlite</span>
+      </div>
+      <div class="install-block">
+        <span class="prompt">$</span>
+        <span class="cmd">pip install crux</span>
+      </div>
+    </a>
+  </div>
+
+  <footer>
+    <p>made by <a href="#">slowhands</a></p>
+    <div class="footer-links">
+      <a href="#">github</a>
+      <a href="#">support</a>
+    </div>
+    <a class="donate-btn" href="#">&#9749; buy me a coffee</a>
+  </footer>
+</div>
+</body>
+</html>

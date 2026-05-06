@@ -192,14 +192,12 @@ class BlobStore:
         )
 
         # Store snapshot metadata (indexed by hash)
-        # If the content already existed (dedup) but the old meta lacked als_hash,
-        # update the existing metadata on disk
-        existing_snap = self.load_snapshot(content_hash)
-        if existing_snap and existing_snap.als_hash is None and als_hash is not None:
-            existing_snap.als_hash = als_hash
-            self._write_snapshot_meta(existing_snap)
-        else:
-            self._write_snapshot_meta(snapshot)
+        # Always write the new metadata to maintain correct parent chain.
+        # If content is dedup'd (same hash), we overwrite the old metadata
+        # with the new parent. The old snapshot had the same content anyway,
+        # so the only thing we lose is the original creation time — but the
+        # new timestamp is more accurate for the current position in history.
+        self._write_snapshot_meta(snapshot)
 
         return snapshot
 

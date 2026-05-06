@@ -1,5 +1,5 @@
 """
-Clavus TUI — Minimal, bulletproof terminal UI for cue management.
+clavus TUI — Minimal, bulletproof terminal UI for cue management.
 
 Layout:
   row 0: header

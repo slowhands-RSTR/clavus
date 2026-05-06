@@ -1,5 +1,5 @@
 """
-Clavus CLI — the primary user interface.
+clavus CLI — the primary user interface.
 
 Commands:
   clavus init [path]          Initialize + git init
