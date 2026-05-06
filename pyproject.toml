@@ -32,10 +32,8 @@ dependencies = [
     "httpx",
     "textual",
     "zeroconf",
-]
-
-[project.optional-dependencies]
-sync = [
+    "fastapi",
+    "uvicorn",
     "websockets",
 ]
 
