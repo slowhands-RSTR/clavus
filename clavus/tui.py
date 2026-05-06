@@ -575,6 +575,8 @@ class ClavusApp(App):
             self._run_inject()
         elif cmd == "restore":
             self._run_restore(arg)
+        elif cmd in ("status", "info"):
+            self._run_status()
         elif cmd == "backup":
             self._run_backup()
         elif cmd == "backups":
@@ -602,7 +604,7 @@ class ClavusApp(App):
         elif cmd == "join":
             self.push_screen(JoinModal(arg))
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project, projects, init, browse, name, inject, restore, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, help | C=snapshot")
+            self._status("commands: project, projects, init, browse, name, inject, restore, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, status, help | C=snapshot")
         else:
             self._status(f"unknown: {cmd}")
 
@@ -772,6 +774,20 @@ class ClavusApp(App):
         self._status(f"restored to snapshot: '{msg}' ({captured})")
         # Re-pull to update cues/snapshots display
         await self._do_pull()
+
+    def _run_status(self):
+        """Show detailed connection status in the footer."""
+        relay_status = "running" if (self._relay_proc and self._relay_proc.poll() is None) else "none"
+        parts = [
+            f"server: {self.server_url}",
+            f"connected: {self.connected}",
+            f"relay: {relay_status}",
+            f"project: {self.project or '(none)'}",
+            f"cues: {len(self.cues)}",
+            f"snaps: {len(self.snaps)}",
+            f"author: {self.author}",
+        ]
+        self._status("  |  ".join(parts))
 
     def _run_backup(self):
         """Backup the entire Clavus store."""
@@ -1473,12 +1489,19 @@ class ClavusApp(App):
         try:
             ws_dot = "⚡" if self.ws_connected else ""
             dot = "⬤" if self.connected else "◌"
+            conn_color = C['green'] if self.connected else C['dim']
             conn = "connected" if self.connected else "offline"
             proj = f"  [white]{self.project}[/]" if self.project else ""
+            # Show server URL when relay is auto-started
+            relay_info = ""
+            if self._relay_proc and self._relay_proc.poll() is None:
+                relay_info = f"  [{C['dim']}]⧩ relay[/]"
             self.query_one("#header-title", Static).update(
-                f"[bold {C['accent']}]~▼~ clavus[/]{proj}")
+                f"[bold {C['accent']}]~▼~ clavus[/]{proj}{relay_info}")
             self.query_one("#header-status", Static).update(
-                f"{ws_dot}[{C['dim']}]{dot} {conn}[/]  [dim]{len(self.cues)} cues[/]")
+                f"{ws_dot}[{conn_color}]{dot} {conn}[/]"
+                f"  [{C['dim']}]{len(self.cues)} cues[/]"
+                f"  [{C['muted']}]{self.server_url}[/]")
         except NoMatches:
             pass
 
