@@ -22,8 +22,9 @@ import httpx
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal
-from textual.widgets import Static, Input, ListView, ListItem, Label
+from textual.containers import Container, Horizontal, Vertical
+from textual.screen import ModalScreen
+from textual.widgets import Static, Input, ListView, ListItem, Label, Button
 from textual.message import Message
 from textual.css.query import NoMatches
 from textual.worker import WorkerState
@@ -483,7 +484,7 @@ class ClavusApp(App):
     def _hide_input(self):
         self._input_mode = ""
         self.query_one("#footer").remove_class("input-mode")
-        self._update_footer()
+        self.call_after_refresh(self._update_footer)
 
     def on_input_submitted(self, event: Input.Submitted):
         event.stop()
@@ -587,9 +588,9 @@ class ClavusApp(App):
         elif cmd in ("delete", "del"):
             self.action_delete_cue()
         elif cmd == "share":
-            self.run_worker(self._run_share(), exclusive=False)
+            self._run_share()
         elif cmd == "join":
-            self.run_worker(self._run_join(arg), exclusive=False)
+            self.push_screen(JoinModal(arg))
         elif cmd in ("help", "h", "?"):
             self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, restore [hash], snapshot <msg>, archive, delete, share, join [code], help | C=snapshot")
         else:
@@ -1073,26 +1074,16 @@ class ClavusApp(App):
         else:
             self._status("delete failed")
 
-    async def _run_share(self):
-        """Start a share session — shows share code in banner."""
+    def _run_share(self):
+        """Start a share session — shows share code in modal."""
         import socket
         from clavus.discovery import generate_share_code
         from clavus.config import ClavusConfig
 
         cfg = ClavusConfig.load()
         code = generate_share_code()
-
-        # Show banner
-        try:
-            static = self.query_one("#share-banner", Static)
-            static.update(
-                f"[bold {C['accent']}]🔗 Share code: {code}[/]  "
-                f"[{C['dim']}]|  Tell your friend to run: clavus join  "
-                f"|  Or share this URL: http://{self._lan_ip()}:7890[/]"
-            )
-            static.styles.display = "block"
-        except NoMatches:
-            pass
+        lan_ip = self._lan_ip()
+        self.push_screen(ShareModal(code, lan_ip))
 
     @staticmethod
     def _lan_ip() -> str:
@@ -1105,113 +1096,6 @@ class ClavusApp(App):
             return ip
         except Exception:
             return "your-lan-ip"
-
-    async def _run_join(self, code: str = ""):
-        """Scan for share sessions and auto-connect."""
-        # Show scanning banner immediately
-        try:
-            banner = self.query_one("#join-banner", Static)
-            banner.update(f"[{C['yellow']}]scanning LAN + Tailscale for Clavus relays...[/]")
-            banner.styles.display = "block"
-        except NoMatches:
-            pass
-        await asyncio.sleep(0.05)  # Yield so Textual renders
-
-        # Run the scan in a thread
-        def _do_join(code: str) -> str:
-            try:
-                from clavus.discovery import scan_for_share_codes
-                from clavus.store import BlobStore
-                from clavus.sync import SyncClient, Remote, save_remotes, load_remotes, pull_from_remote
-                import concurrent.futures
-            except ImportError as e:
-                return f"join failed: {e}"
-
-            try:
-                peers = scan_for_share_codes(timeout=3)
-            except Exception as e:
-                return f"scan failed: {e}"
-
-            if not peers:
-                return "no Clavus share sessions found"
-
-            def _get_info(peer):
-                try:
-                    client = SyncClient(f"http://{peer.host}:{peer.port}")
-                    r = client.client.get(f"http://{peer.host}:{peer.port}/api/share", timeout=5)
-                    if r.status_code == 200:
-                        return r.json()
-                except Exception:
-                    pass
-                return None
-
-            relay_info = []
-            errors = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
-                fut_map = {pool.submit(_get_info, p): p for p in peers}
-                for fut in concurrent.futures.as_completed(fut_map, timeout=5):
-                    peer = fut_map[fut]
-                    try:
-                        info = fut.result()
-                        if info and info.get("share_code"):
-                            relay_info.append((peer, info))
-                    except Exception:
-                        continue
-
-            if not relay_info:
-                return f"found {len(peers)} servers, none in share mode"
-
-            if code:
-                code_upper = code.upper()
-                relay_info = [(p, i) for p, i in relay_info if i.get("share_code", "").upper() == code_upper]
-                if not relay_info:
-                    return f"no relay found with code '{code}'"
-
-            if len(relay_info) == 1 or code:
-                peer, info = relay_info[0]
-                sc = info.get("share_code", "???")
-                author = info.get("author", "?")
-                host = peer.host
-                port = peer.port
-                name = info.get("hostname", author).lower().replace(" ", "-")
-                try:
-                    store = BlobStore()
-                    remotes = load_remotes(store)
-                    remotes = [r for r in remotes if r.name != name]
-                    remotes.append(Remote(name=name, url=f"http://{host}:{port}"))
-                    save_remotes(store, remotes)
-                except Exception as e:
-                    return f"failed to save remote: {e}"
-                try:
-                    projects = store.list_projects()
-                    proj_name = info.get("project", {}).get("name", "")
-                    matched = next((p for p in projects if p.name == proj_name), None)
-                    if matched:
-                        result = pull_from_remote(store, matched, Remote(name=name, url=f"http://{host}:{port}"))
-                        cues = result.get("cues", 0)
-                        snaps = result.get("snapshots", 0)
-                        return f"paired with {author} ({sc}) — {cues} cues, {snaps} snapshots"
-                    else:
-                        return f"paired with {author} ({sc}) — run :pull to sync"
-                except Exception as e:
-                    return f"paired with {author} ({sc}) — pull failed: {e}"
-
-            # Multiple
-            lines = [f"{i.get('share_code','?')} {i.get('author','?')}" for _, i in relay_info[:3]]
-            return "found " + ", ".join(lines) + " — use :join <code>"
-
-        try:
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, _do_join, code)
-        except Exception as e:
-            result = f"join error: {e}"
-
-        # Update banner with result
-        try:
-            banner = self.query_one("#join-banner", Static)
-            banner.update(f"[{C['accent']}]{result}[/]  [{C['dim']}]|  Esc to dismiss[/]")
-        except NoMatches:
-            pass
 
     @work(exclusive=True)
     async def action_pull(self):
@@ -1557,6 +1441,216 @@ class ClavusApp(App):
 
 class SaveRequest(Message):
     pass
+
+
+# ─── Modals ──────────────────────────────────────────────────────────────────
+
+class ShareModal(ModalScreen[None]):
+    """Modal showing share code and instructions."""
+
+    CSS = f"""
+    ShareModal {{
+        align: center middle;
+    }}
+    #share-box {{
+        width: 52;
+        max-height: 12;
+        background: {C['surface']};
+        border: thick {C['accent']};
+        padding: 1 2;
+    }}
+    #share-title {{
+        text-style: bold;
+        color: {C['accent']};
+        padding-bottom: 1;
+    }}
+    #share-code {{
+        text-style: bold;
+        color: {C['fg']};
+        padding: 1 2;
+        background: {C['surface2']};
+    }}
+    #share-hint, #share-url {{
+        color: {C['dim']};
+        padding-top: 1;
+    }}
+    #share-footer {{
+        color: {C['muted']};
+        padding-top: 1;
+        text-style: italic;
+    }}
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+    ]
+
+    def __init__(self, code: str, lan_ip: str) -> None:
+        super().__init__()
+        self.code = code
+        self.lan_ip = lan_ip
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="share-box"):
+            yield Static("🔗  Share Session", id="share-title")
+            yield Static(f"  {self.code}  ", id="share-code")
+            yield Static(
+                f"Tell your friend to run:  clavus join",
+                id="share-hint",
+            )
+            yield Static(
+                f"Or open:  http://{self.lan_ip}:7890",
+                id="share-url",
+            )
+            yield Static("Esc to close", id="share-footer")
+
+    def action_dismiss(self) -> None:
+        self.dismiss()
+
+
+class JoinModal(ModalScreen[None]):
+    """Modal for joining a share session — scans then shows results."""
+
+    CSS = f"""
+    JoinModal {{
+        align: center middle;
+    }}
+    #join-box {{
+        width: 56;
+        max-height: 16;
+        background: {C['surface']};
+        border: thick {C['accent']};
+        padding: 1 2;
+    }}
+    #join-title {{
+        text-style: bold;
+        color: {C['yellow']};
+    }}
+    #join-result {{
+        color: {C['fg']};
+        padding-top: 1;
+    }}
+    #join-footer {{
+        color: {C['muted']};
+        padding-top: 1;
+        text-style: italic;
+    }}
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+    ]
+
+    def __init__(self, code: str = "") -> None:
+        super().__init__()
+        self.code = code
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="join-box"):
+            yield Static("scanning LAN + Tailscale...", id="join-title")
+            yield Static("", id="join-result")
+            yield Static("Esc to close", id="join-footer")
+
+    def on_mount(self) -> None:
+        self.run_worker(self._do_scan(), exclusive=True)
+
+    async def _do_scan(self) -> None:
+        # Run the scan in a thread
+        def _scan(code: str) -> str:
+            try:
+                from clavus.discovery import scan_for_share_codes
+                from clavus.sync import SyncClient
+                from clavus.store import BlobStore
+                from clavus.sync import Remote, save_remotes, load_remotes, pull_from_remote
+                import concurrent.futures
+            except ImportError as e:
+                return f"join failed: {e}"
+
+            try:
+                peers = scan_for_share_codes(timeout=3)
+            except Exception as e:
+                return f"scan failed: {e}"
+
+            if not peers:
+                return "no Clavus share sessions found"
+
+            def _get_info(peer):
+                try:
+                    client = SyncClient(f"http://{peer.host}:{peer.port}")
+                    r = client.client.get(f"http://{peer.host}:{peer.port}/api/share", timeout=5)
+                    if r.status_code == 200:
+                        return r.json()
+                except Exception:
+                    pass
+                return None
+
+            relay_info = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+                fut_map = {pool.submit(_get_info, p): p for p in peers}
+                for fut in concurrent.futures.as_completed(fut_map, timeout=5):
+                    try:
+                        info = fut.result()
+                        if info and info.get("share_code"):
+                            relay_info.append((fut_map[fut], info))
+                    except Exception:
+                        continue
+
+            if not relay_info:
+                return f"found {len(peers)} servers, none in share mode"
+
+            if code:
+                code_upper = code.upper()
+                relay_info = [(p, i) for p, i in relay_info if i.get("share_code", "").upper() == code_upper]
+                if not relay_info:
+                    return f"no relay found with code '{code}'"
+
+            if len(relay_info) == 1 or code:
+                peer, info = relay_info[0]
+                sc = info.get("share_code", "???")
+                author = info.get("author", "?")
+                host, port = peer.host, peer.port
+                name = info.get("hostname", author).lower().replace(" ", "-")
+                try:
+                    store = BlobStore()
+                    remotes = load_remotes(store)
+                    remotes = [r for r in remotes if r.name != name]
+                    remotes.append(Remote(name=name, url=f"http://{host}:{port}"))
+                    save_remotes(store, remotes)
+                except Exception as e:
+                    return f"failed to save remote: {e}"
+                try:
+                    projects = store.list_projects()
+                    proj_name = info.get("project", {}).get("name", "")
+                    matched = next((p for p in projects if p.name == proj_name), None)
+                    if matched:
+                        result = pull_from_remote(store, matched, Remote(name=name, url=f"http://{host}:{port}"))
+                        cues = result.get("cues", 0)
+                        snaps = result.get("snapshots", 0)
+                        return f"paired with {author}\\n  {sc} — {cues} cues, {snaps} snapshots"
+                    else:
+                        return f"paired with {author}\\n  {sc} — run :pull to sync"
+                except Exception as e:
+                    return f"paired with {author}\\n  {sc} — pull failed: {e}"
+
+            lines = [f"  {i.get('share_code','?')} — {i.get('author','?')}" for _, i in relay_info[:3]]
+            return "multiple sessions found:\\n" + "\\n".join(lines) + "\\n\\nuse :join <code> to pick"
+
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(None, _scan, self.code)
+        except Exception as e:
+            result = f"error: {e}"
+
+        try:
+            title = self.query_one("#join-title", Static)
+            title.update("Join Result")
+            title.styles.color = C['accent']
+            self.query_one("#join-result", Static).update(result)
+        except NoMatches:
+            pass
+
+    def action_dismiss(self) -> None:
+        self.dismiss()
 
 
 # ─── Entry Point ────────────────────────────────────────────────────────────
