@@ -1113,7 +1113,7 @@ class ClavusApp(App):
 
     def _run_join(self, code: str = ""):
         """Scan for share sessions and auto-connect."""
-        self._status("scanning for Clavus share sessions...")
+        self._status("🔍 scanning LAN + Tailscale for Clavus relays (3s)...")
 
         # Run the entire join flow in a thread so TUI stays responsive
         def _do_join(code: str) -> str:
@@ -1451,6 +1451,7 @@ class ClavusApp(App):
         try:
             safe_msg = msg.replace("[", "\\[").replace("]", "\\]")
             self.query_one("#footer-stats", Static).update(f"[{C['dim']}]{safe_msg}[/]")
+            self.refresh()
         except NoMatches:
             pass
 
