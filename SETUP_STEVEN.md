@@ -70,24 +70,30 @@ clavus --help
 
 ## ☐ 5. Connect to Chris
 
-Chris will give you his Tailscale IP. Run this in Command Prompt:
+**Option A — Quick share (easiest):**
 
+Chris will run `clavus share` and give you a share code like `BRIGHT-DUCK-7`.
+
+Just run:
+```cmd
+clavus join
+```
+→ Auto-discovers Chris's relay, pulls the project, and configures the remote.
+
+**Option B — Direct connection (if share doesn't work):**
+
+Chris will give you his Tailscale IP. Run:
 ```cmd
 clavus remote add chris http://100.126.94.21:7890
-```
-
-Test the connection:
-```cmd
 clavus pull chris
 ```
-→ Should download the Northern Lights project.
 
 ---
 
 ## ☐ 6. Pull stems (audio files)
 
 ```cmd
-clavus stem pull chris
+clavus stem pull
 ```
 → Downloads the WAV audio files. Might take a minute the first time.
 
@@ -169,28 +175,19 @@ clavus stem push chris
 
 ---
 
-## Also available: web companion
-
-If you prefer a browser view:
-
-```cmd
-clavus serve
-```
-
-Then open http://localhost:7890 — shows the same cues and snapshots in a mobile-friendly web UI with tabs (Project / Cues / Snapshots).
-
----
-
 ## Quick reference
 
 | Command | What it does |
 |---------|-------------|
 | `clavus tui` | **Main interface** — terminal dashboard |
-| `clavus pull chris` | Get latest from Chris |
-| `clavus push chris` | Send your changes to Chris |
-| `clavus stem pull chris` | Download audio stems |
-| `clavus stem push chris` | Upload audio stems |
+| `clavus relay` | Start server for collaboration (API + WebSocket) |
+| `clavus share` | Start share session with auto-discovery |
+| `clavus join` | Find and connect to a share session |
+| `clavus pull` | Get latest from remote |
+| `clavus push` | Send your changes to remote |
+| `clavus stem pull` | Download audio stems |
+| `clavus stem push` | Upload audio stems |
 | `clavus snapshot "msg"` | Save a checkpoint |
-| `clavus serve` | Web companion at localhost:7890 |
+| `clavus restore <hash>` | Restore project from a snapshot |
 | `clavus log` | See snapshot history |
-| `clavus diff --visual` | See what changed in the arrangement |
+| `clavus diff [hash]` | See what changed |
