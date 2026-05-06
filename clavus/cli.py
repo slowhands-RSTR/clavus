@@ -784,7 +784,7 @@ def cmd_join(args: argparse.Namespace) -> None:
         print(f"  Found {len(peers)} Clavus server(s), but none in share mode.")
         print()
         print("  The other person needs to run 'clavus share' instead")
-        print("  of 'clavus relay' or 'clavus serve'.")
+        print("  of 'clavus relay'.")
         return
 
     # Filter by code if specified
@@ -1006,7 +1006,7 @@ def cmd_config(args: argparse.Namespace) -> None:
                 print(f"  ⚠️  Invalid port, keeping {cfg.port}")
 
         print()
-        print(f"  The web companion and TUI connect to this address.")
+        print(f"  The TUI and CLI connect to this address.")
         current_url = cfg.default_server
         try:
             inp = input(f"  Server URL [{current_url}]: ").strip()
@@ -1527,7 +1527,7 @@ def cmd_find(args: argparse.Namespace) -> None:
                 print("  No Clavus servers found on Tailscale.")
                 print()
                 print("  Make sure you're connected to Tailscale and your friends")
-                print("  are running 'clavus serve'.")
+                print("  are running 'clavus relay'.")
                 return
         except ImportError:
             peers = []
@@ -1547,11 +1547,11 @@ def cmd_find(args: argparse.Namespace) -> None:
             print("  No Clavus servers found on Tailscale.")
             print()
             print("  Make sure you're connected to Tailscale and your friends")
-            print("  are running 'clavus serve'.")
+            print("  are running 'clavus relay'.")
         else:
             print("  No Clavus servers found.")
             print()
-            print("  Make sure you or a friend is running 'clavus serve'.")
+            print("  Make sure you or a friend is running 'clavus relay'.")
             print("  Clavus advertises via mDNS (Bonjour) on the local network.")
             print("  Both machines must be on the same subnet.")
         return
@@ -2059,7 +2059,7 @@ def main():
                         help="Take one snapshot and exit (useful for cron jobs)")
 
     # Relay (stripped-down always-on server)
-    p_relay = subparsers.add_parser("relay", help="Start stripped-down relay server for always-on collaboration")
+    p_relay = subparsers.add_parser("relay", help="Start the Clavus relay server for collaboration")
     p_relay.add_argument("--host", default=None,
                         help="Host to bind to (default: from config or 0.0.0.0)")
     p_relay.add_argument("--port", "-p", type=int, default=None,

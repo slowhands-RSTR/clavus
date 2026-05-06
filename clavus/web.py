@@ -1454,12 +1454,11 @@ def _get_tailscale_url(port: int = 7890) -> str:
 
 
 def run_relay_server(host: str = "0.0.0.0", port: int = 7890, share_code: str = "") -> None:
-    """Run stripped-down relay server — no HTML, no mDNS, just API + WebSocket.
+    """Run the Clavus relay server — API + WebSocket for collaboration.
 
-    The relay is an always-on version of the web companion designed to run
-    on a VPS, Raspberry Pi, or old laptop. It serves the same API routes
-    and WebSocket hub, without the TUI, HTML template generation, or LAN
-    advertising. Perfect for Tailscale deployment.
+    Designed to run on a VPS, Raspberry Pi, laptop, or desktop.
+    Serves the HTTP API and WebSocket hub that TUI/CLI clients
+    connect to for sync, cues, snapshots, and stem transfer.
 
     If share_code is provided, it's exposed via /api/share for the
     clavus share/join discovery flow.
