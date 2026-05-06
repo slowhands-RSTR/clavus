@@ -1064,6 +1064,7 @@ class ClavusApp(App):
 
     def _run_share(self):
         """Start a share session — prints instructions in the TUI."""
+        import socket
         from clavus.discovery import generate_share_code
         from clavus.config import ClavusConfig
 
