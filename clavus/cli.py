@@ -1670,7 +1670,7 @@ def cmd_find(args: argparse.Namespace) -> None:
     print()
 
 def cmd_push(args: argparse.Namespace) -> None:
-    """Push cues and snapshots to all remotes."""
+    """Push cues and snapshots to remotes."""
     store, proj = get_store_and_project()
     remotes = load_remotes(store)
 
@@ -1678,6 +1678,13 @@ def cmd_push(args: argparse.Namespace) -> None:
         print(f"❌ No remotes configured.")
         print(f"   Use 'clavus remote add <name> <url>' first.")
         return
+
+    # If a remote name is specified, only push to that one
+    if args.remote:
+        remotes = [r for r in remotes if r.name == args.remote]
+        if not remotes:
+            print(f"❌ Remote '{args.remote}' not found.")
+            return
 
     for remote in remotes:
         print(f"📤 Pushing to '{remote.name}' ({remote.url})...")
@@ -1706,13 +1713,21 @@ def cmd_push(args: argparse.Namespace) -> None:
 
 
 def cmd_pull(args: argparse.Namespace) -> None:
-    """Pull cues and snapshots from all remotes."""
+    """Pull cues and snapshots from remotes."""
     store, proj = get_store_and_project()
     remotes = load_remotes(store)
 
     if not remotes:
         print(f"❌ No remotes configured.")
+        print(f"   Add one with: clavus remote add <name> <url>")
         return
+
+    # If a remote name is specified, only pull from that one
+    if args.remote:
+        remotes = [r for r in remotes if r.name == args.remote]
+        if not remotes:
+            print(f"❌ Remote '{args.remote}' not found.")
+            return
 
     for remote in remotes:
         print(f"📥 Pulling from '{remote.name}' ({remote.url})...")
@@ -2148,9 +2163,13 @@ def main():
     p_remote.add_argument("--add", default="", help=argparse.SUPPRESS)
     p_remote.add_argument("--remove", default="", help=argparse.SUPPRESS)
 
-    p_push = subparsers.add_parser("push", help="Push to all remotes")
+    p_push = subparsers.add_parser("push", help="Push cues/snapshots to remotes")
+    p_push.add_argument("remote", nargs="?", default=None,
+                        help="Remote name (default: all)")
 
-    p_pull = subparsers.add_parser("pull", help="Pull from all remotes")
+    p_pull = subparsers.add_parser("pull", help="Pull cues/snapshots from remotes")
+    p_pull.add_argument("remote", nargs="?", default=None,
+                        help="Remote name (default: all)")
 
     p_sync = subparsers.add_parser("sync", help="Start auto-sync daemon")
     p_sync.add_argument("--interval", "-i", type=int, default=30,

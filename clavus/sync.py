@@ -57,6 +57,7 @@ def load_remotes(store: BlobStore) -> list[Remote]:
 def save_remotes(store: BlobStore, remotes: list[Remote]) -> None:
     """Save remote configurations."""
     path = store.root / REMOTES_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(
         {"remotes": [{"name": r.name, "url": r.url.rstrip("/"), "last_sync": r.last_sync}
                      for r in remotes]},
