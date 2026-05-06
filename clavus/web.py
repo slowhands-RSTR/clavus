@@ -1162,6 +1162,80 @@ async def sync_push_snapshots(body: SyncPushSnapshotsBody,
     return {"status": "ok", "imported": imported}
 
 
+# ─── Snapshot Blob Sync Endpoints ─────────────────────────────────────────
+
+
+class SyncCheckBlobsBody(BaseModel):
+    """List of content blob hashes to check for presence."""
+    hashes: list[str] = []
+
+
+class SyncBlobUpload(BaseModel):
+    """Single blob to upload: hash + base64-encoded data."""
+    hash: str
+    data: str  # Base64-encoded bytes
+
+
+@ app.post("/api/sync/check-blobs")
+async def sync_check_blobs(body: SyncCheckBlobsBody):
+    """Given a list of blob hashes, return which ones are missing locally."""
+    store = BlobStore()
+    missing = [h for h in body.hashes if not store.has_object(h)]
+    return {"missing": missing}
+
+
+@ app.post("/api/sync/push-blobs")
+async def sync_push_blobs(body: list[SyncBlobUpload]):
+    """Upload a batch of content-addressed blobs to the relay.
+
+    Each blob is a {hash, base64_data} pair. The relay stores them
+    using put_object so they're content-addressed and deduplicated.
+    """
+    import base64
+    store = BlobStore()
+    stored = 0
+    for blob in body:
+        raw = base64.b64decode(blob.data)
+        store.put_object(raw, blob.hash)
+        stored += 1
+    return {"status": "ok", "stored": stored}
+
+
+@ app.post("/api/sync/push-als-blobs")
+async def sync_push_als_blobs(body: list[SyncBlobUpload]):
+    """Upload .als backup blobs (raw .als file bytes) to the relay."""
+    import base64
+    store = BlobStore()
+    stored = 0
+    for blob in body:
+        raw = base64.b64decode(blob.data)
+        store.put_object(raw, blob.hash)
+        stored += 1
+    return {"status": "ok", "stored": stored}
+
+
+@ app.get("/api/blobs/{blob_hash}")
+async def get_blob(blob_hash: str):
+    """Generic GET endpoint for any content-addressed blob.
+
+    Returns raw bytes. Used by pull_snapshot_blobs to fetch
+    content blobs and .als backups from the relay.
+    """
+    store = BlobStore()
+    data = store.get_object(blob_hash)
+    if not data:
+        return JSONResponse({"error": "Blob not found"}, status_code=404)
+
+    from fastapi.responses import Response
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
 # ─── Web UI: Main page ──────────────────────────────────────────────────
 
 @app.get("/api/m4l/status")
@@ -2357,3 +2431,45 @@ def run_web_server(host: str = "0.0.0.0", port: int = 7890) -> None:
             app.state.advertiser.stop()
     except Exception:
         pass
+
+
+def run_relay_server(host: str = "0.0.0.0", port: int = 7890) -> None:
+    """Run stripped-down relay server — no HTML, no mDNS, just API + WebSocket.
+
+    The relay is an always-on version of the web companion designed to run
+    on a VPS, Raspberry Pi, or old laptop. It serves the same API routes
+    and WebSocket hub, without the TUI, HTML template generation, or LAN
+    advertising. Perfect for Tailscale deployment.
+    """
+    tailscale_url = _get_tailscale_url(port)
+
+    # Detect LAN IP
+    lan_url = ""
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan_ip = s.getsockname()[0]
+        s.close()
+        if lan_ip and not lan_ip.startswith("127."):
+            lan_url = f"http://{lan_ip}:{port}"
+    except Exception:
+        pass
+
+    import uvicorn
+    print()
+    print(f"  ⧩  Clavus Relay")
+    print(f"  {'─' * 40}")
+    print(f"  Local:   http://localhost:{port}")
+    if lan_url:
+        print(f"  LAN:     {lan_url}")
+    if tailscale_url:
+        print(f"  Remote:  {tailscale_url}")
+        print(f"  (via Tailscale — share this URL with collaborators)")
+    else:
+        print(f"  No Tailscale detected — install for remote access.")
+    print(f"  {'─' * 40}")
+    print()
+    print(f"  Press Ctrl+C to stop.")
+    print()
+    uvicorn.run(app, host=host, port=port, log_level="warning")

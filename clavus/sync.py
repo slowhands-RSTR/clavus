@@ -124,6 +124,244 @@ class SyncClient:
         self.client.close()
 
 
+# ─── Snapshot Blob Sync ──────────────────────────────────────────────
+
+
+def push_snapshot_blobs(
+    store: BlobStore, proj: ClavusProject, remote: Remote,
+) -> int:
+    """Push snapshot content blobs + .als backup blobs to a remote.
+
+    Walks the snapshot history and uploads any blobs (project JSON content
+    and raw .als backups) that the remote doesn't already have.
+
+    Returns the number of blobs uploaded.
+    """
+    import base64
+
+    client = SyncClient(remote.url)
+    count = 0
+    BATCH_SIZE = 25  # Blobs per upload batch
+
+    try:
+        # Collect all blob hashes we need to check
+        content_hashes: list[str] = []
+        als_hashes: list[str] = []
+        current = proj.head
+        seen: set[str] = set()
+
+        while current:
+            if current in seen:
+                break
+            seen.add(current)
+            snap = store.load_snapshot(current)
+            if not snap:
+                break
+
+            # Content blob hash = the snapshot hash itself
+            if snap.hash not in seen:
+                content_hashes.append(snap.hash)
+
+            # .als backup blob hash
+            if snap.als_hash and snap.als_hash not in seen:
+                als_hashes.append(snap.als_hash)
+
+            if snap.parent == current:
+                break
+            current = snap.parent
+
+        # Check which content blobs the remote is missing
+        all_content_hashes = content_hashes
+        try:
+            r = client.client.post(
+                f"{remote.url}/api/sync/check-blobs",
+                json={"hashes": all_content_hashes},
+                timeout=30,
+            )
+            if r.status_code == 200:
+                missing = r.json().get("missing", [])
+            else:
+                missing = all_content_hashes
+        except Exception:
+            missing = all_content_hashes
+
+        # Upload missing content blobs in batches
+        if missing:
+            print(f"    Uploading {len(missing)} content blob(s)...")
+            for i in range(0, len(missing), BATCH_SIZE):
+                batch = missing[i:i + BATCH_SIZE]
+                upload_batch = []
+                for h in batch:
+                    data = store.get_object(h)
+                    if data:
+                        upload_batch.append({
+                            "hash": h,
+                            "data": base64.b64encode(data).decode("ascii"),
+                        })
+
+                if upload_batch:
+                    try:
+                        r = client.client.post(
+                            f"{remote.url}/api/sync/push-blobs",
+                            json=upload_batch,
+                            timeout=120,
+                        )
+                        if r.status_code == 200:
+                            count += len(upload_batch)
+                    except Exception:
+                        pass
+
+        # Check which .als backup blobs are missing
+        if als_hashes:
+            try:
+                r = client.client.post(
+                    f"{remote.url}/api/sync/check-blobs",
+                    json={"hashes": als_hashes},
+                    timeout=30,
+                )
+                if r.status_code == 200:
+                    missing_als = r.json().get("missing", [])
+                else:
+                    missing_als = als_hashes
+            except Exception:
+                missing_als = als_hashes
+
+            if missing_als:
+                print(f"    Uploading {len(missing_als)} .als backup(s)...")
+                for i in range(0, len(missing_als), BATCH_SIZE):
+                    batch = missing_als[i:i + BATCH_SIZE]
+                    upload_batch = []
+                    for h in batch:
+                        data = store.get_object(h)
+                        if data:
+                            upload_batch.append({
+                                "hash": h,
+                                "data": base64.b64encode(data).decode("ascii"),
+                            })
+
+                    if upload_batch:
+                        try:
+                            r = client.client.post(
+                                f"{remote.url}/api/sync/push-als-blobs",
+                                json=upload_batch,
+                                timeout=120,
+                            )
+                        except Exception:
+                            pass
+
+    finally:
+        client.close()
+
+    return count
+
+
+def pull_snapshot_blobs(
+    store: BlobStore, proj: ClavusProject, remote: Remote,
+) -> int:
+    """Pull missing snapshot content blobs + .als backups from a remote.
+
+    Checks which blobs in our snapshot history are missing locally and
+    fetches them from the remote. Returns number of blobs downloaded.
+    """
+    import base64
+    import httpx
+
+    try:
+        # First, pull the remote's snapshot metadata so we know what exists
+        pull_from_remote(store, proj, remote)
+    except Exception:
+        pass
+
+    client = SyncClient(remote.url)
+    count = 0
+
+    try:
+        # Re-read project from store (pull may have updated it)
+        proj_ref = store.get_index(proj.name)
+        if not proj_ref:
+            return 0
+        proj = proj_ref
+
+        # Collect locally missing content hashes from our snapshot history
+        missing_content: set[str] = set()
+        missing_als: set[str] = set()
+        current = proj.head
+        seen: set[str] = set()
+
+        while current:
+            if current in seen:
+                break
+            seen.add(current)
+            snap = store.load_snapshot(current)
+            if not snap:
+                break
+
+            if not store.has_object(snap.hash):
+                missing_content.add(snap.hash)
+            if snap.als_hash and not store.has_object(snap.als_hash):
+                missing_als.add(snap.als_hash)
+
+            if snap.parent == current:
+                break
+            current = snap.parent
+
+        # Also check what blobs the remote's snapshots reference
+        try:
+            r = client.client.get(
+                f"{remote.url}/api/sync/pull",
+                params={"name": proj.name},
+                timeout=30,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                for s in data.get("snapshots", []):
+                    full_hash = s.get("full_hash", s.get("hash", ""))
+                    if full_hash and not store.has_object(full_hash):
+                        missing_content.add(full_hash)
+        except Exception:
+            pass
+
+        # Download missing content blobs from the relay
+        downloaded = set()
+        for h in list(missing_content):
+            if h in downloaded:
+                continue
+            try:
+                r = client.client.get(
+                    f"{remote.url}/api/blobs/{h}",
+                    timeout=120,
+                )
+                if r.status_code == 200:
+                    store.put_object(r.content, h)
+                    count += 1
+                    downloaded.add(h)
+                    continue
+            except Exception:
+                pass
+            print(f"    ⚠️  Could not fetch blob {h[:12]}")
+
+        # Download missing .als backups
+        for h in list(missing_als):
+            if h in downloaded:
+                continue
+            try:
+                r = client.client.get(
+                    f"{remote.url}/api/stems/blob/{h}",
+                    timeout=120,
+                )
+                if r.status_code == 200:
+                    store.put_object(r.content, h)
+                    count += 1
+                    downloaded.add(h)
+            except Exception:
+                print(f"    ⚠️  Could not fetch .als backup {h[:12]}")
+
+    finally:
+        client.close()
+
+    return count
+
+
 # ─── Push / Pull Logic ───────────────────────────────────────────────
 
 def _cues_to_dicts(cues_store: CueStore) -> list[dict]:
