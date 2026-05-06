@@ -572,6 +572,12 @@ class ClavusApp(App):
             self._run_inject()
         elif cmd == "restore":
             self._run_restore(arg)
+        elif cmd == "backup":
+            self._run_backup()
+        elif cmd == "backups":
+            self._run_list_backups()
+        elif cmd == "restore-store":
+            self._run_restore_store(arg)
         elif cmd == "snapshot":
             if arg:
                 self._run_snapshot(arg)
@@ -593,7 +599,7 @@ class ClavusApp(App):
         elif cmd == "join":
             self.push_screen(JoinModal(arg))
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, restore [hash], snapshot <msg>, archive, delete, share, join [code], help | C=snapshot")
+            self._status("commands: project, projects, init, browse, name, inject, restore, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, help | C=snapshot")
         else:
             self._status(f"unknown: {cmd}")
 
@@ -763,6 +769,46 @@ class ClavusApp(App):
         self._status(f"restored to snapshot: '{msg}' ({captured})")
         # Re-pull to update cues/snapshots display
         await self._do_pull()
+
+    def _run_backup(self):
+        """Backup the entire Clavus store."""
+        import subprocess, sys
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "clavus", "backup"],
+                capture_output=True, text=True, timeout=30,
+            )
+            out = proc.stdout.strip().split("\n")
+            self._status(out[0] if out else "backup complete")
+        except Exception as e:
+            self._status(f"backup failed: {e}")
+
+    def _run_list_backups(self):
+        """List available store backups."""
+        import subprocess, sys
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "clavus", "backups"],
+                capture_output=True, text=True, timeout=10,
+            )
+            out = proc.stdout.strip()
+            lines = [l.strip() for l in out.split("\n") if l.strip()][:5]
+            self._status(" | ".join(lines) if lines else out[:60])
+        except Exception as e:
+            self._status(f"backups failed: {e}")
+
+    def _run_restore_store(self, archive_path: str = ""):
+        """Restore Clavus store from a backup archive."""
+        import subprocess, sys
+        cmd = [sys.executable, "-m", "clavus", "restore-store"]
+        if archive_path:
+            cmd.append(archive_path)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            out = (proc.stdout + proc.stderr).strip().split("\n")[-1][:60]
+            self._status(out or "restore complete")
+        except Exception as e:
+            self._status(f"restore failed: {e}")
 
     @work(exclusive=False)
     async def _run_snapshot(self, message: str = ""):
