@@ -378,6 +378,7 @@ class ClavusApp(App):
     #footer-keys {{ color: {C['accent']}; }}
     #footer-stats {{ color: {C['muted']}; text-align: right; }}
     #share-banner {{ display: none; padding: 0 1; background: {C['surface']}; color: {C['muted']}; height: 1; text-style: bold; }}
+    #join-banner {{ display: none; padding: 0 1; background: {C['surface']}; color: {C['yellow']}; height: 1; text-style: bold; }}
     #footer-input {{ display: none; width: 100%; height: 3; background: {C['bg']}; border: solid {C['accent']}; color: {C['fg']}; padding: 0 1; }}
     #footer.input-mode #footer-input {{ display: block; }}
     #footer.input-mode #footer-keys {{ display: none; }}
@@ -447,6 +448,7 @@ class ClavusApp(App):
             )
             yield Container(
                 Static("", id="share-banner"),
+                Static("", id="join-banner"),
                 Container(ListView(id="clv"), id="cues-list"),
                 Container(
                     Static(" History", classes="label"),
@@ -531,14 +533,14 @@ class ClavusApp(App):
             self._hide_input()
             self._focus_cues()
         else:
-            # Dismiss the share banner if visible
-            try:
-                banner = self.query_one("#share-banner", Static)
-                if banner.styles.display != "none":
-                    banner.styles.display = "none"
-                    self._status("share banner dismissed")
-            except NoMatches:
-                pass
+            # Dismiss any visible banner
+            for bid in ("share-banner", "join-banner"):
+                try:
+                    banner = self.query_one(f"#{bid}", Static)
+                    if banner.styles.display != "none":
+                        banner.styles.display = "none"
+                except NoMatches:
+                    pass
 
     # ─── Command mode ──────────────────────────────────────────────────
 
@@ -585,9 +587,9 @@ class ClavusApp(App):
         elif cmd in ("delete", "del"):
             self.action_delete_cue()
         elif cmd == "share":
-            self._run_share()
+            self.run_worker(self._run_share(), exclusive=False)
         elif cmd == "join":
-            self._run_join(arg)
+            self.run_worker(self._run_join(arg), exclusive=False)
         elif cmd in ("help", "h", "?"):
             self._status("commands: project <name>, projects, init <path>, browse [dir], name <you>, inject, restore [hash], snapshot <msg>, archive, delete, share, join [code], help | C=snapshot")
         else:
@@ -1071,23 +1073,16 @@ class ClavusApp(App):
         else:
             self._status("delete failed")
 
-    def _run_share(self):
-        """Start a share session — prints instructions in the TUI."""
+    async def _run_share(self):
+        """Start a share session — shows share code in banner."""
         import socket
         from clavus.discovery import generate_share_code
         from clavus.config import ClavusConfig
 
         cfg = ClavusConfig.load()
         code = generate_share_code()
-        hostname = socket.gethostname()
 
-        msg = (
-            f"🔗 Share code: [bold {C['accent']}]{code}[/]  "
-            f"|  Tell a friend: [dim]clavus join[/]  "
-            f"|  Relay info: [dim]clavus relay[/] in another terminal"
-        )
-        self._status(msg)
-        # Also print to cue list as a persistent banner
+        # Show banner
         try:
             static = self.query_one("#share-banner", Static)
             static.update(
@@ -1111,20 +1106,26 @@ class ClavusApp(App):
         except Exception:
             return "your-lan-ip"
 
-    def _run_join(self, code: str = ""):
+    async def _run_join(self, code: str = ""):
         """Scan for share sessions and auto-connect."""
-        self._status("🔍 scanning LAN + Tailscale for Clavus relays (3s)...")
+        # Show scanning banner immediately
+        try:
+            banner = self.query_one("#join-banner", Static)
+            banner.update(f"[{C['yellow']}]scanning LAN + Tailscale for Clavus relays...[/]")
+            banner.styles.display = "block"
+        except NoMatches:
+            pass
+        await asyncio.sleep(0.05)  # Yield so Textual renders
 
-        # Run the entire join flow in a thread so TUI stays responsive
+        # Run the scan in a thread
         def _do_join(code: str) -> str:
             try:
                 from clavus.discovery import scan_for_share_codes
-                from clavus.sync import SyncClient
-                from clavus.store import BlobStore, Remote
-                from clavus.sync import save_remotes, load_remotes, pull_from_remote
+                from clavus.store import BlobStore
+                from clavus.sync import SyncClient, Remote, save_remotes, load_remotes, pull_from_remote
                 import concurrent.futures
             except ImportError as e:
-                return f"join failed: missing dependency — {e}"
+                return f"join failed: {e}"
 
             try:
                 peers = scan_for_share_codes(timeout=3)
@@ -1132,9 +1133,8 @@ class ClavusApp(App):
                 return f"scan failed: {e}"
 
             if not peers:
-                return "no Clavus share sessions found — try 'clavus join' in terminal"
+                return "no Clavus share sessions found"
 
-            # Fetch share info from each peer
             def _get_info(peer):
                 try:
                     client = SyncClient(f"http://{peer.host}:{peer.port}")
@@ -1155,26 +1155,18 @@ class ClavusApp(App):
                         info = fut.result()
                         if info and info.get("share_code"):
                             relay_info.append((peer, info))
-                        elif info:
-                            errors.append(f"no share code from {peer.host}")
-                    except Exception as e:
-                        errors.append(f"{peer.host}: {e}")
+                    except Exception:
                         continue
 
             if not relay_info:
-                msg = f"found {len(peers)} Clavus server(s), none in share mode"
-                if errors:
-                    msg += f" ({len(errors)} error(s): {'; '.join(errors[:3])})"
-                return msg
+                return f"found {len(peers)} servers, none in share mode"
 
-            # Filter by code if provided
             if code:
                 code_upper = code.upper()
                 relay_info = [(p, i) for p, i in relay_info if i.get("share_code", "").upper() == code_upper]
                 if not relay_info:
                     return f"no relay found with code '{code}'"
 
-            # Auto-connect if only one
             if len(relay_info) == 1 or code:
                 peer, info = relay_info[0]
                 sc = info.get("share_code", "???")
@@ -1182,7 +1174,6 @@ class ClavusApp(App):
                 host = peer.host
                 port = peer.port
                 name = info.get("hostname", author).lower().replace(" ", "-")
-
                 try:
                     store = BlobStore()
                     remotes = load_remotes(store)
@@ -1190,9 +1181,7 @@ class ClavusApp(App):
                     remotes.append(Remote(name=name, url=f"http://{host}:{port}"))
                     save_remotes(store, remotes)
                 except Exception as e:
-                    return f"failed to save remote '{name}': {e}"
-
-                # Try to pull
+                    return f"failed to save remote: {e}"
                 try:
                     projects = store.list_projects()
                     proj_name = info.get("project", {}).get("name", "")
@@ -1201,23 +1190,28 @@ class ClavusApp(App):
                         result = pull_from_remote(store, matched, Remote(name=name, url=f"http://{host}:{port}"))
                         cues = result.get("cues", 0)
                         snaps = result.get("snapshots", 0)
-                        return f"✅ paired with {author} ({sc}) — pulled {cues} cues, {snaps} snapshots"
+                        return f"paired with {author} ({sc}) — {cues} cues, {snaps} snapshots"
                     else:
-                        return f"✅ paired with {author} ({sc}) — no matching local project, run :projects to switch"
+                        return f"paired with {author} ({sc}) — run :pull to sync"
                 except Exception as e:
-                    return f"✅ paired with {author} ({sc}) but pull failed: {e}"
+                    return f"paired with {author} ({sc}) — pull failed: {e}"
 
-            # Multiple — show list
-            lines = []
-            for peer, info in relay_info:
-                sc = info.get("share_code", "???")
-                a = info.get("author", "?")
-                pn = (info.get("project") or {}).get("name", "?")
-                lines.append(f"#{relay_info.index((peer, info)) + 1} {sc} {a} — {pn} http://{peer.host}:{peer.port}")
-            return " | ".join(lines) + "  |  :join <code> to connect"
+            # Multiple
+            lines = [f"{i.get('share_code','?')} {i.get('author','?')}" for _, i in relay_info[:3]]
+            return "found " + ", ".join(lines) + " — use :join <code>"
 
-        result = _do_join(code)
-        self._status(result)
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, _do_join, code)
+        except Exception as e:
+            result = f"join error: {e}"
+
+        # Update banner with result
+        try:
+            banner = self.query_one("#join-banner", Static)
+            banner.update(f"[{C['accent']}]{result}[/]  [{C['dim']}]|  Esc to dismiss[/]")
+        except NoMatches:
+            pass
 
     @work(exclusive=True)
     async def action_pull(self):
