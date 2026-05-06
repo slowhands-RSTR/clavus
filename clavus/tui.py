@@ -589,6 +589,10 @@ class ClavusApp(App):
             self._run_restore(arg)
         elif cmd in ("status", "info"):
             self._run_status()
+        elif cmd == "doctor":
+            self._run_doctor()
+
+            self._run_status()
         elif cmd == "backup":
             self._run_backup()
         elif cmd == "backups":
@@ -805,6 +809,19 @@ class ClavusApp(App):
             f"author: {self.author}",
         ]
         self._status("  |  ".join(parts))
+
+    def _run_doctor(self):
+        """Run clavus doctor in background and show result."""
+        import subprocess, sys
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "clavus", "doctor"],
+                capture_output=True, text=True, timeout=10,
+            )
+            lines = [l.strip() for l in proc.stdout.split("\n") if l.strip()][:8]
+            self._status(" | ".join(lines[:3]) if lines else "doctor ran")
+        except Exception as e:
+            self._status(f"doctor failed: {e}")
 
     def _run_backup(self):
         """Backup the entire Clavus store."""

@@ -104,14 +104,19 @@ class BlobStore:
         self.config_path = self.root / CONFIG_FILE
 
     def init(self) -> None:
-        """Initialize the Clavus storage directory."""
+        """Initialize the Clavus storage directory.
+
+        Safe to call multiple times — will not overwrite existing data.
+        """
         self.root.mkdir(parents=True, exist_ok=True)
         self.objects_dir.mkdir(exist_ok=True)
         self.refs_dir.mkdir(exist_ok=True)
+
+        # Never overwrite an existing healthy index — only restore from backup if missing
         if not self.index_path.exists():
-            self._try_restore_index()
-        if not self.index_path.exists():
-            self._write_json(self.index_path, {})
+            if not self._try_restore_index():
+                self._write_json(self.index_path, {})
+
         if not self.config_path.exists():
             self._write_json(self.config_path, {
                 "version": 1,

@@ -181,6 +181,74 @@ def cmd_repair(args: argparse.Namespace) -> None:
     else:
         print("✅ All projects have .als paths. Run 'clavus projects' to verify.")
 
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Diagnose Clavus store health — read-only check."""
+    from clavus.store import BlobStore
+    from pathlib import Path
+    import json
+
+    store = BlobStore()
+    print(f"🔍 Clavus Doctor")
+    print(f"   Store: {store.root}")
+    print()
+
+    # 1. Check index
+    if not store.index_path.exists():
+        print(f"  ❌ index.json: MISSING")
+    else:
+        try:
+            data = json.loads(store.index_path.read_text())
+            projects = [k for k in data if k != "_last_project"]
+            last = data.get("_last_project", "(none)")
+            print(f"  ✅ index.json: {len(projects)} project(s), last: {last}")
+            for name in projects:
+                p = data[name]
+                als = p.get("root_als", "")
+                als_ok = "✅" if (als and Path(als).exists()) else "⚠️"
+                head = p.get("head", "")[:12] or "(none)"
+                print(f"    {als_ok} {name}  @ {head}  {als[:50] if als else '(no path)'}")
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  ❌ index.json: CORRUPT — {e}")
+
+    # 2. Check backups
+    backups = store.list_backups()
+    if backups:
+        print(f"  ✅ Backups: {len(backups)} available (latest: {backups[0].name})")
+    else:
+        print(f"  ⚠️  No backups — run 'clavus backup' to create one")
+
+    # 3. Check refs
+    head = store.read_ref("HEAD")
+    if head:
+        print(f"  ✅ HEAD: {head[:16]}...")
+    else:
+        print(f"  ⚠️  No HEAD ref")
+
+    # 4. Check objects
+    obj_count = sum(1 for f in store.objects_dir.rglob("*") if f.is_file())
+    print(f"  ✅ Objects: {obj_count} blob(s)")
+
+    # 5. Check cues
+    cues_root = store.root / "cues"
+    if cues_root.exists():
+        cue_count = sum(1 for f in cues_root.rglob("*.json"))
+        print(f"  ✅ Cues: {cue_count} file(s)")
+    else:
+        print(f"  ⚠️  No cues directory")
+
+    print()
+    if args.verbose:
+        print(f"  Backups:")
+        for b in backups[:5]:
+            size = b.stat().st_size / 1024
+            print(f"    {b.name}  ({size:.0f} KB)")
+        print()
+    print(f"  💡 Run 'clavus backup' to create a full backup")
+    print(f"  💡 Run 'clavus repair' to recover from corruption")
+    print(f"  💡 Run 'clavus restore-store' to restore from backup")
+
+
 def cmd_init(args: argparse.Namespace) -> None:
     """Initialize a new Clavus project — friendly, guided setup."""
     target = args.path or os.getcwd()
@@ -2178,6 +2246,8 @@ def main():
     p_stem_pull = stem_sub.add_parser("pull", help="Pull stem files from remotes")
 
     # Repair (recover from corrupt/missing index)
+    p_doctor = subparsers.add_parser("doctor", help="Diagnose Clavus store health (read-only)")
+    p_doctor.add_argument("--verbose", "-v", action="store_true", help="Show detailed info")
     p_repair = subparsers.add_parser("repair", help="Repair Clavus storage — recover projects from backup, cues, and refs")
     p_repair.add_argument("--force", "-f", action="store_true",
                           help="Force repair even if index.json exists")
@@ -2216,6 +2286,7 @@ def main():
         "branch": cmd_branch,
         "checkout": cmd_checkout,
         "remote": cmd_remote,
+        "doctor": cmd_doctor,
         "repair": cmd_repair,
         "push": cmd_push,
         "pull": cmd_pull,
