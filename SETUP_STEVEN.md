@@ -55,7 +55,7 @@ Tailscale creates a secure private network between our machines. No port forward
 
 ```cmd
 cd Desktop
-git clone https://github.com/slowhands-RSTR/clavus.git
+git clone https://github.com/castle-queenside-RSTR/clavus.git
 cd clavus
 pip install -e .
 ```

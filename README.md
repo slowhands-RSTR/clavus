@@ -147,7 +147,7 @@ All core features work on all platforms:
 pip install clavus
 
 # From source:
-git clone https://github.com/slowhands/clavus
+git clone https://github.com/castle-queenside/clavus
 cd clavus
 pip install -e .
 ```
