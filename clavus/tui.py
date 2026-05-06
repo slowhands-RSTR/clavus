@@ -1111,11 +1111,9 @@ class ClavusApp(App):
         except Exception:
             return "your-lan-ip"
 
-    @work(exclusive=True)
-    async def _run_join(self, code: str = ""):
+    def _run_join(self, code: str = ""):
         """Scan for share sessions and auto-connect."""
         self._status("scanning for Clavus share sessions...")
-        await asyncio.sleep(0.05)  # Let TUI render the status
 
         # Run the entire join flow in a thread so TUI stays responsive
         def _do_join(code: str) -> str:
@@ -1218,8 +1216,7 @@ class ClavusApp(App):
                 lines.append(f"#{relay_info.index((peer, info)) + 1} {sc} {a} — {pn} http://{peer.host}:{peer.port}")
             return " | ".join(lines) + "  |  :join <code> to connect"
 
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _do_join, code)
+        result = _do_join(code)
         self._status(result)
 
     @work(exclusive=True)
