@@ -1241,44 +1241,56 @@ class ClavusApp(App):
 
     @work(exclusive=True)
     async def _connect(self):
+        """Worker entry point: check server, auto-start relay if needed, then connect."""
         self._status("connecting...")
         if await self.api.ping():
-            self._status("connected, loading project...")
-            info = await self.api.get_project()
-            if info:
-                self.project = info.get("name", "")
+            await self._do_connect()
+            return
+
+        # No server running — try auto-start relay
+        if os.environ.get("CLAVUS_NO_AUTO_RELAY"):
+            self.connected = False
+            self._status("server offline — start clavus relay")
+            self._update_header()
+            self._update_footer()
+            return
+
+        self._status("server offline — starting relay...")
+        self._relay_proc = self._start_relay()
+        if self._relay_proc:
+            import asyncio
+            for attempt in range(10):
+                await asyncio.sleep(0.5)
+                if await self.api.ping():
+                    self._status("relay started, connecting...")
+                    await self._do_connect()
+                    return
+            self._status("relay failed to start — run 'clavus relay' manually")
+        else:
+            self.connected = False
+            self._status("server offline — run 'clavus relay'")
+        self._update_header()
+        self._update_footer()
+
+    async def _do_connect(self):
+        """Core connection logic: load project, pull cues, start WS listener."""
+        self._status("connected, loading project...")
+        info = await self.api.get_project()
+        if info:
+            self.project = info.get("name", "")
+            self.connected = True
+            self._status(f"project: {self.project}")
+        else:
+            # Fallback: list all projects and auto-select the first one
+            projects = await self.api.list_projects()
+            if projects:
+                first = projects[0]
+                self.project = first.get("name", "")
                 self.connected = True
                 self._status(f"project: {self.project}")
             else:
-                # Fallback: list all projects and auto-select the first one
-                projects = await self.api.list_projects()
-                if projects:
-                    first = projects[0]
-                    self.project = first.get("name", "")
-                    self.connected = True
-                    self._status(f"project: {self.project}")
-                else:
-                    self.connected = False
-                    self._status("no project — run clavus init or :projects to switch")
-        elif os.environ.get("CLAVUS_NO_AUTO_RELAY"):
-            self.connected = False
-            self._status("server offline — start clavus relay")
-        else:
-            self._status("server offline — starting relay...")
-            self._relay_proc = self._start_relay()
-            if self._relay_proc:
-                import asyncio
-                for attempt in range(10):
-                    await asyncio.sleep(0.5)
-                    if await self.api.ping():
-                        self._status("relay started, connecting...")
-                        # Re-run connect logic
-                        await self._connect()
-                        return
-                self._status("relay failed to start — run 'clavus relay' manually")
-            else:
                 self.connected = False
-                self._status("server offline — run 'clavus relay'")
+                self._status("no project — run clavus init or :projects to switch")
 
         self._update_header()
         self._update_footer()
