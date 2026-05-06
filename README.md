@@ -40,9 +40,10 @@ CLI flags (`--author`, `--port`) override env vars, which override config file.
 - **Cues** — threaded comments pinned to timeline positions (e.g. `@2:1.1 fix the kick`)
 - **Stem sync** — content-addressed audio WAV transfer between peers
 - **P2P sync** — pull/push over Tailscale or LAN, no server needed
+- **Share/Join** — one-shot share sessions with human-friendly codes
 - **TUI dashboard** — keyboard-driven terminal interface (main way to use it)
 - **Auto-snapshot** — file watcher daemon for automatic checkpoints
-- **Web companion** *(optional)* — mobile-friendly browser view (`pip install clavus[web]`)
+- **Snapshot restore** — roll back to any saved checkpoint
 
 ## Keybindings (TUI)
 
@@ -66,11 +67,23 @@ CLI flags (`--author`, `--port`) override env vars, which override config file.
 | `q` | Quit |
 | `:` | Command mode (`:snapshot msg`, `:stem push`, etc.) |
 
+### Quick share/join
+
+```bash
+# Person A (sharer):
+clavus share
+# → Share code: BRIGHT-DUCK-7
+
+# Person B (joiner):
+clavus join
+# → finds A, auto-configures remote, pulls project
+```
+
 ## Setup for Collaborators
 
 See [SETUP_STEVEN.md](SETUP_STEVEN.md) — step-by-step Windows setup guide.
 
-**Collaborator needs:** Python 3.13+, Git, Tailscale, and `pip install -e .`
+**Collaborator needs:** Python 3.10+, Git, Tailscale, and `pip install clavus`
 
 ## Architecture
 
@@ -86,7 +99,7 @@ clavus/
 │   ├── watch.py          # File watcher daemon
 │   ├── sync.py           # P2P sync over HTTP
 │   ├── discovery.py      # mDNS + Tailscale peer discovery
-│   ├── web.py            # FastAPI web companion
+│   ├── web.py            # FastAPI relay server (API + WebSocket)
 │   ├── tui.py            # Textual terminal dashboard
 │   └── cli.py            # CLI entry point
 ├── SETUP_STEVEN.md       # Windows collaborator guide
@@ -98,6 +111,7 @@ clavus/
 - Full TUI with cues list, snapshot history, assignee tracking
 - P2P push/pull of cues and audio stems over Tailscale/LAN
 - Snapshots with visual diffs (arrangement, tracks, clips, BPM)
+- Snapshot restore (CLI + TUI)
 - Live 12 `.als` format support (Ableton wrapper, tracks container, palette colors)
 - Cue injection as Ableton markers
 - Assignees survive push/pull cycles
@@ -107,25 +121,19 @@ clavus/
 - Interactive init wizard with .als summary and project description
 - Config wizard for first-time setup
 - Archive uses status change (no file moving, full history preserved)
+- Share/Join — Tailscale-first peer discovery with human-friendly codes
+- Relay server for always-on collaboration (VPS, Pi, old laptop)
 
 ## Install
 
 ```bash
-# Core (TUI + sync):
 pip install clavus
-
-# With optional web companion:
-pip install "clavus[web]"
 
 # From source:
 git clone https://github.com/slowhands/clavus
 cd clavus
 pip install -e .
 ```
-
-## Collaborator Setup
-
-See [SETUP_STEVEN.md](SETUP_STEVEN.md) — step-by-step Windows setup guide.
 
 ## License
 
