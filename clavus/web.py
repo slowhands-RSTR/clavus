@@ -2356,21 +2356,68 @@ def _get_tailscale_url(port: int = 7890) -> str:
     """Try to detect the Tailscale IP for sharing."""
     import socket
     try:
-        # Tailscale uses 100.x.y.z range
+        # Method 1: use 'tailscale ip' command (most reliable)
+        import subprocess
+        r = subprocess.run(
+            ["tailscale", "ip", "-4"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            ip = r.stdout.strip()
+            if ip and ip.startswith("100."):
+                return f"http://{ip}:{port}"
+    except Exception:
+        pass
+
+    try:
+        # Method 2: check network interfaces for 100.x.y.z
+        import subprocess
+        r = subprocess.run(
+            ["ifconfig", "-l"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0:
+            for iface in r.stdout.strip().split():
+                r2 = subprocess.run(
+                    ["ifconfig", iface],
+                    capture_output=True, text=True, timeout=3,
+                )
+                for line in r2.stdout.splitlines():
+                    cleaned = line.strip()
+                    if "inet " in cleaned and "100." in cleaned:
+                        ip = cleaned.split()[1]
+                        return f"http://{ip}:{port}"
+    except Exception:
+        pass
+
+    try:
+        # Method 3: old approach via gethostbyname_ex
         for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
             if ip.startswith("100."):
                 return f"http://{ip}:{port}"
     except Exception:
         pass
+
     try:
-        # Try resolving the Tailscale hostname directly
-        for info in socket.getaddrinfo(
-            f"{socket.gethostname()}.tail?????.ts.net", 7890,
-            socket.AF_INET, socket.SOCK_STREAM
-        ):
-            pass
+        # Method 4: check all interfaces via netifaces fallback
+        # Try to find any 100.x.x.x on any interface
+        # by listing all IPs on the system
+        import subprocess
+        r = subprocess.run(
+            ["ipconfig", "getifaddr", "en0"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0 and r.stdout.strip().startswith("100."):
+            return f"http://{r.stdout.strip()}:{port}"
+        r = subprocess.run(
+            ["ipconfig", "getifaddr", "en1"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0 and r.stdout.strip().startswith("100."):
+            return f"http://{r.stdout.strip()}:{port}"
     except Exception:
         pass
+
     return ""
 
 
