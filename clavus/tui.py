@@ -1106,18 +1106,28 @@ class ClavusApp(App):
         self._status("scanning for Clavus share sessions...")
         try:
             from clavus.discovery import scan_for_share_codes
-            from clavus.sync import SyncClient
+            from clavus.sync import SyncClient, SyncError
             from clavus.store import BlobStore, Remote
             from clavus.sync import save_remotes, load_remotes, pull_from_remote
             import concurrent.futures
         except ImportError as e:
             self._status(f"join failed: missing dependency — {e}")
             return
+        except Exception as e:
+            self._status(f"join failed: {e}")
+            return
 
-        peers = scan_for_share_codes(timeout=3)
+        try:
+            peers = scan_for_share_codes(timeout=3)
+        except Exception as e:
+            self._status(f"scan failed: {e}")
+            return
+
         if not peers:
             self._status("no Clavus share sessions found — try 'clavus join' in terminal")
             return
+
+        self._status(f"found {len(peers)} server(s), checking for share codes...")
 
         # Fetch share info from each peer
         def _get_info(peer):
@@ -1131,6 +1141,7 @@ class ClavusApp(App):
             return None
 
         relay_info = []
+        errors = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
             fut_map = {pool.submit(_get_info, p): p for p in peers}
             for fut in concurrent.futures.as_completed(fut_map, timeout=5):
@@ -1139,11 +1150,17 @@ class ClavusApp(App):
                     info = fut.result()
                     if info and info.get("share_code"):
                         relay_info.append((peer, info))
-                except Exception:
+                    elif info:
+                        errors.append(f"no share code from {peer.host}")
+                except Exception as e:
+                    errors.append(f"{peer.host}: {e}")
                     continue
 
         if not relay_info:
-            self._status(f"found {len(peers)} Clavus server(s), none in share mode")
+            msg = f"found {len(peers)} Clavus server(s), none in share mode"
+            if errors:
+                msg += f" ({len(errors)} error(s): {'; '.join(errors[:3])})"
+            self._status(msg)
             return
 
         # Filter by code if provided
@@ -1173,24 +1190,33 @@ class ClavusApp(App):
             port = peer.port
             name = info.get("hostname", author).lower().replace(" ", "-")
 
-            store = BlobStore()
-            remotes = load_remotes(store)
-            remotes = [r for r in remotes if r.name != name]
-            remotes.append(Remote(name=name, url=f"http://{host}:{port}"))
-            save_remotes(store, remotes)
+            try:
+                store = BlobStore()
+                remotes = load_remotes(store)
+                remotes = [r for r in remotes if r.name != name]
+                remotes.append(Remote(name=name, url=f"http://{host}:{port}"))
+                save_remotes(store, remotes)
+            except Exception as e:
+                self._status(f"failed to save remote '{name}': {e}")
+                return
 
             self._status(f"✅ paired with {author} ({sc}) — added remote '{name}'")
 
             # Try to pull
-            projects = store.list_projects()
-            proj_name = info.get("project", {}).get("name", "")
-            matched = next((p for p in projects if p.name == proj_name), None)
-            if matched:
-                self._status(f"pulling from '{name}'...")
-                result = pull_from_remote(store, matched, Remote(name=name, url=f"http://{host}:{port}"))
-                cues = result.get("cues", 0)
-                snaps = result.get("snapshots", 0)
-                self._status(f"pulled {cues} cues, {snaps} snapshots from {author}")
+            try:
+                projects = store.list_projects()
+                proj_name = info.get("project", {}).get("name", "")
+                matched = next((p for p in projects if p.name == proj_name), None)
+                if matched:
+                    self._status(f"pulling from '{name}'...")
+                    result = pull_from_remote(store, matched, Remote(name=name, url=f"http://{host}:{port}"))
+                    cues = result.get("cues", 0)
+                    snaps = result.get("snapshots", 0)
+                    self._status(f"pulled {cues} cues, {snaps} snapshots from {author}")
+                else:
+                    self._status(f"paired with {author} ({sc}) — no matching local project, run :projects to switch")
+            except Exception as e:
+                self._status(f"paired but pull failed: {e}")
             return
 
         # Multiple — show list and prompt user
