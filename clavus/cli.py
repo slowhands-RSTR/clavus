@@ -1796,6 +1796,51 @@ def cmd_restore(args: argparse.Namespace) -> None:
     print(f"   HEAD updated to {snap.short_hash()}")
 
 
+# ─── Backup / Restore Store ──────────────────────────────────────────────
+
+
+def cmd_backup(args: argparse.Namespace) -> None:
+    """Backup the entire Clavus store (cues, snapshots, refs, config)."""
+    from clavus.store import BlobStore
+    store = BlobStore()
+    archive_path = store.backup_store()
+    size_mb = archive_path.stat().st_size / (1024 * 1024)
+    print(f"💾 Backup saved: {archive_path}")
+    print(f"   Size: {size_mb:.1f} MB")
+    print(f"   To restore: clavus restore --store {archive_path}")
+
+
+def cmd_list_backups(args: argparse.Namespace) -> None:
+    """List available store backups."""
+    from clavus.store import BlobStore
+    store = BlobStore()
+    backups = store.list_backups()
+    if not backups:
+        print("  No backups found.")
+        print("  Create one with: clavus backup")
+        return
+    print(f"  📦 Available backups:")
+    for b in backups:
+        size_kb = b.stat().st_size / 1024
+        print(f"     {b.name}  ({size_kb:.0f} KB)")
+
+
+def cmd_restore_store(args: argparse.Namespace) -> None:
+    """Restore Clavus store from a backup archive."""
+    from clavus.store import BlobStore
+    store = BlobStore()
+    if not args.archive:
+        backups = store.list_backups()
+        if not backups:
+            print("❌ No backups found. Run 'clavus backup' first.")
+            return
+        archive_path = backups[0]
+        print(f"  Using latest backup: {archive_path.name}")
+    else:
+        archive_path = Path(args.archive)
+    store.restore_store(archive_path)
+
+
 # ─── Stem Commands ─────────────────────────────────────────────────────
 
 
@@ -1958,6 +2003,13 @@ def main():
                           help="Snapshot hash or ref name (default: HEAD)")
     p_restore.add_argument("-y", "--yes", action="store_true",
                           help="Skip confirmation prompt")
+
+    # Store backup
+    p_backup = subparsers.add_parser("backup", help="Backup the entire Clavus store")
+    p_list_backups = subparsers.add_parser("backups", help="List available store backups")
+    p_restore_store = subparsers.add_parser("restore-store", help="Restore Clavus store from a backup")
+    p_restore_store.add_argument("archive", nargs="?", default=None,
+                                help="Path to backup archive (default: latest)")
 
     # Diff
     p_diff = subparsers.add_parser("diff", help="Show changes in a snapshot")
@@ -2170,6 +2222,9 @@ def main():
         "sync": cmd_sync,
         "merge": cmd_merge,
         "restore": cmd_restore,
+        "backup": cmd_backup,
+        "backups": cmd_list_backups,
+        "restore-store": cmd_restore_store,
         "cue": cmd_cue,
         "cue-reply": cmd_cue_reply,
         "cue-resolve": cmd_cue_resolve,

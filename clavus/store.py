@@ -266,8 +266,10 @@ class BlobStore:
     # ── Index Backup & Recovery ──
 
     def _backup_index(self) -> None:
-        """Rotating backup of index.json before each write.
-        Keeps the last 3 backups as index.json.bak, .bak2, .bak3.
+        """Rotating backup of index.json before each write + daily full store backup.
+
+        Keeps the last 3 index backups as index.json.bak, .bak2, .bak3.
+        Also creates a full store backup (tar.gz) once per day.
         """
         if not self.index_path.exists():
             return
@@ -280,6 +282,100 @@ class BlobStore:
                 shutil.copy2(src_path, dst_path)
         bak_path = self.index_path.with_suffix(self.index_path.suffix + ".bak")
         shutil.copy2(self.index_path, bak_path)
+
+        # Daily full store backup (only if none exists for today)
+        day_str = time.strftime("%Y%m%d")
+        daily_backup = self.root / "backups" / f"clavus-auto-{day_str}.tar.gz"
+        if not daily_backup.exists():
+            try:
+                self.backup_store(daily_backup)
+            except Exception:
+                pass  # Non-critical — don't crash writes on backup failure
+
+    def backup_store(self, archive_path: Path | None = None) -> Path:
+        """Create a full backup of the entire Clavus store.
+
+        Archives all of: index.json, cues/, objects/, refs/, config.json
+        into a single .tar.gz file. Returns the path to the archive.
+
+        Args:
+            archive_path: Target path for the backup (default: ~/.clavus/backups/clavus-<date>.tar.gz)
+        """
+        import tarfile
+
+        backup_dir = self.root / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        if archive_path is None:
+            date_str = time.strftime("%Y%m%d_%H%M%S")
+            archive_path = backup_dir / f"clavus-{date_str}.tar.gz"
+
+        with tarfile.open(archive_path, "w:gz") as tar:
+            # Add index.json
+            if self.index_path.exists():
+                tar.add(self.index_path, arcname="index.json")
+            # Add config
+            config_path = self.root / "config.json"
+            if config_path.exists():
+                tar.add(config_path, arcname="config.json")
+            # Add cues
+            cues_path = self.root / "cues"
+            if cues_path.exists():
+                for cue_file in cues_path.rglob("*.json"):
+                    tar.add(cue_file, arcname=str(cue_file.relative_to(self.root)))
+            # Add objects
+            obj_path = self.root / "objects"
+            if obj_path.exists():
+                for obj_file in obj_path.rglob("*"):
+                    if obj_file.is_file():
+                        tar.add(obj_file, arcname=str(obj_file.relative_to(self.root)))
+            # Add refs
+            refs_path = self.root / "refs"
+            if refs_path.exists():
+                for ref_file in refs_path.rglob("*"):
+                    if ref_file.is_file():
+                        tar.add(ref_file, arcname=str(ref_file.relative_to(self.root)))
+
+        return archive_path
+
+    def restore_store(self, archive_path: Path) -> bool:
+        """Restore the entire Clavus store from a backup archive.
+
+        Extracts all files from a .tar.gz backup into the store root.
+        Does NOT clear existing data — newer files overwrite older ones.
+
+        Args:
+            archive_path: Path to a .tar.gz backup file
+
+        Returns:
+            True if restore succeeded
+        """
+        import tarfile
+
+        if not archive_path.exists():
+            print(f"❌ Backup not found: {archive_path}")
+            return False
+
+        if not archive_path.suffix == ".gz" and not archive_path.name.endswith(".tar.gz"):
+            print(f"❌ Not a valid backup archive: {archive_path}")
+            return False
+
+        extracted = 0
+        with tarfile.open(archive_path, "r:gz") as tar:
+            for member in tar.getmembers():
+                if member.isfile():
+                    tar.extract(member, path=self.root)
+                    extracted += 1
+
+        print(f"📦 Restored {extracted} file(s) from {archive_path.name}")
+        return True
+
+    def list_backups(self) -> list[Path]:
+        """List all available backup archives."""
+        backup_dir = self.root / "backups"
+        if not backup_dir.exists():
+            return []
+        return sorted(backup_dir.glob("*.tar.gz"), reverse=True)
 
     def _try_restore_index(self) -> bool:
         """Try to restore index.json from backup or scan refs/cues dirs.
