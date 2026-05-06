@@ -119,10 +119,13 @@ print(f"  📦 Archived {count} resolved cue(s)")
 
 print("\n═══ 10. Render cues to Ableton markers ═══")
 from clavus.cues import render_cues_as_markers
+# Re-add a pending cue so there's something to render
+c7 = cues.add_cue("marker test cue", "4.1.1")
 output = render_cues_as_markers(cues.list_cues(CueFilter(status="pending")), "/tmp/cue_export.xml")
 print(f"  Exported to {output}")
-with open(output) as f:
-    print(f.read())
+if output:
+    with open(output) as f:
+        print(f.read()[:200])
 
 print("\n═══ 11. Count unresolved ═══")
 print(f"  Unresolved: {cues.count_unresolved()}")
