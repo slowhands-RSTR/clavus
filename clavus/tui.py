@@ -1101,127 +1101,116 @@ class ClavusApp(App):
         except Exception:
             return "your-lan-ip"
 
-    def _run_join(self, code: str = ""):
+    @work(exclusive=True)
+    async def _run_join(self, code: str = ""):
         """Scan for share sessions and auto-connect."""
         self._status("scanning for Clavus share sessions...")
-        try:
-            from clavus.discovery import scan_for_share_codes
-            from clavus.sync import SyncClient, SyncError
-            from clavus.store import BlobStore, Remote
-            from clavus.sync import save_remotes, load_remotes, pull_from_remote
-            import concurrent.futures
-        except ImportError as e:
-            self._status(f"join failed: missing dependency — {e}")
-            return
-        except Exception as e:
-            self._status(f"join failed: {e}")
-            return
+        await asyncio.sleep(0.05)  # Let TUI render the status
 
-        try:
-            peers = scan_for_share_codes(timeout=3)
-        except Exception as e:
-            self._status(f"scan failed: {e}")
-            return
-
-        if not peers:
-            self._status("no Clavus share sessions found — try 'clavus join' in terminal")
-            return
-
-        self._status(f"found {len(peers)} server(s), checking for share codes...")
-
-        # Fetch share info from each peer
-        def _get_info(peer):
+        # Run the entire join flow in a thread so TUI stays responsive
+        def _do_join(code: str) -> str:
             try:
-                client = SyncClient(f"http://{peer.host}:{peer.port}")
-                r = client.client.get(f"http://{peer.host}:{peer.port}/api/share", timeout=5)
-                if r.status_code == 200:
-                    return r.json()
-            except Exception:
-                pass
-            return None
+                from clavus.discovery import scan_for_share_codes
+                from clavus.sync import SyncClient
+                from clavus.store import BlobStore, Remote
+                from clavus.sync import save_remotes, load_remotes, pull_from_remote
+                import concurrent.futures
+            except ImportError as e:
+                return f"join failed: missing dependency — {e}"
 
-        relay_info = []
-        errors = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
-            fut_map = {pool.submit(_get_info, p): p for p in peers}
-            for fut in concurrent.futures.as_completed(fut_map, timeout=5):
-                peer = fut_map[fut]
+            try:
+                peers = scan_for_share_codes(timeout=3)
+            except Exception as e:
+                return f"scan failed: {e}"
+
+            if not peers:
+                return "no Clavus share sessions found — try 'clavus join' in terminal"
+
+            # Fetch share info from each peer
+            def _get_info(peer):
                 try:
-                    info = fut.result()
-                    if info and info.get("share_code"):
-                        relay_info.append((peer, info))
-                    elif info:
-                        errors.append(f"no share code from {peer.host}")
-                except Exception as e:
-                    errors.append(f"{peer.host}: {e}")
-                    continue
+                    client = SyncClient(f"http://{peer.host}:{peer.port}")
+                    r = client.client.get(f"http://{peer.host}:{peer.port}/api/share", timeout=5)
+                    if r.status_code == 200:
+                        return r.json()
+                except Exception:
+                    pass
+                return None
 
-        if not relay_info:
-            msg = f"found {len(peers)} Clavus server(s), none in share mode"
-            if errors:
-                msg += f" ({len(errors)} error(s): {'; '.join(errors[:3])})"
-            self._status(msg)
-            return
+            relay_info = []
+            errors = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+                fut_map = {pool.submit(_get_info, p): p for p in peers}
+                for fut in concurrent.futures.as_completed(fut_map, timeout=5):
+                    peer = fut_map[fut]
+                    try:
+                        info = fut.result()
+                        if info and info.get("share_code"):
+                            relay_info.append((peer, info))
+                        elif info:
+                            errors.append(f"no share code from {peer.host}")
+                    except Exception as e:
+                        errors.append(f"{peer.host}: {e}")
+                        continue
 
-        # Filter by code if provided
-        if code:
-            code_upper = code.upper()
-            relay_info = [(p, i) for p, i in relay_info if i.get("share_code", "").upper() == code_upper]
             if not relay_info:
-                self._status(f"no relay found with code '{code}'")
-                return
+                msg = f"found {len(peers)} Clavus server(s), none in share mode"
+                if errors:
+                    msg += f" ({len(errors)} error(s): {'; '.join(errors[:3])})"
+                return msg
 
-        # Display results
-        lines = []
-        for peer, info in relay_info:
-            sc = info.get("share_code", "???")
-            author = info.get("author", "?")
-            proj = (info.get("project") or {}).get("name", "?")
-            lines.append(f"[{C['accent']}]#{relay_info.index((peer, info)) + 1}[/]  "
-                         f"[bold]{sc}[/]  {author} — {proj}  "
-                         f"[dim]http://{peer.host}:{peer.port}[/]")
+            # Filter by code if provided
+            if code:
+                code_upper = code.upper()
+                relay_info = [(p, i) for p, i in relay_info if i.get("share_code", "").upper() == code_upper]
+                if not relay_info:
+                    return f"no relay found with code '{code}'"
 
-        # Auto-connect if only one
-        if len(relay_info) == 1 or code:
-            peer, info = relay_info[0]
-            sc = info.get("share_code", "???")
-            author = info.get("author", "?")
-            host = peer.host
-            port = peer.port
-            name = info.get("hostname", author).lower().replace(" ", "-")
+            # Auto-connect if only one
+            if len(relay_info) == 1 or code:
+                peer, info = relay_info[0]
+                sc = info.get("share_code", "???")
+                author = info.get("author", "?")
+                host = peer.host
+                port = peer.port
+                name = info.get("hostname", author).lower().replace(" ", "-")
 
-            try:
-                store = BlobStore()
-                remotes = load_remotes(store)
-                remotes = [r for r in remotes if r.name != name]
-                remotes.append(Remote(name=name, url=f"http://{host}:{port}"))
-                save_remotes(store, remotes)
-            except Exception as e:
-                self._status(f"failed to save remote '{name}': {e}")
-                return
+                try:
+                    store = BlobStore()
+                    remotes = load_remotes(store)
+                    remotes = [r for r in remotes if r.name != name]
+                    remotes.append(Remote(name=name, url=f"http://{host}:{port}"))
+                    save_remotes(store, remotes)
+                except Exception as e:
+                    return f"failed to save remote '{name}': {e}"
 
-            self._status(f"✅ paired with {author} ({sc}) — added remote '{name}'")
+                # Try to pull
+                try:
+                    projects = store.list_projects()
+                    proj_name = info.get("project", {}).get("name", "")
+                    matched = next((p for p in projects if p.name == proj_name), None)
+                    if matched:
+                        result = pull_from_remote(store, matched, Remote(name=name, url=f"http://{host}:{port}"))
+                        cues = result.get("cues", 0)
+                        snaps = result.get("snapshots", 0)
+                        return f"✅ paired with {author} ({sc}) — pulled {cues} cues, {snaps} snapshots"
+                    else:
+                        return f"✅ paired with {author} ({sc}) — no matching local project, run :projects to switch"
+                except Exception as e:
+                    return f"✅ paired with {author} ({sc}) but pull failed: {e}"
 
-            # Try to pull
-            try:
-                projects = store.list_projects()
-                proj_name = info.get("project", {}).get("name", "")
-                matched = next((p for p in projects if p.name == proj_name), None)
-                if matched:
-                    self._status(f"pulling from '{name}'...")
-                    result = pull_from_remote(store, matched, Remote(name=name, url=f"http://{host}:{port}"))
-                    cues = result.get("cues", 0)
-                    snaps = result.get("snapshots", 0)
-                    self._status(f"pulled {cues} cues, {snaps} snapshots from {author}")
-                else:
-                    self._status(f"paired with {author} ({sc}) — no matching local project, run :projects to switch")
-            except Exception as e:
-                self._status(f"paired but pull failed: {e}")
-            return
+            # Multiple — show list
+            lines = []
+            for peer, info in relay_info:
+                sc = info.get("share_code", "???")
+                a = info.get("author", "?")
+                pn = (info.get("project") or {}).get("name", "?")
+                lines.append(f"#{relay_info.index((peer, info)) + 1} {sc} {a} — {pn} http://{peer.host}:{peer.port}")
+            return " | ".join(lines) + "  |  :join <code> to connect"
 
-        # Multiple — show list and prompt user
-        msg = " | ".join(lines)
-        self._status(msg + "  |  :join <code> to connect")
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _do_join, code)
+        self._status(result)
 
     @work(exclusive=True)
     async def action_pull(self):
