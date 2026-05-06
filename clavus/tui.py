@@ -748,6 +748,7 @@ class ClavusApp(App):
             return
         injected = result.get("injected", 0)
         self._status(f"injected {injected} cue(s) as Ableton markers")
+        self._log_event(f"injected {injected} cues as markers")
         if injected > 0:
             self._status(f"save + reopen the .als in Ableton to see markers")
 
@@ -772,6 +773,7 @@ class ClavusApp(App):
         msg = result.get("message", "?")
         captured = result.get("captured", "?")
         self._status(f"restored to snapshot: '{msg}' ({captured})")
+        self._log_event(f"restored to '{msg}'")
         # Re-pull to update cues/snapshots display
         await self._do_pull()
 
@@ -854,6 +856,7 @@ class ClavusApp(App):
             t = result.get("tracks", "?")
             b = result.get("bpm", "?")
             self._status(f"snapshot {h} — {t} tracks @ {b}bpm")
+            self._log_event(f"snapshot: {message[:30]}")
         # Re-pull to show new snapshot in history
         await self._do_pull()
 
@@ -869,6 +872,7 @@ class ClavusApp(App):
         ))
         self._render()
         self._status("reply added")
+        self._log_event(f"replied to @{cue.position}")
         self._save()
 
     def _do_new_cue(self, text: str, pos: str = "1.1.1"):
@@ -883,6 +887,7 @@ class ClavusApp(App):
         self.idx = len(self.cues) - 1
         self._render()
         self._status(f"cue added @ {pos}")
+        self._log_event(f"cue: {text[:30]} @ {pos}")
         self._save()
 
     def _do_edit(self, text: str):
@@ -892,6 +897,7 @@ class ClavusApp(App):
         cue.text = text
         self._render()
         self._status("edited")
+        self._log_event(f"edited cue: {text[:30]}")
         self._save()
 
     def _do_assign(self, name: str):
@@ -902,6 +908,7 @@ class ClavusApp(App):
         cue.in_progress = False
         self._render()
         self._status(f"assigned to {cue.assignee}")
+        self._log_event(f"assigned to {cue.assignee}")
         self._save()
 
     def action_reply(self):
@@ -947,6 +954,7 @@ class ClavusApp(App):
         idx = self._get_history_idx()
         snap = self.snaps[idx]
         self._status(f"restoring to {snap.hash} ('{snap.message[:40]}')...")
+        self._log_event(f"restoring to {snap.hash[:12]}...")
         self._run_restore(snap.hash)
 
     def action_diff(self):
@@ -1109,6 +1117,7 @@ class ClavusApp(App):
         ok = await self.api.archive_cue(self.project, cue.id)
         if ok:
             self._status("archived — re-pulling")
+            self._log_event(f"archived @{cue.position}")
             await self._do_pull()
         else:
             self._status("archive failed")
@@ -1136,6 +1145,7 @@ class ClavusApp(App):
         ok = await self.api.delete_cue(self.project, cue.id)
         if ok:
             self._status("deleted — re-pulling")
+            self._log_event(f"deleted @{cue.position}")
             await self._do_pull()
         else:
             self._status("delete failed")
@@ -1213,11 +1223,13 @@ class ClavusApp(App):
         self._status("pulling...")
         await self._do_pull()
         self._status("pulled")
+        self._log_event("pulled from server")
 
     @work(exclusive=True)
     async def action_push(self):
         self._status("pushing...")
         await self._do_push()
+        self._log_event("pushed to server")
 
     @work(exclusive=True)
     async def action_stem_push(self):
@@ -1233,6 +1245,7 @@ class ClavusApp(App):
         err = stderr.decode().strip()
         msg = out.split("\n")[-1][:60] if out else (err.split("\n")[-1][:60] if err else "done")
         self._status(f"stems: {msg}")
+        self._log_event(f"stems: {msg}")
 
     # ─── Persistence ────────────────────────────────────────────────────
 
@@ -1478,10 +1491,37 @@ class ClavusApp(App):
     # ─── Status / Header / Footer ───────────────────────────────────────
 
     def _status(self, msg: str):
+        """Show a status message in the footer and log it to the event list."""
         try:
             safe_msg = msg.replace("[", "\\[").replace("]", "\\]")
             self.query_one("#footer-stats", Static).update(f"[{C['dim']}]{safe_msg}[/]")
             self.refresh()
+        except NoMatches:
+            pass
+
+    def _log_event(self, event: str):
+        """Append a timestamped event to the top of the cue list as a log entry."""
+        try:
+            ts = time.strftime("%H:%M:%S")
+            safe = event.replace("[", "\\[").replace("]", "\\]")
+            lv = self.query_one("#clv", ListView)
+            label = Label(f"  [{C['dim']}]{ts}[/] [{C['accent']}⟩[/] {safe}", classes="event-log")
+            lv.mount(label, before=0)
+            # Keep max 5 log entries, remove oldest
+            log_entries = [c for c in lv.children if hasattr(c, "classes") and "event-log" in c.classes]
+            while len(log_entries) > 5:
+                log_entries[-1].remove()
+                log_entries.pop()
+            self.set_timer(8.0, lambda: self._clear_log_events())
+        except NoMatches:
+            pass
+
+    def _clear_log_events(self):
+        try:
+            lv = self.query_one("#clv", ListView)
+            for c in list(lv.children):
+                if hasattr(c, "classes") and "event-log" in c.classes:
+                    c.remove()
         except NoMatches:
             pass
 
