@@ -1079,7 +1079,7 @@ class ClavusApp(App):
         """Start a share session — spawn relay + show share code modal."""
         from clavus.discovery import generate_share_code
         from clavus.config import ClavusConfig
-        import subprocess, os, signal
+        import subprocess, os
 
         cfg = ClavusConfig.load()
         code = generate_share_code()
