@@ -84,7 +84,7 @@ class ClavusApp(App):
 
     #main {{ layout: grid; grid-size: 1 3; grid-rows: auto 1fr auto; height: 100%; }}
 
-    #header {{ height: 2; background: {C['surface']}; padding: 0 1; }}
+    #header {{ height: auto; background: {C['surface']}; padding: 0 1; }}
     #header-title {{ color: {C['accent']}; text-style: bold; }}
     #header-status {{ color: {C['fg']}; }}
 
@@ -182,7 +182,7 @@ class ClavusApp(App):
 
     def compose(self):
         with Container(id="main"):
-            yield Horizontal(
+            yield Vertical(
                 Static("~▼~ clavus", id="header-title"),
                 Static("connecting...", id="header-status"),
                 id="header",
