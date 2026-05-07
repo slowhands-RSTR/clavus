@@ -838,15 +838,16 @@ class ClavusApp(App):
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(raw)
 
-        # Materialize audio samples
+        # Materialize audio samples with original directory structure
         sample_count = 0
         if snap.sample_hashes:
-            samples_dir = out.parent / "Samples" / "Imported"
+            base_dir = out.parent  # Desktop (where .als lives)
             for sh in snap.sample_hashes:
                 fname = store.get_sample_filename(sh)
+                relpath = store.get_sample_relpath(sh) or ""
                 if fname and store.has_object(sh):
                     try:
-                        store.materialize_sample(sh, samples_dir, fname)
+                        store.materialize_sample(sh, base_dir, fname, relpath)
                         sample_count += 1
                     except Exception:
                         pass

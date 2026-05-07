@@ -178,7 +178,7 @@ class BlobStore:
 
     # ── Sample Storage ──
 
-    def store_sample(self, file_path: str | Path) -> tuple[str, str]:
+    def store_sample(self, file_path: str | Path, relative_path: str = "") -> tuple[str, str]:
         """Hash an audio sample and store with filename metadata.
         Returns (sha256_hash, original_filename)."""
         import hashlib
@@ -186,18 +186,29 @@ class BlobStore:
         data = fp.read_bytes()
         h = hashlib.sha256(data).hexdigest()
         self.put_object(data, h)
-        # Store filename alongside blob
+        # Store filename + optional relative path alongside blob
         meta_path = self.objects_dir / h[:2] / f"{h}.sample"
-        meta_path.write_text(fp.name)
+        if relative_path:
+            meta_path.write_text(f"{fp.name}\n{relative_path}")
+        else:
+            meta_path.write_text(fp.name)
         return h, fp.name
 
-    def materialize_sample(self, sample_hash: str, out_dir: Path, filename: str) -> Path:
-        """Write a sample blob to a directory. Returns the output path."""
+    def materialize_sample(self, sample_hash: str, out_dir: Path, filename: str, relpath: str = "") -> Path:
+        """Write a sample blob to a directory, preserving subdirectory structure.
+        Returns the output path."""
         data = self.get_object(sample_hash)
         if not data:
             raise FileNotFoundError(f"Sample blob not found: {sample_hash[:12]}")
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / filename
+        # If relpath is provided, preserve the subdirectory structure
+        # e.g. relpath="Samples/Processed/Freeze/file.wav" → out_dir/Samples/Processed/Freeze/file.wav
+        if relpath:
+            parent = Path(relpath).parent
+            full_dir = out_dir / parent
+        else:
+            full_dir = out_dir
+        full_dir.mkdir(parents=True, exist_ok=True)
+        out_path = full_dir / filename
         out_path.write_bytes(data)
         return out_path
 
@@ -205,7 +216,18 @@ class BlobStore:
         """Get the original filename for a stored sample."""
         meta_path = self.objects_dir / sample_hash[:2] / f"{sample_hash}.sample"
         if meta_path.exists():
-            return meta_path.read_text().strip()
+            content = meta_path.read_text().strip()
+            return content.split("\n")[0]  # First line is filename
+        return None
+
+    def get_sample_relpath(self, sample_hash: str) -> Optional[str]:
+        """Get the relative path (from project root) for a stored sample."""
+        meta_path = self.objects_dir / sample_hash[:2] / f"{sample_hash}.sample"
+        if meta_path.exists():
+            content = meta_path.read_text().strip()
+            lines = content.split("\n")
+            if len(lines) > 1:
+                return lines[1]  # Second line is relative path
         return None
 
     # ── Helpers ──
@@ -246,9 +268,14 @@ class BlobStore:
         try:
             from clavus.parser import extract_sample_paths
             sample_paths = extract_sample_paths(project.file_path)
+            project_root = Path(project.file_path).parent
             for sp in sample_paths:
                 if Path(sp).exists():
-                    sh, _ = self.store_sample(sp)
+                    try:
+                        rel = str(Path(sp).relative_to(project_root))
+                    except ValueError:
+                        rel = Path(sp).name
+                    sh, _ = self.store_sample(sp, relative_path=rel)
                     sample_hashes.append(sh)
         except Exception:
             pass  # Sample extraction is best-effort
