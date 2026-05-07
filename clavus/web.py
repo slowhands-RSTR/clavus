@@ -1075,6 +1075,7 @@ async def sync_pull(name: str = Query(..., description="Project name")):
             "project_path": snap.project_path,
             "tags": snap.tags,
             "sample_hashes": snap.sample_hashes,
+            "sample_paths": snap.sample_paths,
             "is_head": current == store.read_ref("HEAD"),
         })
         if snap.parent == current:
@@ -1178,6 +1179,7 @@ async def sync_push_snapshots(body: SyncPushSnapshotsBody,
             tags=s.get("tags", []),
             als_hash=s.get("als_hash", None),
             sample_hashes=s.get("sample_hashes", []),
+            sample_paths=s.get("sample_paths", {}),
         )
         meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
         imported += 1

@@ -531,6 +531,7 @@ def _snapshots_to_dicts(store: BlobStore, proj: ClavusProject) -> list[dict]:
             "parent": snap.parent,
             "als_hash": snap.als_hash,
             "sample_hashes": snap.sample_hashes,
+            "sample_paths": snap.sample_paths,
         })
         if snap.parent == current:
             break
@@ -629,6 +630,7 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> d
                 tags=s.get("tags", []),
                 als_hash=s.get("als_hash", None),
                 sample_hashes=s.get("sample_hashes", []),
+                sample_paths=s.get("sample_paths", {}),
             )
             # Store snapshot metadata (always update — fields may change)
             meta_dir = store.objects_dir / snap.hash[:2]
@@ -636,6 +638,13 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> d
             meta_path = meta_dir / f"{snap.hash}.meta"
             from dataclasses import asdict
             meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
+
+            # Always update .sample files from sample_paths (ensures relative paths)
+            for sh, rel in snap.sample_paths.items():
+                spath = store.objects_dir / sh[:2] / f"{sh}.sample"
+                spath.parent.mkdir(parents=True, exist_ok=True)
+                fname = Path(rel).name
+                spath.write_text(f"{fname}\n{rel}")
 
         result["snapshots"] = len(data.get("snapshots", []))
 

@@ -52,6 +52,7 @@ class Snapshot:
     tags: list[str] = field(default_factory=list)  # User tags
     als_hash: Optional[str] = None  # SHA256 of raw .als bytes (for restore)
     sample_hashes: list[str] = field(default_factory=list)  # SHA256 of referenced audio samples
+    sample_paths: dict[str, str] = field(default_factory=dict)  # hash → relative path from project root
 
     def short_hash(self, length: int = 8) -> str:
         return self.hash[:length]
@@ -265,11 +266,12 @@ class BlobStore:
 
         # Store referenced audio samples
         sample_hashes: list[str] = []
+        sample_paths: dict[str, str] = {}
         try:
             from clavus.parser import extract_sample_paths
-            sample_paths = extract_sample_paths(project.file_path)
+            sample_path_list = extract_sample_paths(project.file_path)
             project_root = Path(project.file_path).parent
-            for sp in sample_paths:
+            for sp in sample_path_list:
                 if Path(sp).exists():
                     try:
                         rel = str(Path(sp).relative_to(project_root))
@@ -277,6 +279,7 @@ class BlobStore:
                         rel = Path(sp).name
                     sh, _ = self.store_sample(sp, relative_path=rel)
                     sample_hashes.append(sh)
+                    sample_paths[sh] = rel
         except Exception:
             pass  # Sample extraction is best-effort
 
@@ -292,6 +295,7 @@ class BlobStore:
             tags=tags or [],
             als_hash=als_hash,
             sample_hashes=sample_hashes,
+            sample_paths=sample_paths,
         )
 
         # Store snapshot metadata (indexed by hash)
