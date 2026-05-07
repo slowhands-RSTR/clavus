@@ -189,6 +189,8 @@ class BlobStore:
         self.put_object(data, h)
         # Store filename + optional relative path alongside blob
         meta_path = self.objects_dir / h[:2] / f"{h}.sample"
+        # Normalize backslashes to forward slashes for cross-OS compat
+        relative_path = relative_path.replace("\\", "/")
         if relative_path:
             meta_path.write_text(f"{fp.name}\n{relative_path}")
         else:
@@ -203,7 +205,9 @@ class BlobStore:
             raise FileNotFoundError(f"Sample blob not found: {sample_hash[:12]}")
         # If relpath is provided, preserve the subdirectory structure
         # e.g. relpath="Samples/Processed/Freeze/file.wav" → out_dir/Samples/Processed/Freeze/file.wav
+        # Normalize backslashes (Windows paths) to forward slashes for cross-OS compat
         if relpath:
+            relpath = relpath.replace("\\", "/")
             parent = Path(relpath).parent
             full_dir = out_dir / parent
         else:
@@ -228,7 +232,8 @@ class BlobStore:
             content = meta_path.read_text().strip()
             lines = content.split("\n")
             if len(lines) > 1:
-                return lines[1]  # Second line is relative path
+                # Normalize backslashes to forward slashes for cross-OS compat
+                return lines[1].replace("\\", "/")  # Second line is relative path
         return None
 
     # ── Helpers ──
