@@ -45,7 +45,7 @@ Only one relay is needed (doesn't matter who runs it). Both peers push and pull 
 
 ```bash
 pip install clavus          # or: pip install -e .   (from source)
-clavus setup                 # guided first-time configuration
+clavus setup                 # guided first-time config (adds remote automatically)
 clavus tui                   # terminal dashboard
 ```
 

@@ -355,6 +355,28 @@ def cmd_setup(args: argparse.Namespace) -> None:
     store = BlobStore()
     store.init()
 
+    # 6. Remote configuration
+    print()
+    has_relay = in_use
+    if has_relay:
+        print(f"🔗 Relay detected on port {port} — good!")
+    print(f"🔗 Relay URL [http://localhost:{port}]: ", end="")
+    try:
+        relay_url = input().strip()
+    except (EOFError, KeyboardInterrupt):
+        relay_url = ""
+    if relay_url or has_relay:
+        url = relay_url or f"http://localhost:{port}"
+        from clavus.sync import load_remotes, save_remotes, Remote
+        remotes = load_remotes(store)
+        # Only add if not already present
+        if not any(r.name == "relay" for r in remotes):
+            remotes.append(Remote(name="relay", url=url))
+            save_remotes(store, remotes)
+        print(f"   ✅ Added remote 'relay' → {url}")
+    else:
+        print("   ℹ️  Skipped — add later with: clavus remote add relay <url>")
+
     print()
     print("✅ Setup complete!")
     print(f"   Config: {CONFIG_PATH}")
@@ -362,10 +384,9 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print()
     print("   Next:")
     print("     clavus init               — track a project")
-    print("     clavus share              — share with collaborator")
+    print("     clavus push               — send to collaborators")
     print("     clavus tui                — terminal dashboard")
     print("     clavus doctor             — check system health")
-    print(f"     clavus config             — show/edit settings")
 
 
 def cmd_init(args: argparse.Namespace) -> None:
