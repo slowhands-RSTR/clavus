@@ -180,6 +180,7 @@ def push_snapshot_blobs(
 
         # Check which content blobs the remote is missing
         all_content_hashes = content_hashes
+        print(f"    Checking {len(all_content_hashes)} content blob(s)...")
         try:
             r = client.client.post(
                 f"{remote.url}/api/sync/check-blobs",
@@ -221,6 +222,7 @@ def push_snapshot_blobs(
 
         # Check which .als backup blobs are missing
         if als_hashes:
+            print(f"    Checking {len(als_hashes)} .als backup(s)...")
             try:
                 r = client.client.post(
                     f"{remote.url}/api/sync/check-blobs",
@@ -259,6 +261,7 @@ def push_snapshot_blobs(
 
         # Check which sample blobs the remote is missing
         if sample_hashes_list:
+            print(f"    Checking {len(sample_hashes_list)} audio sample(s)...")
             try:
                 r = client.client.post(
                     f"{remote.url}/api/sync/check-blobs",
@@ -396,6 +399,8 @@ def pull_snapshot_blobs(
             pass
 
         # Download missing content blobs from the relay
+        if missing_content:
+            print(f"    ⬇️  Downloading {len(missing_content)} content blob(s)...")
         downloaded = set()
         for h in list(missing_content):
             if h in downloaded:
@@ -415,6 +420,8 @@ def pull_snapshot_blobs(
             print(f"    ⚠️  Could not fetch blob {h[:12]}")
 
         # Download missing .als backups
+        if missing_als:
+            print(f"    ⬇️  Downloading {len(missing_als)} .als backup(s)...")
         for h in list(missing_als):
             if h in downloaded:
                 continue
@@ -431,6 +438,8 @@ def pull_snapshot_blobs(
                 print(f"    ⚠️  Could not fetch .als backup {h[:12]}")
 
         # Download missing audio samples
+        if missing_samples:
+            print(f"    ⬇️  Downloading {len(missing_samples)} audio sample(s)...")
         for h in list(missing_samples):
             if h in downloaded:
                 continue
@@ -482,6 +491,7 @@ def pull_snapshot_blobs(
 
                     # Materialize samples first
                     if snap.sample_hashes:
+                        print(f"    📁 Materializing {len(snap.sample_hashes)} sample(s)...")
                         for sh in snap.sample_hashes:
                             fname = store.get_sample_filename(sh)
                             relpath = store.get_sample_relpath(sh) or ""
@@ -559,26 +569,33 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> dic
     client = SyncClient(remote.url)
 
     try:
+        print(f"  🔗 Connecting...")
         if not client.ping():
             result["error"] = f"Cannot reach {remote.url}"
+            print(f"  ❌ Cannot reach {remote.url}")
             return result
+        print(f"  ✅ Connected")
 
         # Push cues (always push, even empty — ensures project exists on relay)
         cues_store = CueStore(proj.name, store=store)
         cues_data = _cues_to_dicts(cues_store)
+        print(f"  📋 Pushing {len(cues_data)} cue(s)...")
         ok = client.push_cues(proj.name, cues_data)
         if cues_data:
             result["cues"] = len(cues_data) if ok else 0
         if not ok and not result["error"]:
             result["error"] = "Failed to push cues"
+        print(f"  {'✅' if ok else '❌'} Cues: {result['cues']} sent")
 
         # Push snapshots (always push, even empty — ensures project exists on relay)
         snap_data = _snapshots_to_dicts(store, proj)
+        print(f"  📸 Pushing {len(snap_data)} snapshot(s)...")
         ok = client.push_snapshots(proj.name, snap_data)
         if snap_data:
             result["snapshots"] = len(snap_data) if ok else 0
         if not ok and not result["error"]:
             result["error"] = "Failed to push snapshots"
+        print(f"  {'✅' if ok else '❌'} Snapshots: {result['snapshots']} sent")
 
         remote.last_sync = time.time()
         save_remotes(store, load_remotes(store))
@@ -599,18 +616,29 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
     client = SyncClient(remote.url)
 
     try:
+        print(f"  🔗 Connecting...")
         if not client.ping():
             result["error"] = f"Cannot reach {remote.url}"
+            print(f"  ❌ Cannot reach {remote.url}")
             return result
+        print(f"  ✅ Connected")
 
+        print(f"  📥 Fetching data...")
         data = client.pull(proj.name)
         if not data:
             result["error"] = "Pull returned no data"
+            print(f"  ❌ Pull returned no data")
             return result
+
+        cues_count = len(data.get("cues", []))
+        snap_count = len(data.get("snapshots", []))
+        print(f"  📋 Received {cues_count} cue(s), {snap_count} snapshot(s)")
 
         cues_store = CueStore(proj.name, store=store)
 
         # Import cues
+        if cues_count:
+            print(f"  📝 Importing {cues_count} cue(s)...")
         for c in data.get("cues", []):
             cue = Cue(
                 id=c["id"], position=c.get("position", "0.0.0"),
@@ -635,9 +663,14 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
                 cues_store.import_reply(c["id"], reply)
 
         result["cues"] = len(data.get("cues", []))
+        if result["cues"]:
+            print(f"  ✅ Imported {result['cues']} cue(s)")
 
         # Import snapshots
-        for s in data.get("snapshots", []):
+        snapshots_data = data.get("snapshots", [])
+        if snapshots_data:
+            print(f"  📸 Importing {len(snapshots_data)} snapshot(s)...")
+        for s in snapshots_data:
             snap = Snapshot(
                 hash=s.get("full_hash", s["hash"]),
                 timestamp=s.get("timestamp", 0.0),
@@ -665,7 +698,9 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
                 fname = Path(rel).name
                 spath.write_text(f"{fname}\n{rel}")
 
-        result["snapshots"] = len(data.get("snapshots", []))
+        result["snapshots"] = len(snapshots_data)
+        if result["snapshots"]:
+            print(f"  ✅ Imported {result['snapshots']} snapshot(s)")
 
         # Update HEAD to the newest pulled snapshot
         if result["snapshots"] > 0:
