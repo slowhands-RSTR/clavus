@@ -1328,89 +1328,86 @@ class ClavusApp(App):
         return sorted(cues, key=sort_key)
 
     async def _do_pull(self):
-        """Pull cues + snapshots + blobs from remotes (same as 'clavus pull')."""
-        import subprocess, sys
-        cmd = [sys.executable, "-m", "clavus", "pull"]
+        """Pull cues + snapshots + blobs from remotes — direct function calls, no subprocess."""
+        import time
+        from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs
         self._status("\u23f3 pulling...")
         try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                capture_output=True, text=True, encoding="utf-8", timeout=300,
-            )
-            # Show output lines as log events
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if line:
-                    self._log_event(line)
-            if result.returncode == 0:
-                import time
-                ts = time.strftime("%H:%M")
-                self._last_sync = f"\u2b07 pull \u2713 {ts}"
-                self._update_header()
-                self._log_event(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
-                self._status(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
-            else:
-                # Show stderr + last stdout lines for debugging
-                err_lines = result.stderr.strip().splitlines() if result.stderr.strip() else []
-                out_tail = result.stdout.strip().splitlines()[-2:] if result.stdout.strip() else []
-                detail = "; ".join(err_lines + out_tail) or f"exit {result.returncode}"
-                self._log_event(f"\u274c pull failed: {detail}")
-                self._status(f"\u274c pull failed (see log)")
-            # Refresh local state from disk
+            proj_index = self.store.get_index(self.project)
+            if not proj_index:
+                self._status("\u274c no project")
+                return
+            remotes = load_remotes(self.store)
+            if not remotes:
+                self._status("\u274c no remotes configured")
+                self._log_event("\u274c no remotes — use :join http://...")
+                return
+            for remote in remotes:
+                self._log_event(f"pulling from {remote.name}...")
+                self._status(f"\u23f3 pulling from {remote.name}...")
+                result = pull_from_remote(self.store, proj_index, remote)
+                if result.get("error"):
+                    self._log_event(f"\u274c {result['error']}")
+                    self._status(f"\u274c {result['error']}")
+                    return
+                cues_n = result.get("cues", 0)
+                snaps_n = result.get("snapshots", 0)
+                self._log_event(f"  got {cues_n} cues, {snaps_n} snapshots")
+                blobs = pull_snapshot_blobs(self.store, proj_index, remote)
+                if blobs:
+                    self._log_event(f"  {blobs} blob(s)")
+            ts = time.strftime("%H:%M")
+            self._last_sync = f"\u2b07 pull \u2713 {ts}"
+            self._update_header()
+            self._log_event(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
+            self._status(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
+            # Refresh from disk
             if self.project:
                 self._load_cues_from_disk()
                 self._load_snapshots_from_disk()
                 self._update_header()
                 self._render()
-        except subprocess.TimeoutExpired:
-            self._status("pull timed out")
         except Exception as e:
-            self._status(f"pull error: {e}")
-        # Restore scroll position after re-render
-        try:
-            lv = self.query_one("#clv", ListView)
-            if self.idx < len(lv.children):
-                # Skip non-ListItem children (temporary banners)
-                if isinstance(lv.children[self.idx], ListItem):
-                    lv.index = self.idx
-                    target = lv.children[self.idx]
-                    lv.scroll_to_widget(target, animate=False)
-        except (NoMatches, IndexError, AssertionError):
-            pass
+            self._log_event(f"\u274c pull error: {e}")
+            self._status(f"\u274c pull error: {e}")
 
     async def _do_push(self):
-        """Push cues + snapshots + blobs to remotes (same as 'clavus push')."""
-        import subprocess, sys
-        cmd = [sys.executable, "-m", "clavus", "push"]
+        """Push cues + snapshots + blobs to remotes — direct function calls, no subprocess."""
+        import time
+        from clavus.sync import load_remotes, push_to_remote, push_snapshot_blobs
         self._status("\u23f3 pushing...")
         try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                capture_output=True, text=True, encoding="utf-8", timeout=300,
-            )
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if line:
-                    self._log_event(line)
-            if result.returncode == 0:
-                import time
-                ts = time.strftime("%H:%M")
-                self._last_sync = f"\u2b06 push \u2713 {ts}"
-                self._update_header()
-                self._log_event("\u2705 push complete")
-                self._status("\u2705 push complete")
-            else:
-                err_lines = result.stderr.strip().splitlines() if result.stderr.strip() else []
-                out_tail = result.stdout.strip().splitlines()[-2:] if result.stdout.strip() else []
-                detail = "; ".join(err_lines + out_tail) or f"exit {result.returncode}"
-                self._log_event(f"\u274c push failed: {detail}")
-                self._status(f"\u274c push failed (see log)")
-        except subprocess.TimeoutExpired:
-            self._status("push timed out")
+            proj_index = self.store.get_index(self.project)
+            if not proj_index:
+                self._status("\u274c no project")
+                return
+            remotes = load_remotes(self.store)
+            if not remotes:
+                self._status("\u274c no remotes configured")
+                self._log_event("\u274c no remotes — use :join http://...")
+                return
+            for remote in remotes:
+                self._log_event(f"pushing to {remote.name}...")
+                self._status(f"\u23f3 pushing to {remote.name}...")
+                result = push_to_remote(self.store, proj_index, remote)
+                if result.get("error"):
+                    self._log_event(f"\u274c {result['error']}")
+                    self._status(f"\u274c {result['error']}")
+                    return
+                cues_n = result.get("cues", 0)
+                snaps_n = result.get("snapshots", 0)
+                self._log_event(f"  {cues_n} cues, {snaps_n} snapshots")
+                blobs = push_snapshot_blobs(self.store, proj_index, remote)
+                if blobs:
+                    self._log_event(f"  {blobs} blob(s)")
+            ts = time.strftime("%H:%M")
+            self._last_sync = f"\u2b06 push \u2713 {ts}"
+            self._update_header()
+            self._log_event("\u2705 push complete")
+            self._status("\u2705 push complete")
         except Exception as e:
-            self._status(f"push error: {e}")
+            self._log_event(f"\u274c push error: {e}")
+            self._status(f"\u274c push error: {e}")
 
     def _get_cue(self) -> Optional[Cue]:
         if 0 <= self.idx < len(self.cues):
