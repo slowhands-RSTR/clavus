@@ -7,11 +7,26 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import sys
 from pathlib import Path
 from typing import Optional
 
 from clavus.store import BlobStore, ClavusProject, DEFAULT_CLAVUS_DIR
+
+
+def get_desktop_path() -> Path:
+    """Return the actual Desktop path, handling OneDrive redirect on Windows."""
+    if platform.system() == "Windows":
+        import ctypes
+        from ctypes import wintypes
+        buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+        try:
+            ctypes.windll.shell32.SHGetFolderPathW(None, 0, None, 0, buf)
+            return Path(buf.value)
+        except Exception:
+            pass
+    return Path.home() / "Desktop"
 
 
 def find_als_file(path: str | Path) -> Optional[Path]:

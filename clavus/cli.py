@@ -41,7 +41,7 @@ from clavus.cues import (
     CueStore, CueFilter, format_cue, format_cue_list,
     render_cues_as_markers, add_cue_command,
 )
-from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot
+from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot, get_desktop_path
 from clavus.watch import watch as cmd_watch_daemon
 from clavus.store import (
     StemStore, StemEntry, StemManifest,
@@ -1994,7 +1994,7 @@ def cmd_open(args: argparse.Namespace) -> None:
         out_path = Path(args.output)
     else:
         # Create project folder on Desktop, .als inside it
-        project_dir = Path.home() / "Desktop" / f"{project_name} Project"
+        project_dir = get_desktop_path() / f"{project_name} Project"
         out_path = project_dir / f"{project_name}.als"
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

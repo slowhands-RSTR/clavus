@@ -26,6 +26,7 @@ import httpx
 from clavus.store import (
     BlobStore, ClavusProject, Snapshot, DEFAULT_CLAVUS_DIR, StemStore,
 )
+from clavus.helpers import get_desktop_path
 from clavus.cues import CueStore, Cue, CueReply as CueReplyData, CueFilter
 
 
@@ -475,7 +476,7 @@ def pull_snapshot_blobs(
                 raw = store.get_object(snap.als_hash)
                 if raw:
                     project_name = proj.name.replace(" ", " ")
-                    project_dir = Path.home() / "Desktop" / f"{project_name} Project"
+                    project_dir = get_desktop_path() / f"{project_name} Project"
                     out = project_dir / f"{project_name}.als"
                     out.parent.mkdir(parents=True, exist_ok=True)
 
