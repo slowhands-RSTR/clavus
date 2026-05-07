@@ -467,7 +467,7 @@ def pull_snapshot_blobs(
         client.close()
 
     # Auto-materialize latest .als after blob download
-    if count > 0 and als_hashes:
+    if count > 0 and missing_als:
         try:
             head = proj.head
             if head:
