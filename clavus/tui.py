@@ -822,7 +822,7 @@ class ClavusApp(App):
             return
 
         # Resolve short hash
-        from clavus.helpers import resolve_snapshot, get_desktop_path
+        from clavus.helpers import resolve_snapshot, get_projects_dir
         resolved = resolve_snapshot(store, h)
         if not resolved:
             self._status(f"could not resolve hash: {h}")
@@ -840,7 +840,7 @@ class ClavusApp(App):
 
         # Write to a proper Ableton project folder on Desktop
         project_name = self.project.replace(" ", " ")
-        project_dir = get_desktop_path() / f"{project_name} Project"
+        project_dir = get_projects_dir() / project_name
         out = project_dir / f"{project_name}.als"
 
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -1151,7 +1151,7 @@ class ClavusApp(App):
         from clavus.cli import get_store_and_project
 
         store, proj = get_store_and_project()
-        from clavus.helpers import resolve_snapshot, get_desktop_path
+        from clavus.helpers import resolve_snapshot, get_projects_dir
         hash_str = resolve_snapshot(store, snap.hash)
         current_snap = store.load_snapshot(hash_str) if hash_str else None
 

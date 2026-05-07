@@ -41,7 +41,7 @@ from clavus.cues import (
     CueStore, CueFilter, format_cue, format_cue_list,
     render_cues_as_markers, add_cue_command,
 )
-from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot, get_desktop_path
+from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot, get_desktop_path, get_projects_dir
 from clavus.watch import watch as cmd_watch_daemon
 from clavus.store import (
     StemStore, StemEntry, StemManifest,
@@ -307,7 +307,20 @@ def cmd_setup(args: argparse.Namespace) -> None:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         print("   ℹ️  Tailscale not found — LAN-only collab")
 
-    # 4. Ableton detection
+    # 4. Projects folder
+    from clavus.config import DEFAULT_PROJECTS_DIR
+    current_dir = cfg.projects_dir or DEFAULT_PROJECTS_DIR
+    print(f"📁 Projects folder [{current_dir}]: ", end="")
+    try:
+        pd = input().strip()
+        if pd:
+            cfg.set("projects_dir", pd)
+            Path(pd).mkdir(parents=True, exist_ok=True)
+    except (EOFError, KeyboardInterrupt):
+        pass
+    print(f"   All synced projects go here")
+
+    # 5. Ableton detection
     print()
     ableton = None
     if platform.system() == "Darwin":
@@ -1978,7 +1991,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
 
     for remote in remotes:
         print(f"📥 Pulling from '{remote.name}' ({remote.url})...")
-        result = pull_from_remote(store, proj, remote)
+        result = pull_from_remote(store, proj, remote, output_dir=args.output)
         parts = []
         if result["error"]:
             parts = [f"❌ {result['error']}"]
@@ -2164,8 +2177,7 @@ def cmd_open(args: argparse.Namespace) -> None:
     if args.output:
         out_path = Path(args.output)
     else:
-        # Create project folder on Desktop, .als inside it
-        project_dir = get_desktop_path() / f"{project_name} Project"
+        project_dir = get_projects_dir() / project_name
         out_path = project_dir / f"{project_name}.als"
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2521,6 +2533,8 @@ def main():
     p_pull = subparsers.add_parser("pull", help="Pull cues/snapshots from remotes")
     p_pull.add_argument("remote", nargs="?", default=None,
                         help="Remote name (default: all)")
+    p_pull.add_argument("--output", "-o", type=str, default=None,
+                        help="Output directory for project folder")
 
     p_sync = subparsers.add_parser("sync", help="Start auto-sync daemon")
     p_sync.add_argument("--interval", "-i", type=int, default=30,

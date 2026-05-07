@@ -26,7 +26,7 @@ import httpx
 from clavus.store import (
     BlobStore, ClavusProject, Snapshot, DEFAULT_CLAVUS_DIR, StemStore,
 )
-from clavus.helpers import get_desktop_path
+from clavus.helpers import get_desktop_path, get_projects_dir
 from clavus.cues import CueStore, Cue, CueReply as CueReplyData, CueFilter
 
 
@@ -476,7 +476,7 @@ def pull_snapshot_blobs(
                 raw = store.get_object(snap.als_hash)
                 if raw:
                     project_name = proj.name.replace(" ", " ")
-                    project_dir = get_desktop_path() / f"{project_name} Project"
+                    project_dir = (Path(output_dir) / project_name) if output_dir else (get_projects_dir() / project_name)
                     out = project_dir / f"{project_name}.als"
                     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -588,8 +588,13 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> dic
     return result
 
 
-def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> dict:
-    """Pull all data from a remote. Returns summary."""
+def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, output_dir: Optional[str] = None) -> dict:
+    """Pull all data from a remote. Returns summary.
+    
+    Args:
+        output_dir: Override projects directory for materialization.
+                    Defaults to config's projects_dir (~/Clavus/Projects/).
+    """
     result = {"cues": 0, "snapshots": 0, "error": ""}
     client = SyncClient(remote.url)
 

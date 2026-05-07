@@ -20,6 +20,7 @@ DEFAULT_PORT = 7890
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_AUTHOR = getpass.getuser()
 DEFAULT_SERVER = f"http://localhost:{DEFAULT_PORT}"
+DEFAULT_PROJECTS_DIR = str(Path.home() / "Clavus" / "Projects")
 CONFIG_DIR = Path.home() / ".config" / "clavus"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
@@ -33,6 +34,7 @@ class ClavusConfig:
     host: str = DEFAULT_HOST
     default_server: str = DEFAULT_SERVER
     default_project: str = ""
+    projects_dir: str = DEFAULT_PROJECTS_DIR
 
     # Derived (computed from host + port)
     server_url: str = DEFAULT_SERVER
@@ -69,6 +71,7 @@ class ClavusConfig:
                 host=data.get("host", DEFAULT_HOST),
                 default_server=data.get("default_server", DEFAULT_SERVER),
                 default_project=data.get("default_project", ""),
+                projects_dir=data.get("projects_dir", DEFAULT_PROJECTS_DIR),
             )
         except (json.JSONDecodeError, OSError):
             return cls()
@@ -112,6 +115,7 @@ class ClavusConfig:
             "host": self.host,
             "default_server": self.default_server,
             "default_project": self.default_project,
+            "projects_dir": self.projects_dir,
         }
         # Include any extra keys set via .set()
         for k, v in getattr(self, '_extra', {}).items():
