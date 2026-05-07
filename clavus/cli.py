@@ -1306,61 +1306,6 @@ def cmd_config(args: argparse.Namespace) -> None:
     """View or edit clavus configuration."""
     cfg = ClavusConfig.load()
 
-    # ── Interactive wizard ──
-    if args.wizard:
-        print()
-        print(f"  {'── Clavus Setup Wizard ──':^50}")
-        print()
-        print(f"  Settings are saved to ~/.config/clavus/config.json")
-        print()
-
-        print(f"  Your author name appears on cues you create.")
-        current = cfg.author
-        if current:
-            print(f"  Current: {current}")
-        try:
-            inp = input(f"  Author name [{current or 'your name'}]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            inp = ""
-        if inp:
-            cfg.author = inp
-
-        print()
-        print(f"  Your Clavus server runs on a port (default: 7890).")
-        print(f"  Change this if 7890 conflicts with another app.")
-        try:
-            inp = input(f"  Server port [{cfg.port}]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            inp = ""
-        if inp:
-            try:
-                cfg.port = int(inp)
-            except ValueError:
-                print(f"  ⚠️  Invalid port, keeping {cfg.port}")
-
-        print()
-        print(f"  The TUI and CLI connect to this address.")
-        current_url = cfg.default_server
-        try:
-            inp = input(f"  Server URL [{current_url}]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            inp = ""
-        if inp:
-            cfg.default_server = inp
-
-        cfg.save()
-        print()
-        print(f"  ✅ Configuration saved!")
-        print()
-        print(f"  Summary:")
-        for k, v in cfg.to_dict().items():
-            print(f"    {k} = {v}")
-        print()
-        return
-
     # ── Set a value ──
     if args.key and args.value is not None:
         valid_keys = {"author", "port", "host", "default_server", "default_project"}
@@ -1387,7 +1332,7 @@ def cmd_config(args: argparse.Namespace) -> None:
     for k, v in cfg.to_dict().items():
         print(f"    {k} = {v}")
     print()
-    print(f"  Run 'clavus config --wizard' for interactive setup.")
+    print(f"  Run 'clavus setup' for interactive setup.")
     print(f"  Run 'clavus config <key> <value>' to set a value.")
 
 
@@ -2512,8 +2457,6 @@ def main():
     p_config = subparsers.add_parser("config", help="View or edit configuration")
     p_config.add_argument("key", nargs="?", default="", help="Setting key to view or set")
     p_config.add_argument("value", nargs="?", default=None, help="Value to set (omit to view)")
-    p_config.add_argument("--wizard", "-w", action="store_true",
-                         help="Interactive setup wizard")
 
     # ── Remote / Push / Pull / Sync ──
     p_remote = subparsers.add_parser("remote", help="Manage remote clavus servers")

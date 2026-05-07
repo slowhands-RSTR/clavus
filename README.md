@@ -12,7 +12,7 @@ clavus init                  # guided project setup
 clavus tui                   # terminal dashboard
 ```
 
-**First time?** Run `clavus config --wizard` to set your author name.
+**First time?** Run `clavus setup` for guided configuration.
 
 ```bash
 # Typical workflow:
