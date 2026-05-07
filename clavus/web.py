@@ -1091,10 +1091,17 @@ async def sync_pull(name: str = Query(..., description="Project name")):
 @app.post("/api/sync/push")
 async def sync_push(body: SyncPushBody, name: str = Query(..., description="Project name")):
     """Push (merge) cues into a project using last-write-wins."""
+    store = BlobStore()
     try:
-        store, proj = _get_project(name)
+        _, proj = _get_project(name)
     except HTTPException:
-        return JSONResponse({"error": "Project not found"}, status_code=404)
+        # Auto-create project if it doesn't exist on the relay
+        proj = ClavusProject(
+            name=name, root_als="", head=None,
+            created_at=time.time(),
+            description="Auto-created from push",
+        )
+        store.set_index(proj)
 
     cues_store = CueStore(proj.name, store=store)
     merged = 0
@@ -1135,10 +1142,17 @@ class SyncPushSnapshotsBody(BaseModel):
 async def sync_push_snapshots(body: SyncPushSnapshotsBody,
                                name: str = Query(..., description="Project name")):
     """Push (import) snapshots from a remote peer."""
+    store = BlobStore()
     try:
-        store, proj = _get_project(name)
+        _, proj = _get_project(name)
     except HTTPException:
-        return JSONResponse({"error": "Project not found"}, status_code=404)
+        # Auto-create project if it doesn't exist on the relay
+        proj = ClavusProject(
+            name=name, root_als="", head=None,
+            created_at=time.time(),
+            description="Auto-created from push",
+        )
+        store.set_index(proj)
 
     imported = 0
     for s in body.snapshots:

@@ -422,22 +422,22 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> dic
             result["error"] = f"Cannot reach {remote.url}"
             return result
 
-        # Push cues
+        # Push cues (always push, even empty — ensures project exists on relay)
         cues_store = CueStore(proj.name, store=store)
         cues_data = _cues_to_dicts(cues_store)
+        ok = client.push_cues(proj.name, cues_data)
         if cues_data:
-            ok = client.push_cues(proj.name, cues_data)
             result["cues"] = len(cues_data) if ok else 0
-            if not ok:
-                result["error"] = "Failed to push cues"
+        if not ok and not result["error"]:
+            result["error"] = "Failed to push cues"
 
-        # Push snapshots
+        # Push snapshots (always push, even empty — ensures project exists on relay)
         snap_data = _snapshots_to_dicts(store, proj)
+        ok = client.push_snapshots(proj.name, snap_data)
         if snap_data:
-            ok = client.push_snapshots(proj.name, snap_data)
             result["snapshots"] = len(snap_data) if ok else 0
-            if not ok and not result["error"]:
-                result["error"] = "Failed to push snapshots"
+        if not ok and not result["error"]:
+            result["error"] = "Failed to push snapshots"
 
         remote.last_sync = time.time()
         save_remotes(store, load_remotes(store))
