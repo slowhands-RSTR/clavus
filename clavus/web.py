@@ -1074,6 +1074,7 @@ async def sync_pull(name: str = Query(..., description="Project name")):
             "als_hash": snap.als_hash,
             "project_path": snap.project_path,
             "tags": snap.tags,
+            "sample_hashes": snap.sample_hashes,
             "is_head": current == store.read_ref("HEAD"),
         })
         if snap.parent == current:
@@ -1176,6 +1177,7 @@ async def sync_push_snapshots(body: SyncPushSnapshotsBody,
             bpm=s.get("bpm", 120.0),
             tags=s.get("tags", []),
             als_hash=s.get("als_hash", None),
+            sample_hashes=s.get("sample_hashes", []),
         )
         meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
         imported += 1
@@ -1265,6 +1267,37 @@ async def get_blob(blob_hash: str):
             "Content-Length": str(len(data)),
         },
     )
+
+
+@app.post("/api/sync/sample-names")
+async def receive_sample_names(body: list[dict]):
+    """Receive sample filename metadata from a push."""
+    store = BlobStore()
+    count = 0
+    for item in body:
+        h = item.get("hash", "")
+        name = item.get("name", "")
+        if h and name:
+            meta_path = store.objects_dir / h[:2] / f"{h}.sample"
+            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            meta_path.write_text(name)
+            count += 1
+    return {"status": "ok", "stored": count}
+
+
+@app.get("/api/sync/sample-names")
+async def get_sample_names(hashes: str = Query("", description="Comma-separated hash list")):
+    """Return sample filenames for given hashes."""
+    store = BlobStore()
+    result = {}
+    for h in hashes.split(","):
+        h = h.strip()
+        if not h:
+            continue
+        meta_path = store.objects_dir / h[:2] / f"{h}.sample"
+        if meta_path.exists():
+            result[h] = meta_path.read_text().strip()
+    return result
 
 
 # ─── Web UI: Main page ──────────────────────────────────────────────────

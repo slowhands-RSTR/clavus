@@ -2000,6 +2000,21 @@ def cmd_open(args: argparse.Namespace) -> None:
     print(f"   Snapshot: {snap.short_hash()} — {snap.message or '(no message)'}")
     print(f"   {snap.track_count} tracks, {snap.bpm} BPM")
 
+    # Materialize audio samples
+    if snap.sample_hashes:
+        samples_dir = out_path.parent / "Samples" / "Imported"
+        written = 0
+        for sh in snap.sample_hashes:
+            fname = store.get_sample_filename(sh)
+            if fname and store.has_object(sh):
+                try:
+                    store.materialize_sample(sh, samples_dir, fname)
+                    written += 1
+                except Exception:
+                    pass
+        if written:
+            print(f"   🎵 {written} audio sample{'s' if written != 1 else ''} → {samples_dir}")
+
     # Launch Ableton
     system = platform.system()
     if system == "Darwin":

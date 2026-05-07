@@ -148,6 +148,7 @@ def push_snapshot_blobs(
         # Collect all blob hashes we need to check
         content_hashes: list[str] = []
         als_hashes: list[str] = []
+        sample_hashes_list: list[str] = []
         current = proj.head
         seen: set[str] = set()
 
@@ -166,6 +167,11 @@ def push_snapshot_blobs(
             # .als backup blob hash
             if snap.als_hash and snap.als_hash not in seen:
                 als_hashes.append(snap.als_hash)
+
+            # Audio sample blob hashes
+            for sh in (snap.sample_hashes or []):
+                if sh not in seen:
+                    sample_hashes_list.append(sh)
 
             if snap.parent == current:
                 break
@@ -250,6 +256,65 @@ def push_snapshot_blobs(
                         except Exception:
                             pass
 
+        # Check which sample blobs the remote is missing
+        if sample_hashes_list:
+            try:
+                r = client.client.post(
+                    f"{remote.url}/api/sync/check-blobs",
+                    json={"hashes": sample_hashes_list},
+                    timeout=30,
+                )
+                if r.status_code == 200:
+                    missing_samples = r.json().get("missing", [])
+                else:
+                    missing_samples = sample_hashes_list
+            except Exception:
+                missing_samples = sample_hashes_list
+
+            if missing_samples:
+                print(f"    Uploading {len(missing_samples)} audio sample(s)...")
+                for i in range(0, len(missing_samples), BATCH_SIZE):
+                    batch = missing_samples[i:i + BATCH_SIZE]
+                    upload_batch = []
+                    for h in batch:
+                        data = store.get_object(h)
+                        if data:
+                            upload_batch.append({
+                                "hash": h,
+                                "data": base64.b64encode(data).decode("ascii"),
+                            })
+                    if upload_batch:
+                        try:
+                            r = client.client.post(
+                                f"{remote.url}/api/sync/push-blobs",
+                                json=upload_batch,
+                                timeout=120,
+                            )
+                            if r.status_code == 200:
+                                count += len(upload_batch)
+                        except Exception:
+                            pass
+
+            # Also push sample filename metadata
+            if missing_samples:
+                name_batch = []
+                for h in missing_samples:
+                    meta_path = store.objects_dir / h[:2] / f"{h}.sample"
+                    if meta_path.exists():
+                        name_batch.append({
+                            "hash": h,
+                            "name": meta_path.read_text().strip(),
+                        })
+                if name_batch:
+                    try:
+                        client.client.post(
+                            f"{remote.url}/api/sync/sample-names",
+                            json=name_batch,
+                            timeout=30,
+                        )
+                    except Exception:
+                        pass
+
     finally:
         client.close()
 
@@ -286,6 +351,7 @@ def pull_snapshot_blobs(
         # Collect locally missing content hashes from our snapshot history
         missing_content: set[str] = set()
         missing_als: set[str] = set()
+        missing_samples: set[str] = set()
         current = proj.head
         seen: set[str] = set()
 
@@ -301,6 +367,9 @@ def pull_snapshot_blobs(
                 missing_content.add(snap.hash)
             if snap.als_hash and not store.has_object(snap.als_hash):
                 missing_als.add(snap.als_hash)
+            for sh in (snap.sample_hashes or []):
+                if not store.has_object(sh):
+                    missing_samples.add(sh)
 
             if snap.parent == current:
                 break
@@ -319,6 +388,9 @@ def pull_snapshot_blobs(
                     full_hash = s.get("full_hash", s.get("hash", ""))
                     if full_hash and not store.has_object(full_hash):
                         missing_content.add(full_hash)
+                    for sh in s.get("sample_hashes", []):
+                        if not store.has_object(sh):
+                            missing_samples.add(sh)
         except Exception:
             pass
 
@@ -356,6 +428,40 @@ def pull_snapshot_blobs(
                     downloaded.add(h)
             except Exception:
                 print(f"    ⚠️  Could not fetch .als backup {h[:12]}")
+
+        # Download missing audio samples
+        for h in list(missing_samples):
+            if h in downloaded:
+                continue
+            try:
+                r = client.client.get(
+                    f"{remote.url}/api/blobs/{h}",
+                    timeout=120,
+                )
+                if r.status_code == 200:
+                    store.put_object(r.content, h)
+                    count += 1
+                    downloaded.add(h)
+            except Exception:
+                pass
+
+        # Fetch sample filenames for downloaded samples
+        if missing_samples:
+            try:
+                hash_list = ",".join(list(missing_samples)[:100])
+                r = client.client.get(
+                    f"{remote.url}/api/sync/sample-names",
+                    params={"hashes": hash_list},
+                    timeout=30,
+                )
+                if r.status_code == 200:
+                    names = r.json()
+                    for h, name in names.items():
+                        meta_path = store.objects_dir / h[:2] / f"{h}.sample"
+                        meta_path.parent.mkdir(parents=True, exist_ok=True)
+                        meta_path.write_text(name)
+            except Exception:
+                pass
 
     finally:
         client.close()
@@ -424,6 +530,7 @@ def _snapshots_to_dicts(store: BlobStore, proj: ClavusProject) -> list[dict]:
             "tags": snap.tags,
             "parent": snap.parent,
             "als_hash": snap.als_hash,
+            "sample_hashes": snap.sample_hashes,
         })
         if snap.parent == current:
             break
@@ -521,6 +628,7 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> d
                 bpm=s.get("bpm", 120.0),
                 tags=s.get("tags", []),
                 als_hash=s.get("als_hash", None),
+                sample_hashes=s.get("sample_hashes", []),
             )
             # Store snapshot metadata (always update — fields may change)
             meta_dir = store.objects_dir / snap.hash[:2]

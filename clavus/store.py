@@ -51,6 +51,7 @@ class Snapshot:
     bpm: float = 120.0
     tags: list[str] = field(default_factory=list)  # User tags
     als_hash: Optional[str] = None  # SHA256 of raw .als bytes (for restore)
+    sample_hashes: list[str] = field(default_factory=list)  # SHA256 of referenced audio samples
 
     def short_hash(self, length: int = 8) -> str:
         return self.hash[:length]
@@ -175,6 +176,38 @@ class BlobStore:
         obj_path = self.objects_dir / full[:2] / full
         return obj_path.exists()
 
+    # ── Sample Storage ──
+
+    def store_sample(self, file_path: str | Path) -> tuple[str, str]:
+        """Hash an audio sample and store with filename metadata.
+        Returns (sha256_hash, original_filename)."""
+        import hashlib
+        fp = Path(file_path)
+        data = fp.read_bytes()
+        h = hashlib.sha256(data).hexdigest()
+        self.put_object(data, h)
+        # Store filename alongside blob
+        meta_path = self.objects_dir / h[:2] / f"{h}.sample"
+        meta_path.write_text(fp.name)
+        return h, fp.name
+
+    def materialize_sample(self, sample_hash: str, out_dir: Path, filename: str) -> Path:
+        """Write a sample blob to a directory. Returns the output path."""
+        data = self.get_object(sample_hash)
+        if not data:
+            raise FileNotFoundError(f"Sample blob not found: {sample_hash[:12]}")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / filename
+        out_path.write_bytes(data)
+        return out_path
+
+    def get_sample_filename(self, sample_hash: str) -> Optional[str]:
+        """Get the original filename for a stored sample."""
+        meta_path = self.objects_dir / sample_hash[:2] / f"{sample_hash}.sample"
+        if meta_path.exists():
+            return meta_path.read_text().strip()
+        return None
+
     # ── Helpers ──
 
     @staticmethod
@@ -208,6 +241,18 @@ class BlobStore:
             als_hash = hashlib.sha256(raw_als).hexdigest()
             self.put_object(raw_als, als_hash)
 
+        # Store referenced audio samples
+        sample_hashes: list[str] = []
+        try:
+            from clavus.parser import extract_sample_paths
+            sample_paths = extract_sample_paths(project.file_path)
+            for sp in sample_paths:
+                if Path(sp).exists():
+                    sh, _ = self.store_sample(sp)
+                    sample_hashes.append(sh)
+        except Exception:
+            pass  # Sample extraction is best-effort
+
         # Create the snapshot metadata
         snapshot = Snapshot(
             hash=content_hash,
@@ -219,6 +264,7 @@ class BlobStore:
             bpm=project.bpm,
             tags=tags or [],
             als_hash=als_hash,
+            sample_hashes=sample_hashes,
         )
 
         # Store snapshot metadata (indexed by hash)

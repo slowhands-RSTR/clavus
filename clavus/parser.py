@@ -395,7 +395,53 @@ def _parse_return_tracks(root: ET.Element, project: Project) -> None:
         project.return_tracks.append(track)
 
 
-# ─── Utility: Pretty Print ──────────────────────────────────────────────
+# ─── Sample Extraction ──────────────────────────────────────────────────
+
+
+def extract_sample_paths(als_path: str | Path) -> list[str]:
+    """Extract all referenced audio sample paths from a .als file.
+
+    Parses the gzip-compressed XML and finds all SampleRef > FileRef > Path
+    elements. Returns absolute paths (deduplicated).
+
+    Only works on 'Collected' projects where samples are in the project folder.
+    """
+    import gzip
+    import re
+
+    with open(als_path, "rb") as f:
+        data = gzip.decompress(f.read())
+
+    text = data.decode("utf-8", errors="replace")
+    paths: set[str] = set()
+
+    for block in text.split("<SampleRef")[1:]:
+        end = block.find("</SampleRef>")
+        if end > 0:
+            block = block[:end]
+        for match in re.finditer(r'<Path\s+Value="([^"]+)"', block):
+            paths.add(match.group(1))
+
+    return sorted(paths)
+
+
+def extract_sample_paths_from_bytes(raw_als: bytes) -> list[str]:
+    """Extract sample paths from raw .als bytes (already decompressed)."""
+    import gzip
+    import re
+
+    data = gzip.decompress(raw_als)
+    text = data.decode("utf-8", errors="replace")
+    paths: set[str] = set()
+
+    for block in text.split("<SampleRef")[1:]:
+        end = block.find("</SampleRef>")
+        if end > 0:
+            block = block[:end]
+        for match in re.finditer(r'<Path\s+Value="([^"]+)"', block):
+            paths.add(match.group(1))
+
+    return sorted(paths)
 
 def project_summary(project: Project) -> str:
     """Return a human-readable summary of the parsed project."""
