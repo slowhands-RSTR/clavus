@@ -1345,8 +1345,15 @@ class ClavusApp(App):
                 self.notify(f"\u2705 {cue_count} cues, {snap_count} snapshots", title="Pull complete")
                 self._status(f"\u2705 pull: {cue_count} cues, {snap_count} snapshots")
             else:
-                self.notify(f"\u274c Pull failed (exit {proc.returncode})", title="Error", severity="error")
-                self._status(f"\u274c pull failed (exit {proc.returncode})")
+                stderr_lines = []
+                if proc.stderr:
+                    async for line in proc.stderr:
+                        err_text = line.decode().strip()
+                        if err_text:
+                            stderr_lines.append(err_text)
+                err_detail = "; ".join(stderr_lines[-3:]) if stderr_lines else f"exit {proc.returncode}"
+                self.notify(f"\u274c Pull failed: {err_detail}", title="Error", severity="error")
+                self._status(f"\u274c pull failed: {err_detail}")
             # Refresh local state from disk
             if self.project:
                 self._load_cues_from_disk()
@@ -1391,8 +1398,15 @@ class ClavusApp(App):
                 self.notify("\u2705 Push complete", title="Push complete")
                 self._status("\u2705 push complete")
             else:
-                self.notify(f"\u274c Push failed (exit {proc.returncode})", title="Error", severity="error")
-                self._status(f"\u274c push failed (exit {proc.returncode})")
+                stderr_lines = []
+                if proc.stderr:
+                    async for line in proc.stderr:
+                        err_text = line.decode().strip()
+                        if err_text:
+                            stderr_lines.append(err_text)
+                err_detail = "; ".join(stderr_lines[-3:]) if stderr_lines else f"exit {proc.returncode}"
+                self.notify(f"\u274c Push failed: {err_detail}", title="Error", severity="error")
+                self._status(f"\u274c push failed: {err_detail}")
         except asyncio.TimeoutError:
             self._status("push timed out")
         except Exception as e:
