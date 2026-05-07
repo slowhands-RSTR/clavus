@@ -1526,7 +1526,7 @@ class ClavusApp(App):
         """Load cues for the current project from CueStore."""
         if not self.project:
             return
-        from clavus.cues import CueStore
+        from clavus.cues import CueStore, CueFilter
         cue_store = CueStore(self.project, store=self.store)
         self._cue_store = cue_store
         self.cues = self._sort_cues(cue_store.list_cues(CueFilter()))
