@@ -2038,13 +2038,37 @@ def cmd_pull(args: argparse.Namespace) -> None:
         from clavus.sync import SyncClient, pull_from_remote, pull_snapshot_blobs
         from clavus.store import ClavusProject
 
-        # Filter remotes (user can still specify one)
+        # args.remote can be a remote name OR a project name — figure out which
         candidates = remotes
+        target_project = None
         if args.remote:
-            candidates = [r for r in remotes if r.name == args.remote]
-            if not candidates:
-                print(f"❌ Remote '{args.remote}' not found.")
-                return
+            # Check if it matches a remote name
+            matching_remotes = [r for r in remotes if r.name == args.remote]
+            if matching_remotes:
+                candidates = matching_remotes
+            else:
+                # Not a remote name — treat as project name filter
+                target_project = args.remote
+                # Still need a remote to pull from
+                if len(remotes) == 0:
+                    print(f"❌ No remotes configured.")
+                    return
+                # Try all remotes, pick the first with this project
+                for r in remotes:
+                    try:
+                        client = SyncClient(r.url)
+                        resp = client.client.get(f"{r.url}/api/projects", timeout=5)
+                        client.close()
+                        if resp.status_code == 200:
+                            proj_names = [p["name"] for p in resp.json().get("projects", [])]
+                            if target_project in proj_names:
+                                candidates = [r]
+                                break
+                    except Exception:
+                        continue
+                if len(candidates) == len(remotes):
+                    print(f"❌ Project '{target_project}' not found on any remote.")
+                    return
 
         pulled_any = False
         for remote in candidates:
@@ -2059,6 +2083,9 @@ def cmd_pull(args: argparse.Namespace) -> None:
 
                 for pdata in projects:
                     pname = pdata["name"]
+                    # Skip if target_project is set and doesn't match
+                    if target_project and pname != target_project:
+                        continue
                     # Skip if already have it
                     if store.get_index(pname):
                         store.set_index(store.get_index(pname))
