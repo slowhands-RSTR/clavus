@@ -431,21 +431,23 @@ class ClavusApp(App):
 
     def __init__(self, url: str = ""):
         super().__init__()
-        self.server_url = url or os.environ.get("CLAVUS_SERVER", "http://localhost:7890")
-        self.api = ClavusClient(self.server_url)
+        from clavus.store import BlobStore
+        from clavus.config import ClavusConfig
+        self.store = BlobStore()
+        self.server_url = url or "local"
         self.project: str = ""
-        self.connected: bool = False
+        self.connected: bool = True  # Always connected — working from disk
         self.ws_connected: bool = False
         self.cues: list[Cue] = []
         self.snaps: list[Snap] = []
         self.idx: int = 0
-        self._input_mode: str = ""  # "reply", "edit", "cue", "cue_pos", ""
+        self._input_mode: str = ""
         self._pending_cue_text: str = ""
-        self._relay_proc = None  # Subprocess ref for auto-started relay
-        from clavus.config import ClavusConfig
+        self._relay_proc = None
         _cfg = ClavusConfig.load()
         self.author = _cfg.author
         self._clavus_cfg = _cfg
+        self._cue_store = None  # Lazy init per project
 
     def _load_config(self) -> str:
         from clavus.config import ClavusConfig
@@ -637,25 +639,23 @@ class ClavusApp(App):
     @work(exclusive=False)
     async def _run_switch_project(self, name: str):
         self._status(f"switching to {name}...")
-        # Update server's _last_project so TUI auto-launches here next time
-        await self.api.switch_project(name)
-        info = await self.api.get_project_info(name)
-        if not info:
+        proj = self.store.get_index(name)
+        if not proj:
             self._status(f"project '{name}' not found")
             return
+        # Save _last_project for next launch
+        if self.store.index_path.exists():
+            index = json.loads(self.store.index_path.read_text())
+            index["_last_project"] = name
+            self.store.index_path.write_text(json.dumps(index, indent=2, default=str))
         self.project = name
-        self.connected = True
         self._log_event(f"switched to project '{name}'")
-        self._update_header()
-        cues, snaps = await self.api.pull(self.project) if self.project else ([], [])
-        self.cues = self._sort_cues(cues) if cues else []
-        self.snaps = snaps or []
+        self._load_cues_from_disk()
+        self._load_snapshots_from_disk()
         self.idx = 0
         self._update_header()
         self._render()
         self._update_footer()
-        # Restart WebSocket listener for new project
-        self._start_ws_listener(name)
         # Show result as a temporary label at top of cue list
         msg = f"  switched to project [bold]{name}[/]  —  {len(self.cues)} cues, {len(self.snaps)} snapshots"
         try:
@@ -667,17 +667,17 @@ class ClavusApp(App):
 
     @work(exclusive=False)
     async def _run_list_projects(self):
-        projects = await self.api.list_projects()
+        projects = self.store.list_projects()
         if not projects:
             self._status("no projects found  —  run :init <path> to add one")
             return
         lines = []
         for p in projects:
-            name = p.get("name", "?")
-            head = p.get("head", "")
-            branch = p.get("branch", "main")
+            name = p.name
+            head = p.head or ""
+            branch = p.branch or "main"
             active = " ◀" if name == self.project else ""
-            lines.append(f"  {name}  @ {head or '(no snaps)':12s}  [{branch}]{active}")
+            lines.append(f"  {name}  @ {head[:12] if head else '(no snaps)':12s}  [{branch}]{active}")
         msg = "\n".join(lines)
         # Show as a temporary log entry so it's visible above the footer
         try:
@@ -700,109 +700,106 @@ class ClavusApp(App):
 
     @work(exclusive=False)
     async def _run_init_project(self, path: str):
-        """Import a project from a filesystem path."""
+        """Import a project from a filesystem path via CLI subprocess."""
+        import asyncio
         self._status(f"importing {path}...")
-        result = await self.api.init_project(path)
-        if result is None:
-            self._status(f"failed to reach server for init")
-            return
-        if "error" in result:
-            self._status(f"error: {result['error']}")
-            return
-        proj = result.get("project", {})
-        if "info" in result:
-            # Already registered — just switch to it
-            self._status(f"already tracked, switching to {proj.get('name', '?')}")
-        else:
-            self._status(f"imported: {proj.get('name', '?')} ({proj.get('tracks', '?')} tracks @ {proj.get('bpm', '?')}bpm)")
-        # Auto-switch to the new project
-        if proj.get("name"):
-            self.project = proj["name"]
-            self.connected = True
-            self._update_header()
-            await self._do_pull()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "clavus", "init", path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+            out = stdout.decode().strip()
+            if out:
+                for line in out.split("\n"):
+                    self._log_event(line.strip())
+            if proc.returncode != 0:
+                self._status("init failed")
+                return
+            self._status(f"imported: {path}")
+            # Reload from disk
+            self._connect()
+        except Exception as e:
+            self._status(f"init error: {e}")
 
     @work(exclusive=False)
     async def _run_browse(self, directory: str):
-        """Browse a directory for .als files and navigate."""
-        # Normalize relative paths — single directory names navigate into subdir
-        if directory and "/" not in directory and directory not in ("..", ".", ""):
+        """Browse a directory for .als files locally (no server needed)."""
+        from pathlib import Path
+        # Normalize relative paths
+        if directory and "/" not in directory and "\\" not in directory and directory not in ("..", ".", ""):
             if hasattr(self, "_last_browse_dir") and self._last_browse_dir:
                 directory = os.path.join(self._last_browse_dir, directory)
         self._last_browse_dir = directory
-        result = await self.api.browse_dir(directory)
-        if result is None:
-            self._status(f"failed to browse {directory}")
+        d = Path(directory or os.path.expanduser("~")).expanduser().resolve()
+        if not d.exists():
+            self._status(f"directory not found: {d}")
             return
-        if "error" in result:
-            self._status(f"error: {result['error']}")
-            return
-        cur = result.get("current_dir", "?")
-        parent = result.get("parent_dir")
-        subdirs = result.get("subdirs", [])
-        als_files = result.get("als_files", [])
-        # Show results in status bar
-        registered = [f for f in als_files if f.get("registered")]
-        unregistered = [f for f in als_files if not f.get("registered")]
-        lines = [f"📁 {cur}"]
+        subdirs = sorted([x.name for x in d.iterdir() if x.is_dir() and not x.name.startswith(".")])
+        als_files = sorted([x.name for x in d.glob("*.als")])
+        lines = [f"📁 {d}"]
         if subdirs:
             lines.append(f"  dirs: {' '.join(subdirs[:8])}{'...' if len(subdirs)>8 else ''}")
-        if registered:
-            lines.append(f"  ✅ als: {' '.join(f['name'] for f in registered)}")
-        if unregistered:
-            lines.append(f"  🔵 als: {' '.join(f['name'] for f in unregistered)}")
+        if als_files:
+            lines.append(f"  🔵 als: {' '.join(als_files)}")
         self._status(" | ".join(lines))
-        # Offer subdir navigation or init
-        if unregistered:
-            hint = f" — :init {cur}/<name> to import"
+        if als_files:
+            hint = f" — :init {d}/<name> to import"
         else:
             hint = ""
         self._show_input("browse", "browse (enter subdir, .. up, or :init): ", prefill="")
 
     @work(exclusive=False)
     async def _run_inject(self):
-        """Inject cues as Ableton markers."""
+        """Inject cues as Ableton markers via CLI subprocess."""
         if not self.project:
             self._status("no project selected")
             return
+        import asyncio
         self._status("injecting cues into .als...")
-        result = await self.api.inject_cues(self.project)
-        if result is None:
-            self._status("failed to inject — server unreachable")
-            return
-        if "error" in result:
-            self._status(f"error: {result['error']}")
-            return
-        injected = result.get("injected", 0)
-        self._status(f"injected {injected} cue(s) as Ableton markers")
-        self._log_event(f"injected {injected} cues as markers")
-        if injected > 0:
-            self._status(f"save + reopen the .als in Ableton to see markers")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "clavus", "inject",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = stdout.decode().strip()
+            if out:
+                for line in out.split("\n"):
+                    self._log_event(line.strip())
+            self._status("inject complete" if proc.returncode == 0 else "inject failed")
+        except Exception as e:
+            self._status(f"inject error: {e}")
 
     @work(exclusive=False)
     async def _run_restore(self, hash_str: str = ""):
-        """Restore the .als from a snapshot backup."""
+        """Restore the .als from a snapshot backup via CLI subprocess."""
         if not self.project:
             self._status("no project selected")
             return
+        import asyncio
         self._status(f"restoring from {'HEAD' if not hash_str else hash_str}...")
-        result = await self.api.restore_snapshot(self.project, hash_str)
-        if result is None:
-            self._status("failed to restore — server unreachable")
-            return
-        if "error" in result:
-            detail = result.get("detail", "")
-            msg = f"error: {result['error']}"
-            if detail:
-                msg += f" — {detail}"
-            self._status(msg)
-            return
-        msg = result.get("message", "?")
-        captured = result.get("captured", "?")
-        self._status(f"restored to snapshot: '{msg}' ({captured})")
-        self._log_event(f"restored to '{msg}'")
-        # Re-pull to update cues/snapshots display
-        await self._do_pull()
+        try:
+            cmd = [sys.executable, "-m", "clavus", "restore"]
+            if hash_str:
+                cmd.append(hash_str)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = stdout.decode().strip()
+            if out:
+                for line in out.split("\n"):
+                    if line.strip():
+                        self._log_event(line.strip())
+            self._status("restore complete" if proc.returncode == 0 else "restore failed")
+            await self._do_pull()
+        except Exception as e:
+            self._status(f"restore error: {e}")
 
     @work(exclusive=False)
     async def _run_open(self, hash_str: str = ""):
@@ -1038,30 +1035,30 @@ class ClavusApp(App):
 
     @work(exclusive=False)
     async def _run_snapshot(self, message: str = ""):
-        """Create a new snapshot of the current project state."""
+        """Create a new snapshot via CLI subprocess."""
         if not self.project:
             self._status("no project selected")
             return
         if not message:
             self._status("usage: :snapshot <message>")
             return
+        import asyncio
         self._status("creating snapshot...")
-        result = await self.api.create_snapshot(self.project, message)
-        if result is None:
-            self._status("failed to create snapshot — server unreachable")
-            return
-        if "error" in result:
-            self._status(f"error: {result['error']}")
-            return
-        status = result.get("status", "?")
-        if status == "no_change":
-            self._status(f"no changes — HEAD already at {result.get('hash', '?')}")
-        else:
-            h = result.get("hash", "?")
-            t = result.get("tracks", "?")
-            b = result.get("bpm", "?")
-            self._status(f"snapshot {h} — {t} tracks @ {b}bpm")
-            self._log_event(f"snapshot: {message[:30]}")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "clavus", "snapshot", message,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = stdout.decode().strip()
+            if out:
+                for line in out.split("\n"):
+                    if line.strip():
+                        self._log_event(line.strip())
+            self._status("snapshot complete" if proc.returncode == 0 else "snapshot failed")
+        except Exception as e:
+            self._status(f"snapshot error: {e}")
         # Re-pull to show new snapshot in history
         await self._do_pull()
 
@@ -1318,14 +1315,19 @@ class ClavusApp(App):
         cue = self._get_cue()
         if not cue:
             return
+        if not self._cue_store:
+            self._status("no cue store")
+            return
         self._status(f"archiving {cue.id[:8]}...")
-        ok = await self.api.archive_cue(self.project, cue.id)
-        if ok:
-            self._status("archived — re-pulling")
+        try:
+            cue.status = "archived"
+            self._cue_store._save_cue(cue)
+            self._status("archived")
             self._log_event(f"archived @{cue.position}")
-            await self._do_pull()
-        else:
-            self._status("archive failed")
+            self._load_cues_from_disk()
+            self._render()
+        except Exception as e:
+            self._status(f"archive failed: {e}")
 
     @work(exclusive=True)
     async def action_delete_cue(self):
@@ -1346,14 +1348,18 @@ class ClavusApp(App):
         cue = self._get_cue()
         if not cue:
             return
+        if not self._cue_store:
+            self._status("no cue store")
+            return
         self._status(f"deleting {cue.id[:8]}...")
-        ok = await self.api.delete_cue(self.project, cue.id)
-        if ok:
-            self._status("deleted — re-pulling")
+        try:
+            self._cue_store.delete_cue(cue.id)
+            self._status("deleted")
             self._log_event(f"deleted @{cue.position}")
-            await self._do_pull()
-        else:
-            self._status("delete failed")
+            self._load_cues_from_disk()
+            self._render()
+        except Exception as e:
+            self._status(f"delete failed: {e}")
 
     def _run_share(self):
         """Start a share session — spawn relay + show share code modal."""
@@ -1457,12 +1463,14 @@ class ClavusApp(App):
 
     @work(exclusive=False, group="save")
     async def _do_save(self):
-        if not self.project:
+        if not self.project or not self._cue_store:
             return
-        ok = await self.api.push(self.project, self.cues)
-        if ok:
+        try:
+            # Save cues to disk via CueStore
+            for cue in self.cues:
+                self._cue_store._save_cue(cue)
             self._status("saved")
-        else:
+        except Exception:
             self._status("save failed")
 
     def on_save_request(self, event: SaveRequest):
@@ -1472,114 +1480,72 @@ class ClavusApp(App):
 
     @work(exclusive=True)
     async def _connect(self):
-        """Worker entry point: check server, auto-start relay if needed, then connect."""
-        self._status("connecting...")
-        if await self.api.ping():
-            await self._do_connect()
-            return
-
-        # No server running — try auto-start relay
-        if os.environ.get("CLAVUS_NO_AUTO_RELAY"):
-            self.connected = False
-            self._status("server offline — start clavus relay")
-            self._update_header()
-            self._update_footer()
-            return
-
-        self._status("server offline — starting relay...")
-        self._relay_proc = self._start_relay()
-        if self._relay_proc:
-            import asyncio
-            for attempt in range(10):
-                await asyncio.sleep(0.5)
-                if await self.api.ping():
-                    self._status("relay started, connecting...")
-                    await self._do_connect()
-                    return
-            self._status("relay failed to start — run 'clavus relay' manually")
-        else:
-            self.connected = False
-            self._status("server offline — run 'clavus relay'")
-        self._update_header()
-        self._update_footer()
-
-    async def _do_connect(self):
-        """Core connection logic: load project, pull cues, start WS listener.
-
-        Auto-selects the last edited project if available, or the first
-        project in the store. Falls back gracefully if no projects exist.
-        """
-        self._status("connected, loading project...")
-        projects = await self.api.list_projects()
+        """Load project data directly from the local store (no web server needed)."""
+        self._status("loading from disk...")
+        projects = self.store.list_projects()
         if not projects:
-            self.connected = False
-            self._status("no project — run clavus init or :projects to switch")
+            self._status("no project — use :init <path> to add one")
             self._update_header()
             self._update_footer()
             return
 
-        # Try _last_project from server, fall back to first available
-        info = await self.api.get_project()
-        target = info.get("name", "") if info else ""
-        if target and any(p.get("name") == target for p in projects):
-            self.project = target
-        else:
-            self.project = projects[0].get("name", "")
+        # Use _last_project from index, fall back to first available
+        target = ""
+        if self.store.index_path.exists():
+            index = json.loads(self.store.index_path.read_text())
+            target = index.get("_last_project", "")
 
-        self.connected = True
-        self._status(f"project: {self.project}")
+        match = None
+        if target:
+            match = self.store.get_index(target)
+        if not match:
+            match = projects[0]
 
+        self.project = match.name
+        self._status(f"loaded: {self.project}")
         self._update_header()
         self._update_footer()
-        if self.connected:
-            self._status("pulling...")
-            await self._do_pull()
-            self._status(f"loaded {len(self.cues)} cues")
-            self._start_ws_listener(self.project)
 
-    @work(exclusive=False, group="ws")
-    async def _ws_listener(self):
-        """Background worker: listen for real-time cue events over WebSocket.
-        Auto-reconnects on disconnect with 3s backoff.
-        Uses self._ws_target_project to know which project to listen for,
-        so switching projects restarts the listener."""
-        target = getattr(self, "_ws_target_project", self.project)
-        if not target:
+        # Load cues from disk
+        await self._load_cues_from_disk()
+        # Load snapshots from store
+        self._load_snapshots_from_disk()
+        self._status(f"{len(self.cues)} cues, {len(self.snaps)} snapshots")
+
+    def _load_cues_from_disk(self):
+        """Load cues for the current project from CueStore."""
+        if not self.project:
             return
-        while True:
-            try:
-                self.ws_connected = True
-                self._update_header()
-                async for event, data in self.api.ws_listen(target):
-                    self._status(f"ws: {event}")
-                    if event == "cue_new":
-                        await self._do_pull()
-                    elif event in ("cue_reply", "cue_update"):
-                        await self._do_pull()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                pass
-            self.ws_connected = False
-            self._update_header()
-            self._status("ws disconnected, reconnecting in 3s...")
-            try:
-                await asyncio.sleep(3)
-            except asyncio.CancelledError:
-                raise
+        from clavus.cues import CueStore
+        cue_store = CueStore(self.project, store=self.store)
+        self._cue_store = cue_store
+        self.cues = self._sort_cues(cue_store.list_cues(CueFilter()))
+        self.idx = min(self.idx, len(self.cues) - 1) if self.cues else 0
 
-    def _start_ws_listener(self, project: str):
-        """Start WebSocket listener for a specific project.
-        Cancels any existing WS listener first."""
-        self._ws_target_project = project
-        # Cancel previous WS worker if running (workers are stored by name on the app)
-        try:
-            existing = self.get_worker("_ws_listener")
-            if existing and existing.state not in (WorkerState.SUCCESS, WorkerState.CANCELLED):
-                existing.cancel()
-        except Exception:
-            pass
-        self._ws_listener()
+    def _load_snapshots_from_disk(self):
+        """Load snapshot history for the current project from BlobStore."""
+        if not self.project:
+            return
+        proj = self.store.get_index(self.project)
+        if not proj or not proj.head:
+            self.snaps = []
+            return
+        history = []
+        current = proj.head
+        seen: set = set()
+        while current:
+            if current in seen:
+                break
+            seen.add(current)
+            snap = self.store.load_snapshot(current)
+            if not snap:
+                break
+            history.append(snap)
+            if snap.parent == current:
+                break
+            current = snap.parent
+        self.snaps = history
+        self._render_history()
 
     def _sort_cues(self, cues: list[Cue]) -> list[Cue]:
         """Sort cues by timeline position, then by creation timestamp.
@@ -1626,13 +1592,10 @@ class ClavusApp(App):
             await proc.wait()
             status = f"pull: {result_line}" if result_line else ("pull complete" if proc.returncode == 0 else f"pull failed (exit {proc.returncode})")
             self._status(status)
-            # Refresh local state
+            # Refresh local state from disk
             if self.project:
-                cues, snaps = await self.api.pull(self.project)
-                if cues:
-                    self.cues = self._sort_cues(cues)
-                self.snaps = snaps
-                self.idx = min(self.idx, len(self.cues) - 1) if self.cues else 0
+                self._load_cues_from_disk()
+                self._load_snapshots_from_disk()
                 self._update_header()
                 self._render()
         except asyncio.TimeoutError:
@@ -1797,7 +1760,7 @@ class ClavusApp(App):
             self.query_one("#header-status", Static).update(
                 f"{ws_dot}[{conn_color}]{dot} {conn}[/]"
                 f"  [{C['dim']}]{len(self.cues)} cues[/]"
-                f"  [{C['muted']}]{self.server_url}[/]")
+                f"  [{C['muted']}]local[/]")
         except NoMatches:
             pass
 
