@@ -2001,27 +2001,25 @@ def cmd_open(args: argparse.Namespace) -> None:
     print(f"   {snap.track_count} tracks, {snap.bpm} BPM")
 
     # Launch Ableton
-    if args.launch:
-        system = platform.system()
-        if system == "Darwin":
-            # macOS: try to find Ableton
-            ableton_path = None
-            for version in ["12", "11", "10"]:
-                candidate = Path(f"/Applications/Ableton Live {version}/Ableton Live {version}.app")
-                if candidate.exists():
-                    ableton_path = str(candidate)
-                    break
-            if ableton_path:
-                sp.run(["open", "-a", ableton_path, str(out_path)])
-                print(f"   🎹 Launched Ableton Live")
-            else:
-                sp.run(["open", str(out_path)])
-                print(f"   🎹 Opened .als with default app")
-        elif system == "Windows":
-            sp.run(["start", "", str(out_path)], shell=True)
-            print(f"   🎹 Opened .als with default app")
+    system = platform.system()
+    if system == "Darwin":
+        ableton_path = None
+        for version in ["12", "11", "10"]:
+            candidate = Path(f"/Applications/Ableton Live {version}/Ableton Live {version}.app")
+            if candidate.exists():
+                ableton_path = str(candidate)
+                break
+        if ableton_path:
+            sp.run(["open", "-a", ableton_path, str(out_path)])
+            print(f"   🎹 Launched Ableton Live")
         else:
-            print(f"   ℹ️  Open manually: {out_path}")
+            sp.run(["open", str(out_path)])
+            print(f"   🎹 Opened .als with default app")
+    elif system == "Windows":
+        sp.run(["start", "", str(out_path)], shell=True)
+        print(f"   🎹 Opened .als with default app")
+    else:
+        print(f"   ℹ️  Open manually: {out_path}")
 
 
 # ─── Backup / Restore Store ──────────────────────────────────────────────
