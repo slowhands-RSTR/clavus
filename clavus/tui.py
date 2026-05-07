@@ -589,6 +589,8 @@ class ClavusApp(App):
             self._run_restore(arg)
         elif cmd == "open":
             self._run_open(arg)
+        elif cmd == "setup":
+            self._run_setup()
         elif cmd in ("status", "info"):
             self._run_status()
         elif cmd == "doctor":
@@ -628,7 +630,7 @@ class ClavusApp(App):
         elif cmd == "join":
             self.push_screen(JoinModal(arg))
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project, projects, init, browse, name, inject, restore, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, log, config, remote, branch, status, help | C=snapshot")
+            self._status("commands: project, projects, init, setup, browse, name, inject, restore, open, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, log, config, remote, branch, status, doctor, help | C=snapshot")
         else:
             self._status(f"unknown: {cmd}")
 
@@ -883,6 +885,29 @@ class ClavusApp(App):
                 sp.Popen(["open", str(out)])
         elif platform.system() == "Windows":
             sp.Popen(["start", "", str(out)], shell=True)
+
+    @work(exclusive=False)
+    async def _run_setup(self):
+        """Run the interactive setup wizard (same as 'clavus setup')."""
+        import asyncio
+        self._status("running setup...")
+        self._log_event("launching setup wizard")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "clavus", "setup",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            if proc.stdout:
+                async for line in proc.stdout:
+                    text = line.decode().strip()
+                    if text:
+                        self._log_event(text)
+                        self._status(text)
+            await proc.wait()
+            self._status("setup complete")
+        except Exception as e:
+            self._status(f"setup failed: {e}")
 
     def _run_status(self):
         """Show detailed connection status in the footer."""
@@ -1589,15 +1614,16 @@ class ClavusApp(App):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-            out = stdout.decode().strip()
             result_line = ""
-            if out:
-                for line in out.split("\n"):
-                    if line.strip():
-                        self._log_event(line.strip())
-                        if "✅" in line or "📁" in line:
-                            result_line = line.strip()
+            if proc.stdout:
+                async for line in proc.stdout:
+                    text = line.decode().strip()
+                    if text:
+                        self._log_event(text)
+                        self._status(text)
+                        if "\u2705" in text or "\U0001f4c1" in text:
+                            result_line = text
+            await proc.wait()
             status = f"pull: {result_line}" if result_line else ("pull complete" if proc.returncode == 0 else f"pull failed (exit {proc.returncode})")
             self._status(status)
             # Refresh local state
@@ -1635,15 +1661,16 @@ class ClavusApp(App):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-            out = stdout.decode().strip()
             result_line = ""
-            if out:
-                for line in out.split("\n"):
-                    if line.strip():
-                        self._log_event(line.strip())
-                        if "✅" in line or "📤" in line:
-                            result_line = line.strip()
+            if proc.stdout:
+                async for line in proc.stdout:
+                    text = line.decode().strip()
+                    if text:
+                        self._log_event(text)
+                        self._status(text)
+                        if "\u2705" in text or "\U0001f4e4" in text:
+                            result_line = text
+            await proc.wait()
             status = f"push: {result_line}" if result_line else ("push complete" if proc.returncode == 0 else f"push failed (exit {proc.returncode})")
             self._status(status)
         except asyncio.TimeoutError:
