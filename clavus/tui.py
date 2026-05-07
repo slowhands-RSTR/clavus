@@ -587,6 +587,8 @@ class ClavusApp(App):
             self._run_inject()
         elif cmd == "restore":
             self._run_restore(arg)
+        elif cmd == "open":
+            self._run_open(arg)
         elif cmd in ("status", "info"):
             self._run_status()
         elif cmd == "doctor":
@@ -793,6 +795,66 @@ class ClavusApp(App):
         self._log_event(f"restored to '{msg}'")
         # Re-pull to update cues/snapshots display
         await self._do_pull()
+
+    async def _run_open(self, hash_str: str = ""):
+        """Materialize the .als to a usable path and optionally open it."""
+        if not self.project:
+            self._status("no project selected")
+            return
+        from clavus.store import BlobStore
+        from pathlib import Path
+        store = BlobStore()
+        proj = store.get_index(self.project)
+        if not proj:
+            self._status("project not found in store")
+            return
+
+        h = hash_str or store.read_ref("HEAD")
+        if not h:
+            self._status("no snapshots to open")
+            return
+
+        # Resolve short hash
+        from clavus.helpers import resolve_snapshot
+        resolved = resolve_snapshot(store, h)
+        if not resolved:
+            self._status(f"could not resolve hash: {h}")
+            return
+
+        snap = store.load_snapshot(resolved)
+        if not snap or not snap.als_hash:
+            self._status("snapshot has no .als backup")
+            return
+
+        raw = store.get_object(snap.als_hash)
+        if not raw:
+            self._status("raw .als blob missing — try pulling")
+            return
+
+        # Try project root path, fall back to Desktop
+        if proj.root_als and Path(proj.root_als).parent.exists():
+            out = Path(proj.root_als)
+        else:
+            out = Path.home() / "Desktop" / f"{self.project}.als"
+
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(raw)
+        msg = f"opened {self.project}.als → {out}"
+        self._status(msg)
+        self._log_event(msg)
+
+        # Launch if Ableton available (macOS only for now)
+        import platform, subprocess as sp
+        if platform.system() == "Darwin":
+            for v in ["12", "11", "10"]:
+                able = Path(f"/Applications/Ableton Live {v}/Ableton Live {v}.app")
+                if able.exists():
+                    sp.Popen(["open", "-a", str(able), str(out)])
+                    break
+            else:
+                sp.Popen(["open", str(out)])
+        elif platform.system() == "Windows":
+            sp.Popen(["start", "", str(out)], shell=True)
 
     def _run_status(self):
         """Show detailed connection status in the footer."""
