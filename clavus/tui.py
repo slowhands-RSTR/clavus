@@ -165,6 +165,7 @@ class ClavusApp(App):
         self._busy: bool = False
         self._last_sync: str = ""     # "⬆ push ✓ 12:34" or "⬇ pull ✓ 12:34"
         self._peer_name: str = ""     # remote name (e.g. "mac")
+        self._peer_reachable: bool = False
         _cfg = ClavusConfig.load()
         self.author = _cfg.author
         self._clavus_cfg = _cfg
@@ -1260,6 +1261,16 @@ class ClavusApp(App):
         from clavus.sync import load_remotes
         remotes = load_remotes(self.store)
         self._peer_name = remotes[0].name if remotes else ""
+        # Quick ping to check reachability
+        if remotes:
+            try:
+                from clavus.sync import SyncClient
+                client = SyncClient(remotes[0].url)
+                r = client.client.get(f"{remotes[0].url}/api/share", timeout=3)
+                self._peer_reachable = r.status_code == 200
+                client.close()
+            except Exception:
+                self._peer_reachable = False
         self._update_header()
         self._update_footer()
 
@@ -1357,6 +1368,7 @@ class ClavusApp(App):
                 if blobs:
                     self._log_event(f"  {blobs} blob(s)")
             ts = time.strftime("%H:%M")
+            self._peer_reachable = True
             self._last_sync = f"\u2b07 pull \u2713 {ts}"
             self._update_header()
             self._log_event(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
@@ -1401,6 +1413,7 @@ class ClavusApp(App):
                 if blobs:
                     self._log_event(f"  {blobs} blob(s)")
             ts = time.strftime("%H:%M")
+            self._peer_reachable = True
             self._last_sync = f"\u2b06 push \u2713 {ts}"
             self._update_header()
             self._log_event("\u2705 push complete")
@@ -1524,10 +1537,12 @@ class ClavusApp(App):
                 f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{sync_part}")
             # Status line: peer connection + remotes
             if self._peer_name:
-                peer_dot = f"[{C['green']}]⬤[/]"
-                peer = f"{peer_dot} [{C['fg']}]{self._peer_name}[/]"
+                if self._peer_reachable:
+                    peer = f"[{C['green']}]\u2b24[/] [{C['fg']}]{self._peer_name}[/]"
+                else:
+                    peer = f"[{C['dim']}]\u25cc {self._peer_name}[/]"
             else:
-                peer = f"[{C['dim']}]◌ no peer[/]"
+                peer = f"[{C['dim']}]\u25cc no peer[/]"
             from clavus.sync import load_remotes
             remotes = load_remotes(self.store)
             remote_part = f"  [{C['dim']}]{len(remotes)} remote[/]"
