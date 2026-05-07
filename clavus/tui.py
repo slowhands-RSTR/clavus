@@ -1962,11 +1962,11 @@ class ShareModal(ModalScreen[None]):
             if self.tailscale_ip:
                 yield Static(
                     f"Tailscale: {join_url}",
-                    id="share-url",
+                    id="share-ts",
                 )
                 yield Static(
                     f"LAN:       http://{self.lan_ip}:{self.port}",
-                    id="share-url",
+                    id="share-lan",
                 )
             else:
                 yield Static(
