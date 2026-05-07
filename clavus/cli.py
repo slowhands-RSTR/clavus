@@ -1969,7 +1969,7 @@ def cmd_open(args: argparse.Namespace) -> None:
             print(f"❌ Could not resolve '{args.hash}'")
             sys.exit(1)
     else:
-        hash_str = store.read_ref("HEAD")
+        hash_str = proj.head
         if not hash_str:
             print("❌ No snapshots. Push from another machine or take a snapshot first.")
             sys.exit(1)

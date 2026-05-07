@@ -363,7 +363,7 @@ def pull_snapshot_blobs(
     # Auto-materialize latest .als after blob download
     if count > 0 and als_hashes:
         try:
-            head = store.read_ref("HEAD")
+            head = proj.head
             if head:
                 snap = store.load_snapshot(head)
                 if snap and snap.als_hash:

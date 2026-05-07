@@ -810,7 +810,7 @@ class ClavusApp(App):
             self._status("project not found in store")
             return
 
-        h = hash_str or store.read_ref("HEAD")
+        h = hash_str or proj.head
         if not h:
             self._status("no snapshots to open")
             return
