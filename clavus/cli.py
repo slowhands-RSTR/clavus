@@ -1622,7 +1622,7 @@ def cmd_merge(args: argparse.Namespace) -> None:
     # Save snapshot with TWO parents
     snap = store.save_snapshot(
         project,
-        message=merge_message,
+        message=args.message or f"Merge branch '{args.branch}' into '{proj.branch}'",
         parent=current_head,
         tags=["merge"],
     )
@@ -2445,8 +2445,6 @@ def main():
     p_open = subparsers.add_parser("open", help="Open latest .als in Ableton Live")
     p_open.add_argument("hash", nargs="?", default=None,
                        help="Snapshot hash (default: HEAD/latest)")
-    p_open.add_argument("--launch", "-l", action="store_true",
-                       help="Launch Ableton Live after restoring")
     p_open.add_argument("--output", "-o", default=None,
                        help="Output path (default: Desktop/<Project>.als)")
 
@@ -2575,10 +2573,6 @@ def main():
                         help="Host to bind to (default: from config or 0.0.0.0)")
     p_relay.add_argument("--port", "-p", type=int, default=None,
                         help="Port to listen on (default: from config or 7890)")
-    p_relay.add_argument("--daemon", action="store_true",
-                        help="Daemonize (fork to background — use with --log-file)")
-    p_relay.add_argument("--log-file", default="",
-                        help="Write logs to file instead of stdout")
 
     # Share (relay + auto-discovery)
     p_share = subparsers.add_parser("share", help="Start a share session — relay + auto-discovery")
