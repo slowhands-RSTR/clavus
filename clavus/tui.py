@@ -86,7 +86,7 @@ class ClavusApp(App):
 
     #header {{ height: 2; background: {C['surface']}; padding: 0 1; }}
     #header-title {{ color: {C['accent']}; text-style: bold; }}
-    #header-status {{ color: {C['dim']}; }}
+    #header-status {{ color: {C['fg']}; }}
 
     #content {{ layout: grid; grid-size: 2 1; grid-columns: 5fr 2fr; height: 100%; }}
 
@@ -1538,11 +1538,11 @@ class ClavusApp(App):
             # Status line: peer connection + remotes
             if self._peer_name:
                 if self._peer_reachable:
-                    peer = f"[{C['green']}]\u2b24[/] [{C['fg']}]{self._peer_name}[/]"
+                    peer = f"[bold {C['green']}]\u25cf[/] [bold {C['green']}]{self._peer_name}[/]"
                 else:
-                    peer = f"[{C['dim']}]\u25cc {self._peer_name}[/]"
+                    peer = f"[{C['yellow']}]\u25cb[/] [{C['dim']}]{self._peer_name} (unreachable)[/]"
             else:
-                peer = f"[{C['dim']}]\u25cc no peer[/]"
+                peer = f"[{C['dim']}]\u25cb no peer[/]"
             from clavus.sync import load_remotes
             remotes = load_remotes(self.store)
             remote_part = f"  [{C['dim']}]{len(remotes)} remote[/]"
