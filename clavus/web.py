@@ -1301,7 +1301,7 @@ async def get_share_info():
         "share_code": _SHARE_CODE,
         "author": cfg.author or "",
         "project": proj_info,
-        "version": "0.6.1",
+        "version": "0.7.0-beta",
         "hostname": socket.gethostname(),
     }
 
