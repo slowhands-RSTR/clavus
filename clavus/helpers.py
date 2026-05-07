@@ -18,6 +18,10 @@ from clavus.store import BlobStore, ClavusProject, DEFAULT_CLAVUS_DIR
 def get_desktop_path() -> Path:
     """Return the actual Desktop path, handling OneDrive redirect on Windows."""
     if platform.system() == "Windows":
+        # Prefer real Desktop over OneDrive redirect
+        real_desktop = Path.home() / "Desktop"
+        if real_desktop.exists():
+            return real_desktop
         import ctypes
         from ctypes import wintypes
         buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
