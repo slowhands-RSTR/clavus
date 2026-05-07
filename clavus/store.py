@@ -140,16 +140,37 @@ class BlobStore:
 
         return hash_str
 
+    def _resolve_object_hash(self, hash_str: str) -> Optional[str]:
+        """Resolve a short (8-char) hash to the full 64-char filename."""
+        if len(hash_str) >= 64:
+            return hash_str
+        prefix_dir = self.objects_dir / hash_str[:2]
+        if not prefix_dir.exists():
+            return None
+        for f in prefix_dir.iterdir():
+            # Skip .meta files
+            if f.suffix == ".meta":
+                continue
+            if f.name.startswith(hash_str):
+                return f.name
+        return None
+
     def get_object(self, hash_str: str) -> Optional[bytes]:
-        """Retrieve blob by SHA256 hash."""
-        obj_path = self.objects_dir / hash_str[:2] / hash_str
+        """Retrieve blob by SHA256 hash (full or short)."""
+        full = self._resolve_object_hash(hash_str)
+        if not full:
+            return None
+        obj_path = self.objects_dir / full[:2] / full
         if obj_path.exists():
             return obj_path.read_bytes()
         return None
 
     def has_object(self, hash_str: str) -> bool:
-        """Check if a blob exists."""
-        obj_path = self.objects_dir / hash_str[:2] / hash_str
+        """Check if a blob exists (full or short hash)."""
+        full = self._resolve_object_hash(hash_str)
+        if not full:
+            return False
+        obj_path = self.objects_dir / full[:2] / full
         return obj_path.exists()
 
     # ── Helpers ──
