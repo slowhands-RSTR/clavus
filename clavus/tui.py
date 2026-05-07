@@ -89,7 +89,7 @@ class ClavusApp(App):
 
     #content {{ layout: grid; grid-size: 2 1; grid-columns: 5fr 2fr; height: 100%; }}
 
-    #cues-list {{ height: 100%; min-height: 5; border: solid {C['border']}; border-left: solid transparent; background: transparent; }}
+    #cues-list {{ height: 100%; min-height: 5; border: solid {C['border']}; background: transparent; }}
     #cues-list:focus-within {{ border: solid {C['accent']}; background: rgba(26,158,158,0.03); }}
     #cues-list ListView {{ height: 100%; border: none; background: transparent; }}
     #cues-list ListItem {{ background: transparent; padding: 0 2; min-height: 1; max-height: 10; }}
