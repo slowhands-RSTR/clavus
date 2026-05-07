@@ -777,16 +777,88 @@ def cmd_share(args: argparse.Namespace) -> None:
 
 
 def cmd_join(args: argparse.Namespace) -> None:
-    """Discover and connect to a Clavus share session.
+    """Connect to a Clavus relay — by URL, share code, or auto-discovery.
 
-    Scans the LAN (mDNS) and Tailscale tailnet for active Clavus
-    relays in share mode. Displays their share codes so you can
-    verify with the sharer, then auto-configures the remote and
-    pulls down their project.
+    Direct URL join (fastest, no scanning):
+      clavus join http://192.168.12.196:7890
+      clavus join http://100.127.1.109:7890
 
-    If a share code is provided, auto-connects to the first
-    matching relay.
+    Share code join (scans LAN/Tailscale):
+      clavus join GROOVE-BEAR-5
+
+    Auto-discover (scans LAN/Tailscale, lists sessions):
+      clavus join
     """
+    from clavus.sync import save_remotes, Remote, load_remotes, pull_from_remote, pull_snapshot_blobs
+    from clavus.store import BlobStore
+    import concurrent.futures
+    from urllib.parse import urlparse
+
+    # ── Direct URL join ──────────────────────────────────────────────
+    if args.code and (args.code.startswith("http://") or args.code.startswith("https://")):
+        url = args.code.rstrip("/")
+        parsed = urlparse(url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 7890
+        base = f"http://{host}:{port}"
+
+        print(f"🔗 Connecting to {base}...")
+
+        # Hit /api/share to verify and get project info
+        from clavus.sync import SyncClient
+        try:
+            client = SyncClient(base)
+            r = client.client.get(f"{base}/api/share", timeout=10)
+            info = r.json() if r.status_code == 200 and r.text else {}
+            client.close()
+        except Exception as e:
+            print(f"  ❌ Cannot reach {base}: {e}")
+            return
+
+        code = info.get("share_code", "") or "(no code)"
+        author = info.get("author", "") or host
+        project = info.get("project", {})
+        proj_name = project.get("name", "?") if project else "?"
+
+        print(f"  Relay:  {author} — {proj_name}")
+        print(f"  Code:   {code}")
+        print()
+
+        store = BlobStore()
+        remotes = load_remotes(store)
+        # Use hostname as remote name, deduplicate
+        name = info.get("hostname", host).lower().replace(" ", "-")
+        remotes = [r for r in remotes if r.name != name]
+        remotes.append(Remote(name=name, url=base))
+        save_remotes(store, remotes)
+
+        # Ensure the project exists locally
+        proj_data = store.get_index(proj_name)
+        if not proj_data:
+            proj_data = ClavusProject(
+                name=proj_name,
+                root_als="",
+                head=None,
+                created_at=time.time(),
+                description=f"Joined from {author}",
+            )
+            store.set_index(proj_data)
+
+        # Pull project data
+        print(f"  📥 Pulling from '{name}'...")
+        result = pull_from_remote(store, proj_data, Remote(name=name, url=base))
+        if result.get("error"):
+            print(f"  ❌ {result['error']}")
+        else:
+            print(f"  ✅ {result['cues']} cues, {result['snapshots']} snapshots")
+            blob_count = pull_snapshot_blobs(store, proj_data, Remote(name=name, url=base))
+            if blob_count:
+                print(f"  📦 {blob_count} blob(s) downloaded")
+        print()
+        print(f"  Done. Run 'clavus log' to see history.")
+        return
+
+    # ── Share code / auto-discovery (existing path) ──────────────────
     from clavus.discovery import scan_for_share_codes
 
     timeout = args.timeout
