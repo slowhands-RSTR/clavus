@@ -474,13 +474,9 @@ def pull_snapshot_blobs(
             if snap and snap.als_hash:
                 raw = store.get_object(snap.als_hash)
                 if raw:
-                    proj_ref = store.get_index(proj.name)
-                    if proj_ref and proj_ref.root_als:
-                        out = Path(proj_ref.root_als)
-                    else:
-                        project_name = proj.name.replace(" ", " ")
-                        project_dir = Path.home() / "Desktop" / f"{project_name} Project"
-                        out = project_dir / f"{project_name}.als"
+                    project_name = proj.name.replace(" ", " ")
+                    project_dir = Path.home() / "Desktop" / f"{project_name} Project"
+                    out = project_dir / f"{project_name}.als"
                     out.parent.mkdir(parents=True, exist_ok=True)
 
                     # Materialize samples first
