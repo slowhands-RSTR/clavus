@@ -321,6 +321,14 @@ class ClavusApp(App):
             self._run_config()
         elif cmd == "remote":
             self._run_remote(arg)
+        elif cmd in ("pull", "push"):
+            # :pull or :pull <project> — mirrors CLI behavior
+            if arg:
+                import subprocess, sys
+                subprocess.run([sys.executable, "-m", "clavus", cmd, arg])
+                self._connect()  # reload
+            else:
+                self.action_pull() if cmd == "pull" else self.action_push()
         elif cmd == "branch":
             self._run_branch(arg)
         elif cmd == "backup":
@@ -1381,16 +1389,91 @@ class ClavusApp(App):
         return sorted(cues, key=sort_key)
 
     async def _do_pull(self):
-        """Pull cues + snapshots + blobs from remotes — direct function calls, no subprocess."""
+        """Pull cues + snapshots + blobs from remotes — auto-discovers projects if none local."""
         import time
-        from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs
+        from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
+        from clavus.store import ClavusProject
         self._status("\u23f3 pulling...")
         try:
-            proj_index = self.store.get_index(self.project)
-            if not proj_index:
-                self._status("\u274c no project")
-                return
+            proj_index = self.store.get_index(self.project) if self.project else None
             remotes = load_remotes(self.store)
+
+            # If no local project, auto-discover from remotes
+            if not proj_index:
+                if not remotes:
+                    self._status("\u274c no remotes — use :join http://...")
+                    self._log_event("\u274c no remotes — use :join http://...")
+                    return
+
+                self._log_event("no local project — discovering from remotes...")
+                pulled_any = False
+                for remote in remotes:
+                    client = SyncClient(remote.url)
+                    try:
+                        r = client.client.get(f"{remote.url}/api/projects", timeout=10)
+                        if r.status_code != 200:
+                            continue
+                        projects = r.json().get("projects", [])
+                        if not projects:
+                            continue
+                        for pdata in projects:
+                            pname = pdata["name"]
+                            if self.store.get_index(pname):
+                                proj_index = self.store.get_index(pname)
+                            else:
+                                self._log_event(f"pulling {pname} from {remote.name}...")
+                                r2 = client.client.get(
+                                    f"{remote.url}/api/sync/pull",
+                                    params={"name": pname}, timeout=30)
+                                if r2.status_code != 200:
+                                    continue
+                                info = r2.json().get("project", {})
+                                new_proj = ClavusProject(
+                                    name=pname,
+                                    root_als=info.get("root_als", f"~/{pname}/{pname}.als"),
+                                    created_at=time.time(),
+                                )
+                                self.store.set_index(new_proj)
+                                proj_index = new_proj
+                                self._log_event(f"  created local project '{pname}'")
+                            # Pull data
+                            remote_ref = remote
+                            result = pull_from_remote(self.store, proj_index, remote_ref)
+                            blob_count = pull_snapshot_blobs(self.store, proj_index, remote_ref)
+                            parts = []
+                            if result.get("cues"): parts.append(f"{result['cues']} cues")
+                            if result.get("snapshots"): parts.append(f"{result['snapshots']} snapshots")
+                            if blob_count: parts.append(f"{blob_count} blob(s)")
+                            msg = f"  got {', '.join(parts)}" if parts else "  already up to date"
+                            self._log_event(msg)
+                            pulled_any = True
+                        if pulled_any:
+                            break
+                    except Exception as e:
+                        self._log_event(f"  {remote.name}: {e}")
+                        continue
+                    finally:
+                        client.close()
+
+                if not pulled_any:
+                    self._status("\u274c no projects found on any remote")
+                    self._log_event("\u274c no projects found — is relay running?")
+                    return
+
+                # Switch to the pulled project
+                if proj_index:
+                    self.project = proj_index.name
+                    self._peer_name = remotes[0].name if remotes else ""
+                    self._peer_reachable = True
+                    self._load_cues_from_disk()
+                    self._load_snapshots_from_disk()
+                    self._update_header()
+                    self._render()
+                    self._status(f"\u2705 pulled {self.project}: {len(self.cues)} cues, {len(self.snaps)} snaps")
+                    self._log_event(f"\u2705 pull: {self.project} — {len(self.cues)} cues, {len(self.snaps)} snaps")
+                return
+
+            # ── Normal pull for existing project ──
             if not remotes:
                 self._status("\u274c no remotes configured")
                 self._log_event("\u274c no remotes — use :join http://...")
@@ -1408,7 +1491,7 @@ class ClavusApp(App):
                 conflicts_n = result.get("conflicts", 0)
                 log_msg = f"  got {cues_n} cues, {snaps_n} snapshots"
                 if conflicts_n:
-                    log_msg += f" — ⚠ {conflicts_n} conflict(s)"
+                    log_msg += f" — \u26a0 {conflicts_n} conflict(s)"
                 self._log_event(log_msg)
                 blobs = pull_snapshot_blobs(self.store, proj_index, remote)
                 if blobs:
