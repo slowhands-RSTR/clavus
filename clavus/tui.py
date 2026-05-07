@@ -1591,10 +1591,15 @@ class ClavusApp(App):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
             out = stdout.decode().strip()
+            result_line = ""
             if out:
-                for line in out.split("\n")[:8]:
-                    self._log_event(line)
-            self._status("pull complete" if proc.returncode == 0 else f"pull failed (exit {proc.returncode})")
+                for line in out.split("\n"):
+                    if line.strip():
+                        self._log_event(line.strip())
+                        if "✅" in line or "📁" in line:
+                            result_line = line.strip()
+            status = f"pull: {result_line}" if result_line else ("pull complete" if proc.returncode == 0 else f"pull failed (exit {proc.returncode})")
+            self._status(status)
             # Refresh local state
             if self.project:
                 cues, snaps = await self.api.pull(self.project)
@@ -1632,10 +1637,15 @@ class ClavusApp(App):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
             out = stdout.decode().strip()
+            result_line = ""
             if out:
-                for line in out.split("\n")[:6]:
-                    self._log_event(line)
-            self._status("push complete" if proc.returncode == 0 else f"push failed (exit {proc.returncode})")
+                for line in out.split("\n"):
+                    if line.strip():
+                        self._log_event(line.strip())
+                        if "✅" in line or "📤" in line:
+                            result_line = line.strip()
+            status = f"push: {result_line}" if result_line else ("push complete" if proc.returncode == 0 else f"push failed (exit {proc.returncode})")
+            self._status(status)
         except asyncio.TimeoutError:
             self._status("push timed out")
         except Exception as e:
