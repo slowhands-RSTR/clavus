@@ -503,13 +503,12 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> d
                 tags=s.get("tags", []),
                 als_hash=s.get("als_hash", None),
             )
-            # Store snapshot metadata
+            # Store snapshot metadata (always update — fields may change)
             meta_dir = store.objects_dir / snap.hash[:2]
             meta_dir.mkdir(parents=True, exist_ok=True)
             meta_path = meta_dir / f"{snap.hash}.meta"
-            if not meta_path.exists():
-                from dataclasses import asdict
-                meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
+            from dataclasses import asdict
+            meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
 
         result["snapshots"] = len(data.get("snapshots", []))
 
