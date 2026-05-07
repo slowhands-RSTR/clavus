@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -898,92 +899,64 @@ class ClavusApp(App):
         self._run_restore(snap.hash)
 
     def action_diff(self):
-        """Show a concise text summary of changes in the selected snapshot."""
+        """Show what changed in the selected snapshot vs its parent."""
         if not self.snaps:
             self._status("no snapshots to diff")
             return
         idx = self._get_history_idx()
         snap = self.snaps[idx]
-        self._status(f"diff of {snap.hash}...")
-        self.refresh()
 
-        import io, contextlib
-        from clavus.cli import get_store_and_project
-
-        store, proj = get_store_and_project()
-        from clavus.helpers import resolve_snapshot, get_projects_dir
-        hash_str = resolve_snapshot(store, snap.hash)
-        current_snap = store.load_snapshot(hash_str) if hash_str else None
-
+        # Load the snapshot and its parent
+        current_snap = self.store.load_snapshot(snap.hash)
         if not current_snap or not current_snap.parent:
             self._status("no parent snapshot to diff against")
             return
 
-        parent_project = store.load_project(current_snap.parent)
-        current_project = store.load_project(hash_str)
+        parent_project = self.store.load_project(current_snap.parent)
+        current_project = self.store.load_project(snap.hash)
         if not parent_project or not current_project:
             self._status("could not load project data")
             return
 
         from clavus.store import diff_projects
-
         diff = diff_projects(parent_project, current_project)
 
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            print(f"  {current_snap.short_hash()} — '{current_snap.message}'")
-            print()
+        buf.write(f"  {current_snap.short_hash()} — '{current_snap.message}'\n\n")
 
-            # Changed tracks
-            changed = [t for t in diff.tracks if t.status != "unchanged"]
-            if changed:
-                for td in changed:
-                    icon = {"added": "+", "removed": "-", "modified": "~"}.get(td.status, " ")
-                    desc = td.status
-                    if td.devices_added:
-                        desc += f" +{','.join(d[:12] for d in td.devices_added[:2])}"
-                    if td.devices_removed:
-                        desc += f" -{','.join(d[:12] for d in td.devices_removed[:2])}"
-                    print(f"  {icon} {td.name}")
-                    print(f"    {desc}")
-            else:
-                print("  (no structural track changes)")
-
-            # Clip count changes
-            parent_name_map = {t.name: t for t in parent_project.tracks}
-            current_name_map = {t.name: t for t in current_project.tracks}
-            clip_changes = []
-            for td in diff.tracks:
-                pt = parent_name_map.get(td.name)
-                ct = current_name_map.get(td.name)
-                bc = len(pt.clips) if pt else 0
-                ac = len(ct.clips) if ct else 0
-                if bc != ac:
-                    clip_changes.append((td.name, bc, ac))
-            if clip_changes:
-                print()
-                for name, bc, ac in clip_changes:
-                    delta = ac - bc
+        # Changed tracks
+        changed = [t for t in diff.tracks if t.status != "unchanged"]
+        if changed:
+            for td in changed:
+                icon = {"added": "+", "removed": "-", "modified": "~"}.get(td.status, " ")
+                buf.write(f"  {icon} {td.name}\n")
+                details = []
+                if td.devices_added:
+                    details.append(f"+{', '.join(d[:12] for d in td.devices_added[:2])}")
+                if td.devices_removed:
+                    details.append(f"-{', '.join(d[:12] for d in td.devices_removed[:2])}")
+                if td.clips_changed:
+                    delta = td.clips_after - td.clips_before
                     sign = "+" if delta > 0 else ""
-                    print(f"  · {name}: {bc}→{ac} clips ({sign}{delta})")
+                    details.append(f"{sign}{delta} clips")
+                if details:
+                    buf.write(f"    {', '.join(details)}\n")
+        else:
+            buf.write("  (no structural track changes)\n")
 
-            # Summary
-            added = [t for t in changed if t.status == "added"]
-            removed = [t for t in changed if t.status == "removed"]
-            modified = [t for t in changed if t.status == "modified"]
-            parts = []
-            if added:
-                parts.append(f"+{len(added)} tracks")
-            if removed:
-                parts.append(f"-{len(removed)} tracks")
-            if modified:
-                parts.append(f"~{len(modified)} modified")
-            if parts:
-                print()
-                print(f"  {' | '.join(parts)}")
-
-            print()
-            print(f"  For visual diff: open the web companion (port 7890)")
+        # Summary
+        added = [t for t in changed if t.status == "added"]
+        removed = [t for t in changed if t.status == "removed"]
+        modified = [t for t in changed if t.status == "modified"]
+        parts = []
+        if added:
+            parts.append(f"+{len(added)} tracks")
+        if removed:
+            parts.append(f"-{len(removed)} tracks")
+        if modified:
+            parts.append(f"~{len(modified)} modified")
+        if parts:
+            buf.write(f"\n  {' | '.join(parts)}\n")
 
         from textual.screen import Screen
         from textual.widgets import Static, Footer
