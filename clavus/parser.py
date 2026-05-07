@@ -476,12 +476,12 @@ def project_summary(project: Project) -> str:
 
 
 def rewrite_als_sample_paths(raw_als: bytes, project_dir: str | Path) -> bytes:
-    """Rewrite absolute sample paths in a .als file to point to a local project folder.
+    """Rewrite absolute sample paths in a .als file to point to the local project folder.
 
     Finds all <Path Value="..."/> elements inside <SampleRef> blocks and replaces
-    absolute Mac paths with the corresponding local paths under project_dir.
-    Uses the <RelativePath> value (which already has the correct relative structure)
-    to construct the new path. Returns the modified gzipped .als bytes.
+    them with absolute paths under project_dir (using <RelativePath> to construct
+    the correct location). This ensures samples resolve immediately when Ableton
+    opens the project — no manual clicking required.
     """
     import gzip
     import re
@@ -498,14 +498,15 @@ def rewrite_als_sample_paths(raw_als: bytes, project_dir: str | Path) -> bytes:
         result_parts.append(text[pos:m.start()])
         block = m.group(0)
 
-        # Replace absolute <Path Value="..."> with local path
+        # Replace absolute <Path Value="..."> with local absolute path
         def path_replacer(pm):
             old_path = pm.group(1)
             # Find the corresponding RelativePath in this SampleRef block
             rel_m = re.search(r'<RelativePath\s+Value="([^"]+)"', block)
             if rel_m:
-                # Use relative path for <Path> too — works cross-OS
-                return f'<Path Value="{rel_m.group(1)}"'
+                # Construct absolute path to where the sample lives on THIS machine
+                new_abs = str(Path(project_root) / rel_m.group(1))
+                return f'<Path Value="{new_abs}"'
             return pm.group(0)
 
         block = re.sub(r'<Path\s+Value="([^"]+)"', path_replacer, block)

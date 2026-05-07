@@ -61,7 +61,6 @@ clavus log                       # view history
 ## Tips
 
 - **Restart the relay after updating Clavus.** The relay holds code in memory. After upgrading on the relay machine, kill and restart it: `pkill -f "clavus relay" ; clavus relay --port 7890 --host 0.0.0.0 &`
-- **Samples show offline on first Ableton open.** Click any sample in Ableton's browser and it resolves them all. This is an Ableton quirk, not a Clavus bug.
 - **Conflicts resolve cleanly on one side.** If you both edit the same cue, pick a winner with `!`, push — the other side pulls and gets the resolved version automatically. No ping-pong.
 - **The relay is just HTTP.** If something's not syncing, check: `curl http://<tailscale-ip>:7890/api/ping` — should return `{"status":"ok"}`.
 
