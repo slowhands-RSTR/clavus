@@ -97,6 +97,28 @@ class ClavusConfig:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
 
+    def set(self, key: str, value):
+        """Set a config value in-memory (call .save() to persist)."""
+        if hasattr(self, key):
+            setattr(self, key, value)
+        # Also track in to_dict for unknown keys that should persist
+        self._extra = getattr(self, '_extra', {})
+        self._extra[key] = value
+
+    def to_dict(self) -> dict:
+        d = {
+            "author": self.author,
+            "port": self.port,
+            "host": self.host,
+            "default_server": self.default_server,
+            "default_project": self.default_project,
+        }
+        # Include any extra keys set via .set()
+        for k, v in getattr(self, '_extra', {}).items():
+            if k not in d:
+                d[k] = v
+        return d
+
     @classmethod
     def merge_cli(cls, cfg: ClavusConfig, **overrides) -> ClavusConfig:
         """Apply CLI flag overrides on top of resolved config. Returns new instance."""

@@ -593,8 +593,14 @@ class ClavusApp(App):
             self._run_status()
         elif cmd == "doctor":
             self._run_doctor()
-
-            self._run_status()
+        elif cmd == "log":
+            self._run_log()
+        elif cmd == "config":
+            self._run_config()
+        elif cmd == "remote":
+            self._run_remote(arg)
+        elif cmd == "branch":
+            self._run_branch(arg)
         elif cmd == "backup":
             self._run_backup()
         elif cmd == "backups":
@@ -622,7 +628,7 @@ class ClavusApp(App):
         elif cmd == "join":
             self.push_screen(JoinModal(arg))
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project, projects, init, browse, name, inject, restore, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, status, help | C=snapshot")
+            self._status("commands: project, projects, init, browse, name, inject, restore, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, log, config, remote, branch, status, help | C=snapshot")
         else:
             self._status(f"unknown: {cmd}")
 
@@ -904,6 +910,66 @@ class ClavusApp(App):
             self._status(" | ".join(lines[:3]) if lines else "doctor ran")
         except Exception as e:
             self._status(f"doctor failed: {e}")
+
+    def _run_log(self):
+        """Show snapshot history."""
+        import subprocess, sys
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "clavus", "log"],
+                capture_output=True, text=True, timeout=10,
+            )
+            lines = [l.strip() for l in proc.stdout.split("\n") if l.strip()][:12]
+            for line in lines:
+                self._log_event(line)
+            self._status(f"showing {len(lines)} snapshots")
+        except Exception as e:
+            self._status(f"log failed: {e}")
+
+    def _run_config(self):
+        """Show current config."""
+        from clavus.config import ClavusConfig
+        cfg = ClavusConfig.load()
+        lines = [
+            f"author: {cfg.author}",
+            f"port: {cfg.port}",
+            f"host: {cfg.host}",
+            f"project: {self.project or '(none)'}",
+            f"cues: {len(self.cues)}  snaps: {len(self.snaps)}",
+        ]
+        self._status("  |  ".join(lines))
+
+    def _run_remote(self, action: str = ""):
+        """Manage remotes: list, add, remove."""
+        import subprocess, sys
+        try:
+            cmd = [sys.executable, "-m", "clavus", "remote"]
+            if action:
+                cmd.append(action)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            out = proc.stdout.strip()
+            if out:
+                for line in out.split("\n")[:5]:
+                    self._log_event(line)
+            self._status("remote list" if not action else f"remote {action}")
+        except Exception as e:
+            self._status(f"remote failed: {e}")
+
+    def _run_branch(self, action: str = ""):
+        """List or switch branches."""
+        import subprocess, sys
+        try:
+            cmd = [sys.executable, "-m", "clavus", "branch"]
+            if action:
+                cmd.append(action)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            out = proc.stdout.strip()
+            if out:
+                for line in out.split("\n")[:5]:
+                    self._log_event(line)
+            self._status("branches" if not action else f"branch {action}")
+        except Exception as e:
+            self._status(f"branch failed: {e}")
 
     def _run_backup(self):
         """Backup the entire Clavus store."""

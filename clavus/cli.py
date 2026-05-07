@@ -252,16 +252,157 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     print(f"  💡 Run 'clavus restore-store' to restore from backup")
 
 
+def cmd_setup(args: argparse.Namespace) -> None:
+    """Guided first-run setup — author, port, Tailscale, Ableton detection."""
+    import platform, socket, subprocess
+    from clavus.config import ClavusConfig
+    from clavus.store import BlobStore
+
+    print("🎹 Clavus Setup")
+    print("───")
+    print()
+
+    cfg = ClavusConfig.load()
+
+    # 1. Author name
+    current = cfg.author or os.environ.get("USER") or os.environ.get("USERNAME") or ""
+    print(f"👤 Author name [{current}]: ", end="")
+    try:
+        author = input().strip()
+    except (EOFError, KeyboardInterrupt):
+        author = ""
+    cfg.set("author", author or current)
+
+    # 2. Port
+    port = cfg.port or 7890
+    print(f"🔌 Relay port [{port}]: ", end="")
+    try:
+        pi = input().strip()
+        if pi:
+            port = int(pi)
+    except (ValueError, EOFError, KeyboardInterrupt):
+        pass
+    cfg.set("port", port)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    in_use = sock.connect_ex(("127.0.0.1", port)) == 0
+    sock.close()
+    if in_use:
+        print(f"   ⚠️  Port {port} in use — choose another: clavus config set port <N>")
+
+    # 3. Tailscale check
+    print()
+    print("🌐 Network discovery...")
+    try:
+        r = subprocess.run(["tailscale", "version"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            print("   ✅ Tailscale found")
+            r2 = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5)
+            ts_ip = r2.stdout.strip()
+            if ts_ip:
+                print(f"   📡 Tailscale IP: {ts_ip}")
+                cfg.set("tailscale_ip", ts_ip)
+        else:
+            print("   ℹ️  Tailscale not found — LAN-only collab")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print("   ℹ️  Tailscale not found — LAN-only collab")
+
+    # 4. Ableton detection
+    print()
+    ableton = None
+    if platform.system() == "Darwin":
+        for name in ["Ableton Live 12 Suite", "Ableton Live 12 Intro", "Ableton Live 12 Standard",
+                      "Ableton Live 11 Suite", "Ableton Live 11 Intro"]:
+            path = f"/Applications/{name}.app"
+            if os.path.exists(path):
+                ableton = path
+                break
+    elif platform.system() == "Windows":
+        try:
+            import winreg
+            for ver in [12, 11]:
+                try:
+                    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\Ableton\Live {ver}")
+                    ableton = winreg.QueryValueEx(key, "InstallDir")[0]
+                    break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    if ableton:
+        print(f"   ✅ Ableton: {ableton}")
+        cfg.set("ableton_path", ableton)
+    else:
+        print("   ℹ️  Ableton not auto-detected")
+        print("      Set: clavus config set ableton_path /path/to/Ableton")
+
+    # Save
+    cfg.save()
+    store = BlobStore()
+    store.init()
+
+    print()
+    print("✅ Setup complete!")
+    print(f"   Config: {CONFIG_PATH}")
+    print(f"   Data:   {store.root}")
+    print()
+    print("   Next:")
+    print("     clavus init               — track a project")
+    print("     clavus share              — share with collaborator")
+    print("     clavus tui                — terminal dashboard")
+    print("     clavus doctor             — check system health")
+    print(f"     clavus config             — show/edit settings")
+
+
 def cmd_init(args: argparse.Namespace) -> None:
     """Initialize a new Clavus project — friendly, guided setup."""
-    target = args.path or os.getcwd()
-    target = Path(target).resolve()
+    if args.path:
+        target = Path(args.path).resolve()
+        als_path = find_als_file(target)
+        if als_path is None:
+            print(f"❌ No .als file found at {target}")
+            print("   Specify the path to an .als file or a directory containing one.")
+            sys.exit(1)
+    else:
+        # Auto-detect: scan common locations for .als files
+        search_dirs = [
+            Path.home() / "Desktop",
+            Path.home() / "Documents",
+            Path.home() / "Music" / "Ableton",
+            Path.home() / "Ableton",
+        ]
+        als_files = []
+        for d in search_dirs:
+            if d.exists():
+                for f in d.rglob("*.als"):
+                    if "Backup" not in str(f) and "Ableton Project Info" not in str(f):
+                        als_files.append(f)
 
-    als_path = find_als_file(target)
-    if als_path is None:
-        print(f"❌ No .als file found at {target}")
-        print("   Specify the path to an .als file or a directory containing one.")
-        sys.exit(1)
+        if not als_files:
+            print("❌ No .als files found on Desktop, Documents, or Music/Ableton.")
+            print("   Usage: clavus init /path/to/project.als")
+            sys.exit(1)
+
+        if len(als_files) == 1:
+            als_path = als_files[0]
+            print(f"📁 Found: {als_path.name}")
+        else:
+            print("📁 Found multiple .als files:")
+            for i, f in enumerate(als_files[:20], 1):
+                print(f"  {i}. {f.name}  ({f.parent})")
+            print()
+            print("  Enter number (or 0 to cancel): ", end="")
+            try:
+                choice = int(input().strip())
+                if 1 <= choice <= len(als_files):
+                    als_path = als_files[choice - 1]
+                else:
+                    print("❌ Cancelled.")
+                    sys.exit(1)
+            except (ValueError, EOFError):
+                print("❌ Cancelled.")
+                sys.exit(1)
 
     # ── Config check: prompt for author if not set ──
     config = ClavusConfig.load()
@@ -2443,6 +2584,7 @@ def main():
     # Repair (recover from corrupt/missing index)
     p_doctor = subparsers.add_parser("doctor", help="Diagnose Clavus store health (read-only)")
     p_doctor.add_argument("--verbose", "-v", action="store_true", help="Show detailed info")
+    p_setup = subparsers.add_parser("setup", help="Guided first-run setup")
     p_repair = subparsers.add_parser("repair", help="Repair Clavus storage — recover projects from backup, cues, and refs")
     p_repair.add_argument("--force", "-f", action="store_true",
                           help="Force repair even if index.json exists")
@@ -2482,6 +2624,7 @@ def main():
         "checkout": cmd_checkout,
         "remote": cmd_remote,
         "doctor": cmd_doctor,
+        "setup": cmd_setup,
         "repair": cmd_repair,
         "push": cmd_push,
         "pull": cmd_pull,
