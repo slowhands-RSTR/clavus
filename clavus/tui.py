@@ -630,7 +630,11 @@ class ClavusApp(App):
         elif cmd == "share":
             self._run_share()
         elif cmd == "join":
-            self.push_screen(JoinModal(arg))
+            if arg.startswith("http://") or arg.startswith("https://"):
+                # Direct URL — add remote and pull
+                self._run_join_url(arg)
+            else:
+                self.push_screen(JoinModal(arg))
         elif cmd in ("help", "h", "?"):
             self._status("commands: project, projects, init, setup, browse, name, inject, restore, open, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, log, config, remote, branch, status, doctor, help | C=snapshot")
         else:
@@ -800,6 +804,24 @@ class ClavusApp(App):
             await self._do_pull()
         except Exception as e:
             self._status(f"restore error: {e}")
+
+    @work(exclusive=False)
+    async def _run_join_url(self, url: str):
+        """Add a remote by URL and pull immediately."""
+        from clavus.sync import Remote, save_remotes, load_remotes, pull_from_remote
+        self._status(f"joining {url}...")
+        name = url.replace("http://", "").replace("https://", "").split(":")[0].replace(".", "-")
+        try:
+            store = self.store
+            remotes = load_remotes(store)
+            # Replace existing remote with same name
+            remotes = [r for r in remotes if r.name != name]
+            remotes.append(Remote(name=name, url=url))
+            save_remotes(store, remotes)
+            self._status(f"added remote '{name}' — pulling...")
+            await self._do_pull()
+        except Exception as e:
+            self._status(f"join failed: {e}")
 
     @work(exclusive=False)
     async def _run_open(self, hash_str: str = ""):
