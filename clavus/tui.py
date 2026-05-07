@@ -587,10 +587,21 @@ class ClavusApp(App):
         # Materialize audio samples into the project folder first (so they exist)
         sample_count = 0
         if snap.sample_hashes:
+            # Extract filename → RelativePath mapping from the original .als
+            import gzip, re
+            _xml = gzip.decompress(raw).decode("utf-8", errors="replace")
+            _als_relpaths: dict[str, str] = {}
+            for _m in re.finditer(r'<RelativePath\s+Value="([^"]+)"', _xml):
+                _rp = _m.group(1)
+                _fn = _rp.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                if _fn not in _als_relpaths:
+                    _als_relpaths[_fn] = _rp
+
             base_dir = out.parent  # Project folder root
             for sh in snap.sample_hashes:
                 fname = store.get_sample_filename(sh)
-                relpath = store.get_sample_relpath(sh) or ""
+                # Prefer .als RelativePath (preserves subdirectory structure)
+                relpath = _als_relpaths.get(fname) or store.get_sample_relpath(sh) or ""
                 if fname and store.has_object(sh):
                     try:
                         store.materialize_sample(sh, base_dir, fname, relpath)
