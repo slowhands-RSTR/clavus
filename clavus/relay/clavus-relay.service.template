@@ -1,0 +1,45 @@
+# Clavus Relay — systemd service unit
+#
+# For Linux VPS, Raspberry Pi, or WSL2 systemd installations.
+#
+# Install:
+#   1. Edit the path below to match your setup
+#   2. Copy to /etc/systemd/system/clavus-relay.service
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable --now clavus-relay
+#
+# View logs:
+#   journalctl -u clavus-relay -f
+
+[Unit]
+Description=Clavus Relay — Git for Ableton Live
+Documentation=https://github.com/castle-queenside/clavus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__CLAVUS_DIR__
+
+ExecStart=__PYTHON__ -m clavus relay --port 7890
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/__USER__/.clavus /home/__USER__/Desktop
+
+# Limit resources
+MemoryMax=512M
+CPUQuota=50%
+
+StandardOutput=append:/home/__USER__/.clavus/relay.log
+StandardError=append:/home/__USER__/.clavus/relay.err
+
+[Install]
+WantedBy=multi-user.target
