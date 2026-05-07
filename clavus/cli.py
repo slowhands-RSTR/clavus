@@ -942,7 +942,7 @@ def cmd_share(args: argparse.Namespace) -> None:
             port=port,
             project=proj_name,
             user=cfg.author,
-            version="0.6.0",
+            version="0.6.1",
             share_code=share_code,
         )
     except ImportError:
@@ -2583,7 +2583,7 @@ def main():
             from importlib.metadata import version
             v = version("clavus")
         except ImportError:
-            v = "0.6.0"
+            v = "0.6.1"
         print(f"clavus {v}")
         return
 
