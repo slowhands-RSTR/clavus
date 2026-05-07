@@ -1324,35 +1324,37 @@ class ClavusApp(App):
     async def _do_pull(self):
         """Pull cues + snapshots + blobs from remotes (same as 'clavus pull')."""
         import asyncio
-        self._status("pulling from remotes...")
+        self._status("\u23f3 pulling from remotes...")
+        stderr_lines: list[str] = []
         try:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", "clavus", "pull",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            result_line = ""
+            async def _read_stderr():
+                if proc.stderr:
+                    async for line in proc.stderr:
+                        err = line.decode().strip()
+                        if err:
+                            stderr_lines.append(err)
+            stderr_task = asyncio.create_task(_read_stderr())
             if proc.stdout:
                 async for line in proc.stdout:
                     text = line.decode().strip()
                     if text:
                         self._log_event(text)
                         self._status(f"\u23f3 {text}")
+            await stderr_task
             await proc.wait()
             if proc.returncode == 0:
                 cue_count = len(self.cues)
                 snap_count = len(self.snaps)
-                self.notify(f"\u2705 {cue_count} cues, {snap_count} snapshots", title="Pull complete")
+                self._log_event(f"\u2705 pull: {cue_count} cues, {snap_count} snapshots")
                 self._status(f"\u2705 pull: {cue_count} cues, {snap_count} snapshots")
             else:
-                stderr_lines = []
-                if proc.stderr:
-                    async for line in proc.stderr:
-                        err_text = line.decode().strip()
-                        if err_text:
-                            stderr_lines.append(err_text)
                 err_detail = "; ".join(stderr_lines[-3:]) if stderr_lines else f"exit {proc.returncode}"
-                self.notify(f"\u274c Pull failed: {err_detail}", title="Error", severity="error")
+                self._log_event(f"\u274c pull failed: {err_detail}")
                 self._status(f"\u274c pull failed: {err_detail}")
             # Refresh local state from disk
             if self.project:
@@ -1379,33 +1381,35 @@ class ClavusApp(App):
     async def _do_push(self):
         """Push cues + snapshots + blobs to remotes (same as 'clavus push')."""
         import asyncio
-        self._status("pushing to remotes...")
+        self._status("\u23f3 pushing to remotes...")
+        stderr_lines: list[str] = []
         try:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", "clavus", "push",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            result_line = ""
+            async def _read_stderr():
+                if proc.stderr:
+                    async for line in proc.stderr:
+                        err = line.decode().strip()
+                        if err:
+                            stderr_lines.append(err)
+            stderr_task = asyncio.create_task(_read_stderr())
             if proc.stdout:
                 async for line in proc.stdout:
                     text = line.decode().strip()
                     if text:
                         self._log_event(text)
                         self._status(f"\u23f3 {text}")
+            await stderr_task
             await proc.wait()
             if proc.returncode == 0:
-                self.notify("\u2705 Push complete", title="Push complete")
+                self._log_event("\u2705 push complete")
                 self._status("\u2705 push complete")
             else:
-                stderr_lines = []
-                if proc.stderr:
-                    async for line in proc.stderr:
-                        err_text = line.decode().strip()
-                        if err_text:
-                            stderr_lines.append(err_text)
                 err_detail = "; ".join(stderr_lines[-3:]) if stderr_lines else f"exit {proc.returncode}"
-                self.notify(f"\u274c Push failed: {err_detail}", title="Error", severity="error")
+                self._log_event(f"\u274c push failed: {err_detail}")
                 self._status(f"\u274c push failed: {err_detail}")
         except asyncio.TimeoutError:
             self._status("push timed out")
