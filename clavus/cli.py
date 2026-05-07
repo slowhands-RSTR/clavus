@@ -834,12 +834,13 @@ def cmd_join(args: argparse.Namespace) -> None:
             client = SyncClient(f"http://{peer.host}:{peer.port}")
             r = client.client.get(
                 f"http://{peer.host}:{peer.port}/api/share",
-                timeout=5,
+                timeout=10,
             )
             if r.status_code == 200:
                 return r.json()
-        except Exception:
-            pass
+        except Exception as e:
+            # Debug: log the failure silently for now
+            _ = e
         return None
 
     relay_info = []

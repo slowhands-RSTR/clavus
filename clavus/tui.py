@@ -1207,7 +1207,7 @@ class ClavusApp(App):
             if proc.poll() is None:
                 proc.terminate()
                 try:
-                    proc.wait(timeout=5)
+                    proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     proc.kill()
 
@@ -1834,7 +1834,7 @@ class JoinModal(ModalScreen[None]):
             def _get_info(peer):
                 try:
                     client = SyncClient(f"http://{peer.host}:{peer.port}")
-                    r = client.client.get(f"http://{peer.host}:{peer.port}/api/share", timeout=5)
+                    r = client.client.get(f"http://{peer.host}:{peer.port}/api/share", timeout=10)
                     if r.status_code == 200:
                         return r.json()
                 except Exception:
@@ -1844,7 +1844,7 @@ class JoinModal(ModalScreen[None]):
             relay_info = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
                 fut_map = {pool.submit(_get_info, p): p for p in peers}
-                for fut in concurrent.futures.as_completed(fut_map, timeout=5):
+                for fut in concurrent.futures.as_completed(fut_map, timeout=10):
                     try:
                         info = fut.result()
                         if info and info.get("share_code"):
