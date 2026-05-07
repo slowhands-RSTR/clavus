@@ -1329,13 +1329,14 @@ class ClavusApp(App):
 
     async def _do_pull(self):
         """Pull cues + snapshots + blobs from remotes (same as 'clavus pull')."""
-        import subprocess
+        import subprocess, sys
+        cmd = [sys.executable, "-m", "clavus", "pull"]
         self._status("\u23f3 pulling...")
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
-                "clavus pull",
-                capture_output=True, text=True, shell=True, timeout=300,
+                cmd,
+                capture_output=True, text=True, timeout=300,
             )
             # Show output lines as log events
             for line in result.stdout.splitlines():
@@ -1345,14 +1346,17 @@ class ClavusApp(App):
             if result.returncode == 0:
                 import time
                 ts = time.strftime("%H:%M")
-                self._last_sync = f"⬇ pull ✓ {ts}"
+                self._last_sync = f"\u2b07 pull \u2713 {ts}"
                 self._update_header()
-                self._log_event(f"✅ pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
-                self._status(f"✅ pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
+                self._log_event(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
+                self._status(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
             else:
-                err_detail = result.stderr.strip() or f"exit {result.returncode}"
-                self._log_event(f"\u274c pull failed: {err_detail}")
-                self._status(f"\u274c pull failed: {err_detail}")
+                # Show stderr + last stdout lines for debugging
+                err_lines = result.stderr.strip().splitlines() if result.stderr.strip() else []
+                out_tail = result.stdout.strip().splitlines()[-2:] if result.stdout.strip() else []
+                detail = "; ".join(err_lines + out_tail) or f"exit {result.returncode}"
+                self._log_event(f"\u274c pull failed: {detail}")
+                self._status(f"\u274c pull failed (see log)")
             # Refresh local state from disk
             if self.project:
                 self._load_cues_from_disk()
@@ -1377,13 +1381,14 @@ class ClavusApp(App):
 
     async def _do_push(self):
         """Push cues + snapshots + blobs to remotes (same as 'clavus push')."""
-        import subprocess
+        import subprocess, sys
+        cmd = [sys.executable, "-m", "clavus", "push"]
         self._status("\u23f3 pushing...")
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
-                "clavus push",
-                capture_output=True, text=True, shell=True, timeout=300,
+                cmd,
+                capture_output=True, text=True, timeout=300,
             )
             for line in result.stdout.splitlines():
                 line = line.strip()
@@ -1392,14 +1397,16 @@ class ClavusApp(App):
             if result.returncode == 0:
                 import time
                 ts = time.strftime("%H:%M")
-                self._last_sync = f"⬆ push ✓ {ts}"
+                self._last_sync = f"\u2b06 push \u2713 {ts}"
                 self._update_header()
-                self._log_event("✅ push complete")
-                self._status("✅ push complete")
+                self._log_event("\u2705 push complete")
+                self._status("\u2705 push complete")
             else:
-                err_detail = result.stderr.strip() or f"exit {result.returncode}"
-                self._log_event(f"\u274c push failed: {err_detail}")
-                self._status(f"\u274c push failed: {err_detail}")
+                err_lines = result.stderr.strip().splitlines() if result.stderr.strip() else []
+                out_tail = result.stdout.strip().splitlines()[-2:] if result.stdout.strip() else []
+                detail = "; ".join(err_lines + out_tail) or f"exit {result.returncode}"
+                self._log_event(f"\u274c push failed: {detail}")
+                self._status(f"\u274c push failed (see log)")
         except subprocess.TimeoutExpired:
             self._status("push timed out")
         except Exception as e:
