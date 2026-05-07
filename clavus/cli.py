@@ -872,6 +872,36 @@ def cmd_share(args: argparse.Namespace) -> None:
     port = args.port or cfg.port
     share_code = generate_share_code()
 
+    # Check if port is already in use — try to kill stale Clavus relay
+    import socket, platform, signal
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if sock.connect_ex(("127.0.0.1", port)) == 0:
+        sock.close()
+        print(f"   ⚠️  Port {port} in use — checking for stale Clavus relay...")
+        try:
+            import httpx
+            r = httpx.get(f"http://127.0.0.1:{port}/api/sync/pull", params={"name": "_"}, timeout=2)
+            if r.status_code in (200, 404):  # 404 = Clavus responding, just no project
+                print(f"   🔄 Restarting stale Clavus relay on port {port}...")
+                import subprocess
+                if platform.system() == "Windows":
+                    subprocess.run(["taskkill", "/f", "/fi", f"WINDOWTITLE eq *clavus*relay*"], capture_output=True)
+                else:
+                    result = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True)
+                    for pid in result.stdout.strip().split("\n"):
+                        if pid:
+                            try:
+                                os.kill(int(pid), signal.SIGTERM)
+                            except Exception:
+                                pass
+                import time
+                time.sleep(1)
+        except Exception:
+            print(f"   ❌ Port {port} in use by another app. Use: clavus share --port <N>")
+            sys.exit(1)
+    else:
+        sock.close()
+
     print(f"  🎹 Clavus Share")
     print(f"  {'─' * 40}")
     print(f"  🔗 Share code: {share_code}")
@@ -2169,11 +2199,9 @@ def cmd_open(args: argparse.Namespace) -> None:
     system = platform.system()
     if system == "Darwin":
         ableton_path = None
-        for version in ["12", "11", "10"]:
-            candidate = Path(f"/Applications/Ableton Live {version}/Ableton Live {version}.app")
-            if candidate.exists():
-                ableton_path = str(candidate)
-                break
+        for candidate in Path("/Applications").glob("Ableton Live*.app"):
+            ableton_path = str(candidate)
+            break
         if ableton_path:
             sp.run(["open", "-a", ableton_path, str(out_path)])
             print(f"   🎹 Launched Ableton Live")
@@ -2185,6 +2213,12 @@ def cmd_open(args: argparse.Namespace) -> None:
         print(f"   🎹 Opened .als with default app")
     else:
         print(f"   ℹ️  Open manually: {out_path}")
+
+    # Helpful tip for first-open sample resolution
+    if sample_written:
+        print()
+        print("   💡 If samples show as offline, point Ableton at any one —")
+        print("      all others will resolve automatically.")
 
 
 # ─── Backup / Restore Store ──────────────────────────────────────────────
