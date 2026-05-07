@@ -1345,8 +1345,12 @@ class ClavusApp(App):
                     if text:
                         self._log_event(text)
                         self._status(f"\u23f3 {text}")
-            await stderr_task
             await proc.wait()
+            stderr_task.cancel()
+            try:
+                await stderr_task
+            except asyncio.CancelledError:
+                pass
             if proc.returncode == 0:
                 cue_count = len(self.cues)
                 snap_count = len(self.snaps)
@@ -1402,8 +1406,12 @@ class ClavusApp(App):
                     if text:
                         self._log_event(text)
                         self._status(f"\u23f3 {text}")
-            await stderr_task
             await proc.wait()
+            stderr_task.cancel()
+            try:
+                await stderr_task
+            except asyncio.CancelledError:
+                pass
             if proc.returncode == 0:
                 self._log_event("\u2705 push complete")
                 self._status("\u2705 push complete")
