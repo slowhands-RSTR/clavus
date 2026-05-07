@@ -1165,9 +1165,14 @@ async def sync_push_snapshots(body: SyncPushSnapshotsBody,
         meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
         imported += 1
 
-    # Update HEAD if we got new snapshots and remote has a later HEAD
+    # Update HEAD if we got new snapshots
     if imported > 0:
-        proj.head = store.read_ref("HEAD") or proj.head
+        # Use the last pushed snapshot as HEAD if none is set
+        last_snap = body.snapshots[-1]
+        new_head = last_snap.get("full_hash", last_snap.get("hash", ""))
+        if new_head:
+            store.update_ref("HEAD", new_head)
+            proj.head = new_head
         store.set_index(proj)
 
     return {"status": "ok", "imported": imported}

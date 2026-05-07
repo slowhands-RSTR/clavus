@@ -203,10 +203,13 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             last = data.get("_last_project", "(none)")
             print(f"  ✅ index.json: {len(projects)} project(s), last: {last}")
             for name in projects:
-                p = data[name]
+                p = data.get(name)
+                if not p or not isinstance(p, dict):
+                    print(f"    ⚠️  {name}  — corrupt entry (null), needs repair")
+                    continue
                 als = p.get("root_als", "")
                 als_ok = "✅" if (als and Path(als).exists()) else "⚠️"
-                head = p.get("head", "")[:12] or "(none)"
+                head = (p.get("head") or "")[:12] or "(none)"
                 print(f"    {als_ok} {name}  @ {head}  {als[:50] if als else '(no path)'}")
         except (json.JSONDecodeError, OSError) as e:
             print(f"  ❌ index.json: CORRUPT — {e}")
