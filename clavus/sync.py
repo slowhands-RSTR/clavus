@@ -466,41 +466,41 @@ def pull_snapshot_blobs(
     finally:
         client.close()
 
-    # Auto-materialize latest .als + samples into project folder after blob download
-    if count > 0 and (missing_als or missing_samples):
-        try:
-            head = proj.head
-            if head:
-                snap = store.load_snapshot(head)
-                if snap and snap.als_hash:
-                    raw = store.get_object(snap.als_hash)
-                    if raw:
-                        proj_ref = store.get_index(proj.name)
-                        if proj_ref and proj_ref.root_als:
-                            out = Path(proj_ref.root_als)
-                        else:
-                            project_name = proj.name.replace(" ", " ")
-                            project_dir = Path.home() / "Desktop" / f"{project_name} Project"
-                            out = project_dir / f"{project_name}.als"
-                        out.parent.mkdir(parents=True, exist_ok=True)
+    # Always materialize the latest snapshot to Desktop after any pull
+    try:
+        head = proj.head
+        if head:
+            snap = store.load_snapshot(head)
+            if snap and snap.als_hash:
+                raw = store.get_object(snap.als_hash)
+                if raw:
+                    proj_ref = store.get_index(proj.name)
+                    if proj_ref and proj_ref.root_als:
+                        out = Path(proj_ref.root_als)
+                    else:
+                        project_name = proj.name.replace(" ", " ")
+                        project_dir = Path.home() / "Desktop" / f"{project_name} Project"
+                        out = project_dir / f"{project_name}.als"
+                    out.parent.mkdir(parents=True, exist_ok=True)
 
-                        # Materialize samples first
-                        if snap.sample_hashes:
-                            for sh in snap.sample_hashes:
-                                fname = store.get_sample_filename(sh)
-                                relpath = store.get_sample_relpath(sh) or ""
-                                if fname and store.has_object(sh):
-                                    try:
-                                        store.materialize_sample(sh, out.parent, fname, relpath)
-                                    except Exception:
-                                        pass
+                    # Materialize samples first
+                    if snap.sample_hashes:
+                        for sh in snap.sample_hashes:
+                            fname = store.get_sample_filename(sh)
+                            relpath = store.get_sample_relpath(sh) or ""
+                            if fname and store.has_object(sh):
+                                try:
+                                    store.materialize_sample(sh, out.parent, fname, relpath)
+                                except Exception:
+                                    pass
 
-                        # Rewrite .als paths then write
-                        from clavus.parser import rewrite_als_sample_paths
-                        raw = rewrite_als_sample_paths(raw, out.parent)
-                        out.write_bytes(raw)
-        except Exception:
-            pass
+                    # Rewrite .als paths then write
+                    from clavus.parser import rewrite_als_sample_paths
+                    raw = rewrite_als_sample_paths(raw, out.parent)
+                    out.write_bytes(raw)
+                    print(f"   📁 Project folder → {out.parent}")
+    except Exception:
+        pass
 
     return count
 
