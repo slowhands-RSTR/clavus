@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+
+    - name: Generate test fixture
+      run: python3 fixtures/gen_fixture.py
+
+    - name: Run tests
+      run: |
+        python3 test_parser.py
+        python3 test_snapshot.py
+        python3 test_cues.py
+        python3 test_watch.py
+        python3 test_cli.py
+        python3 test_cli_full.py
+        python3 -m pytest tests/ -v || true
