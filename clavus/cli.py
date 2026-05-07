@@ -503,6 +503,33 @@ def cmd_init(args: argparse.Namespace) -> None:
     print()
 
     # ── Init ──
+    # Copy project to ~/Clavus/Projects/ so everything lives in one place
+    from clavus.helpers import get_projects_dir
+    import shutil
+
+    projects_root = get_projects_dir()
+    target_dir = projects_root / project_name
+    target_als = target_dir / f"{project_name}.als"
+
+    if target_dir.exists():
+        print(f"⚠️  '{project_name}' already exists in {projects_root}")
+        print(f"   Use 'clavus project \"{project_name}\"' to switch to it.")
+        return
+
+    print(f"📁 Copying project to {target_dir}...")
+    source_dir = als_path.parent
+    shutil.copytree(
+        source_dir, target_dir,
+        ignore=shutil.ignore_patterns("Backup*", "Ableton Project Info", ".DS_Store"),
+        dirs_exist_ok=True,
+    )
+
+    # Update als_path to the copy and re-parse
+    als_path = target_als
+    project.file_path = str(als_path)  # update path in parsed project
+    print(f"   ✅ Copied → {target_dir}")
+    print()
+
     clavus_proj = ClavusProject(
         name=project_name,
         root_als=str(als_path),
@@ -525,10 +552,13 @@ def cmd_init(args: argparse.Namespace) -> None:
         print(f"   Notes: {clavus_proj.description}")
     print()
     print("   Next steps:")
-    print(f"     clavus project \"{project_name}\"    Switch to this project")
+    print(f"     open {target_dir}                Open in Finder")
     print(f'     clavus snapshot "my changes"     Save a snapshot')
     print(f"     clavus log                       View history")
-    print(f"     clavus --help                    All commands")
+    print(f"     clavus push                      Share with collaborators")
+    print()
+    print(f"   💡 Your original at {source_dir} is untouched.")
+    print(f"      Work from {target_dir} going forward.")
 
 
 def cmd_projects(args: argparse.Namespace) -> None:
