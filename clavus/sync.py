@@ -360,6 +360,25 @@ def pull_snapshot_blobs(
     finally:
         client.close()
 
+    # Auto-materialize latest .als after blob download
+    if count > 0 and als_hashes:
+        try:
+            head = store.read_ref("HEAD")
+            if head:
+                snap = store.load_snapshot(head)
+                if snap and snap.als_hash:
+                    raw = store.get_object(snap.als_hash)
+                    if raw:
+                        proj_ref = store.get_index(proj.name)
+                        if proj_ref and proj_ref.root_als:
+                            out = Path(proj_ref.root_als)
+                        else:
+                            out = Path.home() / "Desktop" / f"{proj.name}.als"
+                        out.parent.mkdir(parents=True, exist_ok=True)
+                        out.write_bytes(raw)
+        except Exception:
+            pass
+
     return count
 
 

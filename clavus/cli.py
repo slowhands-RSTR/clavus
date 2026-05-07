@@ -1955,6 +1955,78 @@ def cmd_restore(args: argparse.Namespace) -> None:
     print(f"   HEAD updated to {snap.short_hash()}")
 
 
+def cmd_open(args: argparse.Namespace) -> None:
+    """Open the latest (or specified) .als snapshot in Ableton Live."""
+    import subprocess as sp
+    import platform
+
+    store, proj = get_store_and_project()
+
+    # Resolve hash
+    if args.hash:
+        hash_str = resolve_snapshot(store, args.hash)
+        if not hash_str:
+            print(f"❌ Could not resolve '{args.hash}'")
+            sys.exit(1)
+    else:
+        hash_str = store.read_ref("HEAD")
+        if not hash_str:
+            print("❌ No snapshots. Push from another machine or take a snapshot first.")
+            sys.exit(1)
+
+    snap = store.load_snapshot(hash_str)
+    if not snap:
+        print(f"❌ Snapshot not found: {hash_str}")
+        sys.exit(1)
+
+    if not snap.als_hash:
+        print(f"❌ Snapshot {snap.short_hash()} has no .als backup.")
+        sys.exit(1)
+
+    raw_als = store.get_object(snap.als_hash)
+    if not raw_als:
+        print(f"❌ .als blob missing. Try pulling again to fetch it.")
+        sys.exit(1)
+
+    # Determine output path
+    if args.output:
+        out_path = Path(args.output)
+    elif proj.root_als:
+        out_path = Path(proj.root_als)
+    else:
+        desktop = Path.home() / "Desktop"
+        out_path = desktop / f"{proj.name}.als"
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(raw_als)
+    print(f"✅ {proj.name}.als → {out_path}")
+    print(f"   Snapshot: {snap.short_hash()} — {snap.message or '(no message)'}")
+    print(f"   {snap.track_count} tracks, {snap.bpm} BPM")
+
+    # Launch Ableton
+    if args.launch:
+        system = platform.system()
+        if system == "Darwin":
+            # macOS: try to find Ableton
+            ableton_path = None
+            for version in ["12", "11", "10"]:
+                candidate = Path(f"/Applications/Ableton Live {version}/Ableton Live {version}.app")
+                if candidate.exists():
+                    ableton_path = str(candidate)
+                    break
+            if ableton_path:
+                sp.run(["open", "-a", ableton_path, str(out_path)])
+                print(f"   🎹 Launched Ableton Live")
+            else:
+                sp.run(["open", str(out_path)])
+                print(f"   🎹 Opened .als with default app")
+        elif system == "Windows":
+            sp.run(["start", "", str(out_path)], shell=True)
+            print(f"   🎹 Opened .als with default app")
+        else:
+            print(f"   ℹ️  Open manually: {out_path}")
+
+
 # ─── Backup / Restore Store ──────────────────────────────────────────────
 
 
@@ -2162,6 +2234,15 @@ def main():
                           help="Snapshot hash or ref name (default: HEAD)")
     p_restore.add_argument("-y", "--yes", action="store_true",
                           help="Skip confirmation prompt")
+
+    # Open
+    p_open = subparsers.add_parser("open", help="Open latest .als in Ableton Live")
+    p_open.add_argument("hash", nargs="?", default=None,
+                       help="Snapshot hash (default: HEAD/latest)")
+    p_open.add_argument("--launch", "-l", action="store_true",
+                       help="Launch Ableton Live after restoring")
+    p_open.add_argument("--output", "-o", default=None,
+                       help="Output path (default: Desktop/<Project>.als)")
 
     # Store backup
     p_backup = subparsers.add_parser("backup", help="Backup the entire Clavus store")
@@ -2388,6 +2469,7 @@ def main():
         "sync": cmd_sync,
         "merge": cmd_merge,
         "restore": cmd_restore,
+        "open": cmd_open,
         "backup": cmd_backup,
         "backups": cmd_list_backups,
         "restore-store": cmd_restore_store,
