@@ -1,7 +1,15 @@
+.DS_Store
 __pycache__/
 *.pyc
-*.pyo
 *.egg-info/
 dist/
 build/
-.clavus/
+test_*.py
+dt2_test.py
+htest.py
+minimal_*.py
+tui_headless_test.py
+test_input.py
+clavus/web/index.html
+clavus/web/app.js
+clavus/web/app.css

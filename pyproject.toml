@@ -4,10 +4,41 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clavus"
-version = "0.1.0"
+version = "0.7.0-beta"
 description = "Git for Ableton — snapshot, diff, sync, and comment on Live projects"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
+authors = [
+    {name = "castle-queenside", email = "slow_hands@icloud.com"},
+]
+urls = {Homepage = "https://github.com/castle-queenside/clavus"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Sound/Audio :: Editors",
+]
+dependencies = [
+    "httpx",
+    "textual",
+    "zeroconf",
+    "fastapi",
+    "uvicorn",
+    "websockets",
+]
+
+[tool.setuptools.packages.find]
+include = ["clavus*"]
 
 [project.scripts]
 clavus = "clavus.cli:main"
-
