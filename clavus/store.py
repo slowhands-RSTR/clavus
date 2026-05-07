@@ -142,6 +142,8 @@ class BlobStore:
 
     def _resolve_object_hash(self, hash_str: str) -> Optional[str]:
         """Resolve a short (8-char) hash to the full 64-char filename."""
+        if not hash_str:
+            return None
         if len(hash_str) >= 64:
             return hash_str
         prefix_dir = self.objects_dir / hash_str[:2]

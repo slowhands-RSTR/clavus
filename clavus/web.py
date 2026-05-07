@@ -1070,6 +1070,10 @@ async def sync_pull(name: str = Query(..., description="Project name")):
             "hash": snap.hash[:8], "full_hash": snap.hash,
             "timestamp": snap.timestamp, "message": snap.message,
             "track_count": snap.track_count, "bpm": snap.bpm,
+            "parent": snap.parent,
+            "als_hash": snap.als_hash,
+            "project_path": snap.project_path,
+            "tags": snap.tags,
             "is_head": current == store.read_ref("HEAD"),
         })
         if snap.parent == current:

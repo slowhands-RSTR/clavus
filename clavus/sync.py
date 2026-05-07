@@ -500,6 +500,7 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> d
                 track_count=s.get("track_count", 0),
                 bpm=s.get("bpm", 120.0),
                 tags=s.get("tags", []),
+                als_hash=s.get("als_hash", None),
             )
             # Store snapshot metadata
             meta_dir = store.objects_dir / snap.hash[:2]
