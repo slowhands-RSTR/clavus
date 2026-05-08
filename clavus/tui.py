@@ -1427,23 +1427,21 @@ class ClavusApp(App):
         import time
         from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
         from clavus.store import ClavusProject
-        self._sync_status = f"\u2b07 {time.strftime("%H:%M")} pulling..."
-        self._update_header()
-        await asyncio.sleep(0)
-        self._status("\u2b07 pulling...")
         try:
             proj_index = self.store.get_index(self.project) if self.project else None
             remotes = load_remotes(self.store)
+            if not remotes:
+                self._sync_status = ""
+                self._update_header()
+                self._status("\u274c no remotes — use :join http://...")
+                return
+            self._sync_status = f"\u2b07 {time.strftime("%H:%M")} pulling..."
+            self._update_header()
+            await asyncio.sleep(0)
+            self._status("\u2b07 pulling...")
 
             # If no local project, auto-discover from remotes
             if not proj_index:
-                if not remotes:
-                    self._sync_status = ""
-                    self._update_header()
-                    await asyncio.sleep(0)
-                    self._status("\u274c no remotes — use :join http://...")
-                    return
-
                 self._sync_status = f"\u2b07 {time.strftime("%H:%M")} probing {len(remotes)} remote(s)..."
                 self._update_header()
                 await asyncio.sleep(0)
@@ -1517,7 +1515,6 @@ class ClavusApp(App):
                     self._peer_name = remotes[0].name if remotes else ""
                     self._peer_reachable = True
                     self._last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
-                    self._log_event(f"SYNC_DEBUG_AUTO: _last_sync={self._last_sync!r}")
                     self._sync_status = ""
                     self._load_cues_from_disk()
                     self._load_snapshots_from_disk()
@@ -1527,12 +1524,6 @@ class ClavusApp(App):
                 return
 
             # ── Normal pull for existing project ──
-            if not remotes:
-                self._sync_status = ""
-                self._update_header()
-                await asyncio.sleep(0)
-                self._status("\u274c no remotes configured")
-                return
             for remote in remotes:
                 self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}..."
                 self._update_header()
@@ -1555,7 +1546,6 @@ class ClavusApp(App):
                 await asyncio.sleep(0)
                 self._peer_reachable = True
             self._last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
-            self._log_event(f"SYNC_DEBUG: _last_sync={self._last_sync!r}")
             self._sync_status = ""
             self._update_header()
             await asyncio.sleep(0)
@@ -1576,25 +1566,23 @@ class ClavusApp(App):
         import asyncio
         import time
         from clavus.sync import load_remotes, push_to_remote, push_snapshot_blobs
-        self._sync_status = f"\u2b06 {time.strftime("%H:%M")} pushing..."
-        self._update_header()
-        await asyncio.sleep(0)
-        self._status("\u2b06 pushing...")
         try:
             proj_index = self.store.get_index(self.project)
             if not proj_index:
                 self._sync_status = ""
                 self._update_header()
-                await asyncio.sleep(0)
                 self._status("\u274c no project")
                 return
             remotes = load_remotes(self.store)
             if not remotes:
                 self._sync_status = ""
                 self._update_header()
-                await asyncio.sleep(0)
                 self._status("\u274c no remotes configured")
                 return
+            self._sync_status = f"\u2b06 {time.strftime("%H:%M")} pushing..."
+            self._update_header()
+            await asyncio.sleep(0)
+            self._status("\u2b06 pushing...")
             for remote in remotes:
                 self._sync_status = f"\u2b06 {time.strftime("%H:%M")} {remote.name}..."
                 self._update_header()
