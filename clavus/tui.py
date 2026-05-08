@@ -1323,6 +1323,7 @@ class ClavusApp(App):
         # Load snapshots from store
         self._load_snapshots_from_disk()
         self._status(f"{len(self.cues)} cues, {len(self.snaps)} snapshots")
+        self._render()
 
     def _load_cues_from_disk(self):
         """Load cues for the current project from CueStore."""
