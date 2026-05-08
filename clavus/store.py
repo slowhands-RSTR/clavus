@@ -301,13 +301,13 @@ class BlobStore:
             sample_paths=sample_paths,
         )
 
-        # Store snapshot metadata (indexed by hash)
-        # Always write the new metadata to maintain correct parent chain.
-        # If content is dedup'd (same hash), we overwrite the old metadata
-        # with the new parent. The old snapshot had the same content anyway,
-        # so the only thing we lose is the original creation time — but the
-        # new timestamp is more accurate for the current position in history.
-        self._write_snapshot_meta(snapshot)
+        # Store snapshot metadata (indexed by hash).
+        # Only write if meta doesn't exist yet — with als_hash as identity,
+        # duplicate snapshots have the same hash, and overwriting would
+        # trigger self-referencing parent protection (parent == hash).
+        meta_path = self.objects_dir / snapshot.hash[:2] / f"{snapshot.hash}.meta"
+        if not meta_path.exists():
+            self._write_snapshot_meta(snapshot)
 
         return snapshot
 
