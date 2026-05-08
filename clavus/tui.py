@@ -1426,7 +1426,7 @@ class ClavusApp(App):
         import time
         from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
         from clavus.store import ClavusProject
-        self._sync_status = "\u2b07 pulling..."
+        self._sync_status = f"\u2b07 {time.strftime("%H:%M")} pulling..."
         self._update_header()
         await asyncio.sleep(0)
         self._status("\u2b07 pulling...")
@@ -1443,14 +1443,14 @@ class ClavusApp(App):
                     self._status("\u274c no remotes — use :join http://...")
                     return
 
-                self._sync_status = f"\u2b07 probing {len(remotes)} remote(s)..."
+                self._sync_status = f"\u2b07 {time.strftime("%H:%M")} probing {len(remotes)} remote(s)..."
                 self._update_header()
                 await asyncio.sleep(0)
                 # Try external remotes first (localhost is slow/unreachable on Windows)
                 remotes_sorted = sorted(remotes, key=lambda r: 0 if "localhost" in r.url else -1)
                 pulled_any = False
                 for remote in remotes_sorted:
-                    self._sync_status = f"\u2b07 {remote.name}..."
+                    self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}..."
                     self._update_header()
                     await asyncio.sleep(0)
                     client = SyncClient(remote.url)
@@ -1466,7 +1466,7 @@ class ClavusApp(App):
                             if self.store.get_index(pname):
                                 proj_index = self.store.get_index(pname)
                             else:
-                                self._sync_status = f"\u2b07 {pname}..."
+                                self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {pname}..."
                                 self._update_header()
                                 await asyncio.sleep(0)
                                 r2 = client.client.get(
@@ -1490,14 +1490,14 @@ class ClavusApp(App):
                             if result.get("cues"): parts.append(f"{result['cues']}c")
                             if result.get("snapshots"): parts.append(f"{result['snapshots']}s")
                             if blob_count: parts.append(f"{blob_count}b")
-                            self._sync_status = f"\u2b07 {pname}  {' '.join(parts)}" if parts else f"\u2b07 {pname}  up to date"
+                            self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {pname}  {' '.join(parts)}" if parts else f"\u2b07 {time.strftime("%H:%M")} {pname}  up to date"
                             self._update_header()
                             await asyncio.sleep(0)
                             pulled_any = True
                         if pulled_any:
                             break
                     except Exception as e:
-                        self._sync_status = f"\u2b07 {remote.name}: err"
+                        self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}: err"
                         self._update_header()
                         continue
                     finally:
@@ -1532,7 +1532,7 @@ class ClavusApp(App):
                 self._status("\u274c no remotes configured")
                 return
             for remote in remotes:
-                self._sync_status = f"\u2b07 {remote.name}..."
+                self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}..."
                 self._update_header()
                 await asyncio.sleep(0)
                 result = pull_from_remote(self.store, proj_index, remote)
@@ -1546,14 +1546,13 @@ class ClavusApp(App):
                 snaps_n = result.get("snapshots", 0)
                 conflicts_n = result.get("conflicts", 0)
                 blobs = pull_snapshot_blobs(self.store, proj_index, remote)
-                self._sync_status = f"\u2b07 {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+                self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
                 if conflicts_n:
                     self._sync_status += f"  \u26a0{conflicts_n}"
                 self._update_header()
                 await asyncio.sleep(0)
-            ts = time.strftime("%H:%M")
-            self._peer_reachable = True
-            self._last_sync = f"\u2b07 pull \u2713 {ts}"
+                self._peer_reachable = True
+            self._last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
             self._sync_status = ""
             self._update_header()
             await asyncio.sleep(0)
@@ -1574,7 +1573,7 @@ class ClavusApp(App):
         import asyncio
         import time
         from clavus.sync import load_remotes, push_to_remote, push_snapshot_blobs
-        self._sync_status = "\u2b06 pushing..."
+        self._sync_status = f"\u2b06 {time.strftime("%H:%M")} pushing..."
         self._update_header()
         await asyncio.sleep(0)
         self._status("\u2b06 pushing...")
@@ -1594,7 +1593,7 @@ class ClavusApp(App):
                 self._status("\u274c no remotes configured")
                 return
             for remote in remotes:
-                self._sync_status = f"\u2b06 {remote.name}..."
+                self._sync_status = f"\u2b06 {time.strftime("%H:%M")} {remote.name}..."
                 self._update_header()
                 await asyncio.sleep(0)
                 result = push_to_remote(self.store, proj_index, remote)
@@ -1607,12 +1606,11 @@ class ClavusApp(App):
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
                 blobs = push_snapshot_blobs(self.store, proj_index, remote)
-                self._sync_status = f"\u2b06 {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+                self._sync_status = f"\u2b06 {time.strftime("%H:%M")} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
                 self._update_header()
                 await asyncio.sleep(0)
-            ts = time.strftime("%H:%M")
-            self._peer_reachable = True
-            self._last_sync = f"\u2b06 push \u2713 {ts}"
+                self._peer_reachable = True
+            self._last_sync = f"\u2b06 push \u2713 {time.strftime('%H:%M')}"
             self._sync_status = ""
             self._update_header()
             await asyncio.sleep(0)
