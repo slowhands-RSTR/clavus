@@ -1255,7 +1255,7 @@ class ClavusApp(App):
         self._status_spinner = True
         self._spin_idx = 1  # first frame shown, chain picks up from 1
         self._status(f"[{self._spin_chars[0]}] {self._spin_label}")
-        self.call_from_thread(self._tick_spinner)
+        self._tick_spinner()  # first chain link — no call_from_thread needed
         try:
             await self._do_pull()
         finally:
@@ -1270,7 +1270,7 @@ class ClavusApp(App):
         self._status_spinner = True
         self._spin_idx = 1  # first frame shown, chain picks up from 1
         self._status(f"[{self._spin_chars[0]}] {self._spin_label}")
-        self.call_from_thread(self._tick_spinner)
+        self._tick_spinner()  # first chain link — no call_from_thread needed
         try:
             await self._do_push()
         finally:
