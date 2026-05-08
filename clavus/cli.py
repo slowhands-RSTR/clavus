@@ -419,11 +419,18 @@ def cmd_setup(args: argparse.Namespace) -> None:
                     print(f"   ⚠️  {remote.name} — relay responded but no projects (run 'clavus init' on host)")
             except Exception:
                 print(f"   ⚠️  {remote.name} — unreachable (is 'clavus share' running?)")
+    # Smart next-step suggestions based on what was configured
+    has_external = any("localhost" not in r.url for r in remotes)
     print()
     print("   Next:")
-    print("     clavus pull               — sync projects from remotes")
-    print("     clavus init               — track a local project")
-    print("     clavus tui                — terminal dashboard")
+    if has_external:
+        print("     clavus pull               — pull projects and start collaborating")
+    print("     clavus tui                — terminal dashboard (press p to pull)")
+    if not has_external:
+        print("     clavus init /path/to.als  — track a local project")
+    print()
+    if has_external:
+        print("   💡 Quick start: clavus pull && clavus tui")
 
 
 def cmd_init(args: argparse.Namespace) -> None:

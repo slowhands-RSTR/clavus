@@ -1290,7 +1290,18 @@ class ClavusApp(App):
         self._status("loading from disk...")
         projects = self.store.list_projects()
         if not projects:
-            self._status("no project — use :init <path> to add one")
+            # Check if remotes are configured — if so, guide to pull
+            try:
+                from clavus.sync import load_remotes
+                remotes = load_remotes(self.store)
+                if remotes:
+                    self._status("connected — press p to pull projects")
+                    self._log_event("remotes configured — press p to pull")
+                else:
+                    self._status("no project — use :join http://IP:PORT or :init <path>")
+                    self._log_event("no remotes — use :join http://IP:PORT")
+            except Exception:
+                self._status("no project — use :init <path> to add one")
             self._update_header()
             self._update_footer()
             return
@@ -1313,8 +1324,8 @@ class ClavusApp(App):
         from clavus.sync import load_remotes
         remotes = load_remotes(self.store)
         self._peer_name = remotes[0].name if remotes else ""
-        # Assume reachable if we have remotes (verified on first pull/push)
-        self._peer_reachable = bool(remotes)
+        # Yellow until first successful pull/push
+        self._peer_reachable = False  # proven on first pull/push
         self._update_footer()
 
         # Load cues from disk
