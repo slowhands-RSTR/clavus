@@ -1735,16 +1735,10 @@ class ClavusApp(App):
             peer = f"  [{C['yellow']}]○[/]"
         else:
             peer = f"  [{C['dim']}]○[/]"
-        text = f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}"
         w = self._header_title
         if w is not None:
-            w.update(text)
+            w.update(f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
             w.refresh()
-        else:
-            try:
-                self.query_one("#header-title", Static).update(text)
-            except Exception:
-                pass
     def _update_footer(self):
         try:
             self.query_one("#footer-keys", Static).update(
