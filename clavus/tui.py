@@ -290,6 +290,8 @@ class ClavusApp(App):
         self._show_input("command", ":", prefill="")
 
     def _do_command(self, text: str):
+        with open("/tmp/clavus_snap_debug.log", "a") as f:
+            f.write(f"_do_command: {text!r}\n")
         parts = text.strip().split(maxsplit=1)
         if not parts:
             return
@@ -820,6 +822,8 @@ class ClavusApp(App):
     @work(exclusive=False)
     async def _run_snapshot(self, message: str = ""):
         """Create a new snapshot via CLI subprocess."""
+        with open("/tmp/clavus_snap_debug.log", "a") as f:
+            f.write(f"_run_snapshot: project={self.project!r} message={message!r}\n")
         if not self.project:
             self._status("no project selected")
             return
