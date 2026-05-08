@@ -1916,7 +1916,9 @@ def cmd_pull(args: argparse.Namespace) -> None:
                     return
 
         pulled_any = False
-        for remote in candidates:
+        # Try external remotes first (localhost is unreachable on Windows)
+        candidates_sorted = sorted(candidates, key=lambda r: 0 if "localhost" in r.url else -1)
+        for remote in candidates_sorted:
             client = SyncClient(remote.url)
             try:
                 r = client.client.get(f"{remote.url}/api/projects", timeout=10)

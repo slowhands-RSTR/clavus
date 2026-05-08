@@ -1400,8 +1400,10 @@ class ClavusApp(App):
                     return
 
                 self._log_event(f"no local project — trying {len(remotes)} remote(s)...")
+                # Try external remotes first (localhost is slow/unreachable on Windows)
+                remotes_sorted = sorted(remotes, key=lambda r: 0 if "localhost" in r.url else -1)
                 pulled_any = False
-                for remote in remotes:
+                for remote in remotes_sorted:
                     self._log_event(f"  probing {remote.name} ({remote.url})...")
                     client = SyncClient(remote.url)
                     try:
