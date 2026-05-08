@@ -1346,7 +1346,7 @@ class ClavusApp(App):
         if remotes and (self.cues or self.snaps):
             self._peer_reachable = True
             if not self._last_sync:
-                self._last_sync = "synced"
+                self._last_sync = f"synced {time.strftime('%H:%M')}"
         self._update_header()
         self._status(f"{len(self.cues)} cues, {len(self.snaps)} snapshots")
         self._render()
