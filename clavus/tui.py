@@ -1248,6 +1248,9 @@ class ClavusApp(App):
             await self._do_pull()
         finally:
             self._busy = False
+            import sys
+            sys.stderr.write(f"STDERR: _last_sync={self._last_sync}\n")
+            sys.stderr.flush()
             self._update_header()
             self.refresh()
 
