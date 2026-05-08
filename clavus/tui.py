@@ -1772,6 +1772,8 @@ class ClavusApp(App):
                 sync_part = f"  [bold {C['accent']}]{self._sync_status}[/]"
             elif self._last_sync:
                 sync_part = f"  [{C['green']}]{self._last_sync}[/]"
+            elif self._peer_name:
+                sync_part = f"  [{C['dim']}]{self._peer_name}[/]"
             if self._peer_name and self._peer_reachable:
                 peer = f"  [bold {C['green']}]\u25cf[/]"
             elif self._peer_name:
