@@ -58,6 +58,7 @@ class Cue:
     snapshot_hash: str = ""
     assignee: str = ""
     in_progress: bool = False
+    conflict: bool = False
     replies: list = field(default_factory=list)
 
 @dataclass
@@ -1744,7 +1745,7 @@ class ClavusApp(App):
             assignee_part = f"  👤 {c.assignee}" if c.assignee else ""
             in_prog = f" [{C['yellow']}]▶[/]" if c.in_progress else ""
             safe_text = c.text[:60].replace("[", "\\[").replace("]", "\\]")
-            conflict_mark = f" [{C['yellow']}]⚠[/]" if c.conflict else ""
+            conflict_mark = f" [{C['yellow']}]⚠[/]" if getattr(c, 'conflict', False) else ""
             cue_line = (
                 f"  [{color}]{dot}[/] [dim]@{c.position}[/] "
                 f"[{C['fg']}]{safe_text}[/]"
