@@ -293,6 +293,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     # 3. Tailscale check
     print()
     print("🌐 Network discovery...")
+    ts_ip = ""
     try:
         r = subprocess.run(["tailscale", "version"], capture_output=True, text=True, timeout=5)
         if r.returncode == 0:
@@ -307,7 +308,48 @@ def cmd_setup(args: argparse.Namespace) -> None:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         print("   ℹ️  Tailscale not found — LAN-only collab")
 
-    # 4. Projects folder
+    # Initialize store (needed for remotes)
+    store = BlobStore()
+    store.init()
+
+    # 4. Collaborator IP — ask for their IP to auto-configure a remote
+    print()
+    from clavus.sync import load_remotes, save_remotes, Remote
+    remotes = load_remotes(store)
+    existing_urls = {r.url for r in remotes}
+
+    prompt = "👥 Collaborator's Tailscale IP" if ts_ip else "👥 Collaborator's IP"
+    print(f"{prompt} (or enter to skip)")
+    try:
+        collab_ip = input("   IP [skip]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        collab_ip = ""
+    if collab_ip:
+        url = f"http://{collab_ip}:{port}"
+        if url not in existing_urls:
+            name = collab_ip.replace(".", "-")
+            remotes.append(Remote(name=name, url=url))
+            save_remotes(store, remotes)
+            print(f"   ✅ Added remote '{name}' → {url}")
+            existing_urls.add(url)
+
+    # Also add localhost relay if port is in use (already running)
+    if in_use:
+        print(f"   🔗 Relay detected on port {port} — good!")
+    relay_url = f"http://localhost:{port}"
+    if relay_url not in existing_urls:
+        remotes.append(Remote(name="relay", url=relay_url))
+        save_remotes(store, remotes)
+        print(f"   ✅ Added remote 'relay' → {relay_url}")
+
+    # Summary
+    remotes = load_remotes(store)
+    if remotes:
+        print(f"   📡 {len(remotes)} remote(s) configured")
+    else:
+        print("   ℹ️  No remotes — use 'clavus remote add' later or 'clavus join http://...'")
+
+    # 7. Projects folder
     from clavus.config import DEFAULT_PROJECTS_DIR
     current_dir = cfg.projects_dir or DEFAULT_PROJECTS_DIR
     print(f"📁 Projects folder [{current_dir}]: ", end="")
@@ -352,30 +394,6 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
     # Save
     cfg.save()
-    store = BlobStore()
-    store.init()
-
-    # 6. Remote configuration
-    print()
-    has_relay = in_use
-    if has_relay:
-        print(f"🔗 Relay detected on port {port} — good!")
-    print(f"🔗 Relay URL [http://localhost:{port}]: ", end="")
-    try:
-        relay_url = input().strip()
-    except (EOFError, KeyboardInterrupt):
-        relay_url = ""
-    if relay_url or has_relay:
-        url = relay_url or f"http://localhost:{port}"
-        from clavus.sync import load_remotes, save_remotes, Remote
-        remotes = load_remotes(store)
-        # Only add if not already present
-        if not any(r.name == "relay" for r in remotes):
-            remotes.append(Remote(name="relay", url=url))
-            save_remotes(store, remotes)
-        print(f"   ✅ Added remote 'relay' → {url}")
-    else:
-        print("   ℹ️  Skipped — add later with: clavus remote add relay <url>")
 
     print()
     print("✅ Setup complete!")
@@ -967,16 +985,27 @@ def cmd_share(args: argparse.Namespace) -> None:
         sock.close()
 
     print(f"  🎹 Clavus Share")
-    print(f"  {'─' * 40}")
+    print(f"  {'─' * 52}")
+
+    # Direct URL (always works — no mDNS, no discovery needed)
+    ts_ip = cfg.tailscale_ip
+    tailscale_url = f"http://{ts_ip}:{port}" if ts_ip else ""
+    lan_url = f"http://{socket.gethostbyname(socket.gethostname())}:{port}"
+
+    if tailscale_url:
+        print()
+        print(f"  🌐 Direct URL (for collaborators on your Tailscale):")
+        print(f"     {tailscale_url}")
+    print(f"  🏠 LAN URL:")
+    print(f"     {lan_url}")
+    print()
+
+    # Share code (for auto-discovery on LAN/Tailscale — convenience)
     print(f"  🔗 Share code: {share_code}")
     print()
-    print(f"  Tell a friend to run:")
-    print(f"    clavus join")
-    print()
-    print(f"  They'll find you automatically if:")
-    print(f"    • Same WiFi (LAN broadcast)")
-    print(f"    • Connected to the same Tailscale network")
-    print(f"  {'─' * 40}")
+    print(f"  Friend connects:")
+    print(f"    Direct:   clavus join {tailscale_url or lan_url}")
+    print(f"    Discover: clavus join {share_code}")
     print()
 
     # Start mDNS advertising with share code
