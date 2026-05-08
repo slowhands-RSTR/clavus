@@ -1722,8 +1722,6 @@ class ClavusApp(App):
             pass
 
     def _update_header(self):
-        with open(__file__ + ".log", "a") as _f:
-            _f.write(f"UPDATE_HEADER sync_activity={getattr(self, '_sync_activity', 'MISSING')!r}\n")
         proj = f"  [white]{self.project}[/]" if self.project else ""
         cue_part = f"  [{C['dim']}]{len(self.cues)} cues[/]"
         sync_part = ""
