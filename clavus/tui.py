@@ -1248,7 +1248,7 @@ class ClavusApp(App):
                 self._relay_proc.kill()
             self._relay_proc = None
 
-    @work(exclusive=True)
+    @work(exclusive=True, thread=True)
     async def action_pull(self):
         self._busy = True
         self._spin_label = "pulling..."
@@ -1263,7 +1263,7 @@ class ClavusApp(App):
             self._spin_label = ""
             self._busy = False
 
-    @work(exclusive=True)
+    @work(exclusive=True, thread=True)
     async def action_push(self):
         self._busy = True
         self._spin_label = "pushing..."
