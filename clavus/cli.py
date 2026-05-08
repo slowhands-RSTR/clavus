@@ -1703,6 +1703,25 @@ def cmd_remote(args: argparse.Namespace) -> None:
         client.close()
         return
 
+    # ── remote rename <old> <new> ──
+    if args.action == "rename" or (args.name and args.url and not args.action):
+        old_name = args.name
+        new_name = args.url
+        if not old_name or not new_name:
+            print("❌ Usage: clavus remote rename <old-name> <new-name>")
+            return
+        match = next((r for r in remotes if r.name == old_name), None)
+        if not match:
+            print(f"❌ Remote '{old_name}' not found.")
+            return
+        if any(r.name == new_name for r in remotes):
+            print(f"❌ Remote '{new_name}' already exists.")
+            return
+        match.name = new_name
+        save_remotes(store, remotes)
+        print(f"✏️ Renamed remote '{old_name}' → '{new_name}'")
+        return
+
     # ── Existing behavior: add / remove / list ──
     name = args.add or (args.name if args.action == "add" else "")
     remove_name = args.remove or (args.name if args.action == "remove" else "")
@@ -2557,8 +2576,8 @@ def main():
 
     # ── Remote / Push / Pull / Sync ──
     p_remote = subparsers.add_parser("remote", help="Manage remote clavus servers")
-    p_remote.add_argument("action", nargs="?", choices=["list", "add", "remove", "projects", "pull"], default="list",
-                         help="Action: list, add, remove, projects, or pull")
+    p_remote.add_argument("action", nargs="?", choices=["list", "add", "remove", "rename", "projects", "pull"], default="list",
+                         help="Action: list, add, remove, rename, projects, or pull")
     p_remote.add_argument("name", nargs="?", default="", help="Remote name (and project name for pull)")
     p_remote.add_argument("url", nargs="?", default="", help="Remote URL or project name (for pull)")
     p_remote.add_argument("--add", default="", help=argparse.SUPPRESS)
