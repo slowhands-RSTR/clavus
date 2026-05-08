@@ -820,6 +820,12 @@ class ClavusApp(App):
     @work(exclusive=False)
     async def _run_snapshot(self, message: str = ""):
         """Create a new snapshot via CLI subprocess."""
+        import os, asyncio, time as _time
+        _log = lambda s: open("/tmp/clavus_snap_debug.log", "a").write(f"{_time.strftime('%H:%M:%S')} {s}\n")
+        _log(f"=== _run_snapshot START ===")
+        _log(f"  sys.executable={sys.executable}")
+        _log(f"  cwd={os.getcwd()}")
+        _log(f"  project={self.project!r} message={message!r}")
         if not self.project:
             self._status("no project selected")
             return
@@ -829,6 +835,7 @@ class ClavusApp(App):
         import asyncio
         self._status("creating snapshot...")
         try:
+            _log(f"  spawning: {sys.executable} -m clavus snapshot {message!r}")
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", "clavus", "snapshot", message,
                 stdout=asyncio.subprocess.PIPE,
@@ -837,6 +844,7 @@ class ClavusApp(App):
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
             out = stdout.decode().strip()
             err = stderr.decode().strip()
+            _log(f"  subprocess done: rc={proc.returncode} out={out[:200]!r} err={err[:200]!r}")
             if out:
                 for line in out.split("\n"):
                     if line.strip():
@@ -852,11 +860,15 @@ class ClavusApp(App):
             else:
                 self._status(f"snapshot failed: {status_line}" if status_line else "snapshot failed")
         except Exception as e:
+            _log(f"  EXCEPTION: {type(e).__name__}: {e}")
             self._status(f"snapshot error: {e}")
         # Reload snapshots from disk and refresh UI
+        _log(f"  loading snapshots from disk...")
         self._load_snapshots_from_disk()
+        _log(f"  snaps loaded: {len(self.snaps)} snapshots")
         self._update_header()
         self._render()
+        _log(f"=== _run_snapshot END ===")
 
     # ─── Cue operations ────────────────────────────────────────────────
 
