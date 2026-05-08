@@ -1425,6 +1425,8 @@ class ClavusApp(App):
         return sorted(cues, key=sort_key)
 
     async def _do_pull(self):
+        with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
+            _f.write(f"DO_PULL_START: project={self.project} _last_sync={self._last_sync!r}\n")
         """Pull cues + snapshots + blobs from remotes — auto-discovers projects if none local."""
         import asyncio
         import time
@@ -1530,6 +1532,8 @@ class ClavusApp(App):
                 return
 
             # ── Normal pull for existing project ──
+            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
+                _f.write(f"NORMAL_PULL: {len(remotes)} remotes\n")
             for remote in remotes:
                 self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}..."
                 self._update_header()
@@ -1552,12 +1556,12 @@ class ClavusApp(App):
                 await asyncio.sleep(0)
                 self._peer_reachable = True
             import sys
-            sys.stderr.write(f"SUCCESS_PATH: setting _last_sync={time.strftime('%H:%M')}\n")
-            sys.stderr.flush()
+            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
+                _f.write(f"SUCCESS_PATH: setting _last_sync={time.strftime('%H:%M')}\n")
             self._last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
             self._sync_status = ""
-            sys.stderr.write(f"SUCCESS_PATH: after set _last_sync={self._last_sync!r}\n")
-            sys.stderr.flush()
+            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
+                _f.write(f"SUCCESS_PATH: after set _last_sync={self._last_sync!r}\n")
             self._update_header()
             await asyncio.sleep(0)
             self._status(f"\u2705 pulled: {len(self.cues)} cues, {len(self.snaps)} snapshots")
@@ -1570,9 +1574,8 @@ class ClavusApp(App):
                 self._render()
             self.set_timer(0.05, self._update_header)
         except Exception as e:
-            import sys
-            sys.stderr.write(f"EXCEPT_PATH: {e}\n")
-            sys.stderr.flush()
+            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
+                _f.write(f"EXCEPT_PATH: {e}\n")
             self._log_event(f"\u274c pull error: {e}")
             self._status(f"\u274c pull error: {e}")
 
@@ -1737,9 +1740,7 @@ class ClavusApp(App):
             pass
 
     def _update_header(self):
-        import sys
-        sys.stderr.write(f"HEADER: _sync_status={self._sync_status!r} _last_sync={self._last_sync!r}\n")
-        sys.stderr.flush()
+        f"HEADER: _sync_status={self._sync_status!r} _last_sync={self._last_sync!r}\n"
         proj = f"  [white]{self.project}[/]" if self.project else ""
         cue_part = f"  [{C['dim']}]{len(self.cues)} cues[/]"
         sync_part = ""
