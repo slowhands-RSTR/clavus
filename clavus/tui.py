@@ -1557,8 +1557,13 @@ class ClavusApp(App):
                 self._render_header()
                 await asyncio.sleep(0)
                 self._peer_reachable = True
+            import sys
+            sys.stderr.write(f"SYNC_OK: setting last_sync={self.last_sync!r} -> {time.strftime('%H:%M')}\n")
+            sys.stderr.flush()
             self.last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
             self.sync_status = ""
+            sys.stderr.write(f"SYNC_OK: after set last_sync={self.last_sync!r} sync_status={self.sync_status!r}\n")
+            sys.stderr.flush()
             self._render_header()
             await asyncio.sleep(0)
             self._status(f"\u2705 pulled: {len(self.cues)} cues, {len(self.snaps)} snapshots")
