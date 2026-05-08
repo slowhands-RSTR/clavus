@@ -644,7 +644,14 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> dic
         if ok:
             remote.last_head = proj.head
         remote.last_sync = time.time()
-        save_remotes(store, load_remotes(store))
+        # Save by reloading from disk and patching the matching remote
+        remotes = load_remotes(store)
+        for r in remotes:
+            if r.url.rstrip("/") == remote.url.rstrip("/"):
+                r.last_head = remote.last_head
+                r.last_sync = remote.last_sync
+                break
+        save_remotes(store, remotes)
     finally:
         client.close()
 
@@ -777,7 +784,14 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
 
         remote.last_head = proj.head
         remote.last_sync = time.time()
-        save_remotes(store, load_remotes(store))
+        # Save by reloading from disk and patching the matching remote
+        remotes = load_remotes(store)
+        for r in remotes:
+            if r.url.rstrip("/") == remote.url.rstrip("/"):
+                r.last_head = proj.head
+                r.last_sync = remote.last_sync
+                break
+        save_remotes(store, remotes)
     finally:
         client.close()
 
