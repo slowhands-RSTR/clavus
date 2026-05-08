@@ -1743,10 +1743,11 @@ class ClavusApp(App):
                 peer = f"  [{C['yellow']}]\u25cb[/]"
             else:
                 peer = f"  [{C['dim']}]\u25cb[/]"
-            self.query_one("#header-title", Static).update(
+            widget = self.query_one("#header-title", Static)
+            widget.update(
                 f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
-            self.refresh()
-        except Exception:
+            widget.refresh()
+        except NoMatches:
             pass
 
     def _update_footer(self):
