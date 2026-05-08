@@ -164,7 +164,8 @@ class ClavusApp(App):
         self._pending_cue_text: str = ""
         self._relay_proc = None
         self._busy: bool = False
-        self._last_sync: str = ""     # "⬆ push ✓ 12:34" or "⬇ pull ✓ 12:34"
+        self._last_sync: str = ""     # "⬆ ✓ 12:34" or "⬇ ✓ 12:34" — last completed sync
+        self._sync_status: str = ""    # Live sync progress: "⬆ pushing...", "⬇ pulling..."
         self._peer_name: str = ""     # remote name (e.g. "mac")
         self._peer_reachable: bool = False
         _cfg = ClavusConfig.load()
@@ -1426,25 +1427,29 @@ class ClavusApp(App):
         import time
         from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
         from clavus.store import ClavusProject
-        self._status("\u23f3 pulling...")
+        self._sync_status = "\u2b07 pulling..."
+        self._update_header()
+        self._status("\u2b07 pulling...")
         try:
             proj_index = self.store.get_index(self.project) if self.project else None
             remotes = load_remotes(self.store)
-            self._log_event(f"DEBUG _do_pull: project={self.project}, proj_index={'yes' if proj_index else 'none'}, remotes={len(remotes)}")
 
             # If no local project, auto-discover from remotes
             if not proj_index:
                 if not remotes:
+                    self._sync_status = ""
+                    self._update_header()
                     self._status("\u274c no remotes — use :join http://...")
-                    self._log_event("\u274c no remotes — use :join http://...")
                     return
 
-                self._log_event(f"no local project — trying {len(remotes)} remote(s)...")
+                self._sync_status = f"\u2b07 probing {len(remotes)} remote(s)..."
+                self._update_header()
                 # Try external remotes first (localhost is slow/unreachable on Windows)
                 remotes_sorted = sorted(remotes, key=lambda r: 0 if "localhost" in r.url else -1)
                 pulled_any = False
                 for remote in remotes_sorted:
-                    self._log_event(f"  probing {remote.name} ({remote.url})...")
+                    self._sync_status = f"\u2b07 {remote.name}..."
+                    self._update_header()
                     client = SyncClient(remote.url)
                     try:
                         r = client.client.get(f"{remote.url}/api/projects", timeout=10)
@@ -1458,7 +1463,8 @@ class ClavusApp(App):
                             if self.store.get_index(pname):
                                 proj_index = self.store.get_index(pname)
                             else:
-                                self._log_event(f"pulling {pname} from {remote.name}...")
+                                self._sync_status = f"\u2b07 {pname}..."
+                                self._update_header()
                                 r2 = client.client.get(
                                     f"{remote.url}/api/sync/pull",
                                     params={"name": pname}, timeout=30)
@@ -1472,29 +1478,30 @@ class ClavusApp(App):
                                 )
                                 self.store.set_index(new_proj)
                                 proj_index = new_proj
-                                self._log_event(f"  created local project '{pname}'")
                             # Pull data
                             remote_ref = remote
                             result = pull_from_remote(self.store, proj_index, remote_ref)
                             blob_count = pull_snapshot_blobs(self.store, proj_index, remote_ref)
                             parts = []
-                            if result.get("cues"): parts.append(f"{result['cues']} cues")
-                            if result.get("snapshots"): parts.append(f"{result['snapshots']} snapshots")
-                            if blob_count: parts.append(f"{blob_count} blob(s)")
-                            msg = f"  got {', '.join(parts)}" if parts else "  already up to date"
-                            self._log_event(msg)
+                            if result.get("cues"): parts.append(f"{result['cues']}c")
+                            if result.get("snapshots"): parts.append(f"{result['snapshots']}s")
+                            if blob_count: parts.append(f"{blob_count}b")
+                            self._sync_status = f"\u2b07 {pname}  {' '.join(parts)}" if parts else f"\u2b07 {pname}  up to date"
+                            self._update_header()
                             pulled_any = True
                         if pulled_any:
                             break
                     except Exception as e:
-                        self._log_event(f"  {remote.name}: {e}")
+                        self._sync_status = f"\u2b07 {remote.name}: err"
+                        self._update_header()
                         continue
                     finally:
                         client.close()
 
                 if not pulled_any:
+                    self._sync_status = ""
+                    self._update_header()
                     self._status("\u274c no projects found on any remote")
-                    self._log_event("\u274c no projects found — is relay running?")
                     return
 
                 # Switch to the pulled project
@@ -1503,53 +1510,49 @@ class ClavusApp(App):
                     self._peer_name = remotes[0].name if remotes else ""
                     self._peer_reachable = True
                     self._last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
-                    self._log_event(f"DEBUG auto-pull: _last_sync={self._last_sync}")
+                    self._sync_status = ""
                     self._load_cues_from_disk()
                     self._load_snapshots_from_disk()
                     self._update_header()
                     self._render()
                     self._status(f"\u2705 pulled {self.project}: {len(self.cues)} cues, {len(self.snaps)} snaps")
-                    self._log_event(f"\u2705 pull: {self.project} — {len(self.cues)} cues, {len(self.snaps)} snaps")
                 return
 
             # ── Normal pull for existing project ──
             if not remotes:
+                self._sync_status = ""
+                self._update_header()
                 self._status("\u274c no remotes configured")
-                self._log_event("\u274c no remotes — use :join http://...")
                 return
             for remote in remotes:
-                self._log_event(f"pulling from {remote.name}...")
-                self._status(f"\u23f3 pulling from {remote.name}...")
+                self._sync_status = f"\u2b07 {remote.name}..."
+                self._update_header()
                 result = pull_from_remote(self.store, proj_index, remote)
                 if result.get("error"):
-                    self._log_event(f"\u274c {result['error']}")
+                    self._sync_status = ""
+                    self._update_header()
                     self._status(f"\u274c {result['error']}")
                     return
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
                 conflicts_n = result.get("conflicts", 0)
-                log_msg = f"  got {cues_n} cues, {snaps_n} snapshots"
-                if conflicts_n:
-                    log_msg += f" — \u26a0 {conflicts_n} conflict(s)"
-                self._log_event(log_msg)
                 blobs = pull_snapshot_blobs(self.store, proj_index, remote)
-                if blobs:
-                    self._log_event(f"  {blobs} blob(s)")
+                self._sync_status = f"\u2b07 {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+                if conflicts_n:
+                    self._sync_status += f"  \u26a0{conflicts_n}"
+                self._update_header()
             ts = time.strftime("%H:%M")
             self._peer_reachable = True
             self._last_sync = f"\u2b07 pull \u2713 {ts}"
-            self._log_event(f"DEBUG: _last_sync set to: {self._last_sync}")
+            self._sync_status = ""
             self._update_header()
-            self._log_event(f"DEBUG: _update_header called, _last_sync={self._last_sync}")
-            self._log_event(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
-            self._status(f"\u2705 pull: {len(self.cues)} cues, {len(self.snaps)} snapshots")
+            self._status(f"\u2705 pulled: {len(self.cues)} cues, {len(self.snaps)} snapshots")
             # Refresh from disk
             if self.project:
                 self._load_cues_from_disk()
                 self._load_snapshots_from_disk()
                 self._update_header()
                 self._render()
-            # Deferred update to ensure header repaints after blocked loop
             self.set_timer(0.05, self._update_header)
         except Exception as e:
             self._log_event(f"\u274c pull error: {e}")
@@ -1559,40 +1562,46 @@ class ClavusApp(App):
         """Push cues + snapshots + blobs to remotes — direct function calls, no subprocess."""
         import time
         from clavus.sync import load_remotes, push_to_remote, push_snapshot_blobs
-        self._status("\u23f3 pushing...")
+        self._sync_status = "\u2b06 pushing..."
+        self._update_header()
+        self._status("\u2b06 pushing...")
         try:
             proj_index = self.store.get_index(self.project)
             if not proj_index:
+                self._sync_status = ""
+                self._update_header()
                 self._status("\u274c no project")
                 return
             remotes = load_remotes(self.store)
             if not remotes:
+                self._sync_status = ""
+                self._update_header()
                 self._status("\u274c no remotes configured")
-                self._log_event("\u274c no remotes — use :join http://...")
                 return
             for remote in remotes:
-                self._log_event(f"pushing to {remote.name}...")
-                self._status(f"\u23f3 pushing to {remote.name}...")
+                self._sync_status = f"\u2b06 {remote.name}..."
+                self._update_header()
                 result = push_to_remote(self.store, proj_index, remote)
                 if result.get("error"):
-                    self._log_event(f"\u274c {result['error']}")
+                    self._sync_status = ""
+                    self._update_header()
                     self._status(f"\u274c {result['error']}")
                     return
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
-                self._log_event(f"  {cues_n} cues, {snaps_n} snapshots")
                 blobs = push_snapshot_blobs(self.store, proj_index, remote)
-                if blobs:
-                    self._log_event(f"  {blobs} blob(s)")
+                self._sync_status = f"\u2b06 {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+                self._update_header()
             ts = time.strftime("%H:%M")
             self._peer_reachable = True
             self._last_sync = f"\u2b06 push \u2713 {ts}"
+            self._sync_status = ""
             self._update_header()
-            self._log_event("\u2705 push complete")
             self._status("\u2705 push complete")
             self.set_timer(0.05, self._update_header)
         except Exception as e:
-            self._log_event(f"\u274c push error: {e}")
+            self._sync_status = ""
+            self._update_header()
             self._status(f"\u274c push error: {e}")
 
     def _get_cue(self) -> Optional[Cue]:
@@ -1708,7 +1717,10 @@ class ClavusApp(App):
             cue_part = f"  [{C['dim']}]{len(self.cues)} cues[/]"
             # Last sync status
             sync_part = ""
-            if self._last_sync:
+            if self._sync_status:
+                # Active sync in progress — show it prominently
+                sync_part = f"  [{C['yellow']}]{self._sync_status}[/]"
+            elif self._last_sync:
                 sync_part = f"  [{C['green']}]{self._last_sync}[/]"
             # Peer dot
             if self._peer_name and self._peer_reachable:
