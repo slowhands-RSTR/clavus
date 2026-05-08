@@ -1399,9 +1399,10 @@ class ClavusApp(App):
                     self._log_event("\u274c no remotes — use :join http://...")
                     return
 
-                self._log_event("no local project — discovering from remotes...")
+                self._log_event(f"no local project — trying {len(remotes)} remote(s)...")
                 pulled_any = False
                 for remote in remotes:
+                    self._log_event(f"  probing {remote.name} ({remote.url})...")
                     client = SyncClient(remote.url)
                     try:
                         r = client.client.get(f"{remote.url}/api/projects", timeout=10)
