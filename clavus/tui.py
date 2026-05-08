@@ -591,12 +591,19 @@ class ClavusApp(App):
             self._status("raw .als blob missing — try pulling")
             return
 
-        # Write to a proper Ableton project folder on Desktop
+        # Write to a proper Ableton project folder structure.
+        # Ableton convention: "Song.als" → expects "Song Project/" folder.
+        # If we write flat, Ableton auto-creates a project folder with a COPY
+        # of the .als — and root_als points to the stale flat copy, so
+        # snapshots see "no changes." Write into the project folder upfront.
         project_name = self.project.replace(" ", " ")
         project_dir = get_projects_dir() / project_name
-        out = project_dir / f"{project_name}.als"
+        als_project = project_dir / f"{project_name} Project"
+        out = als_project / f"{project_name}.als"
 
         out.parent.mkdir(parents=True, exist_ok=True)
+        # Create Samples/ subfolder so Ableton finds it immediately
+        (als_project / "Samples").mkdir(exist_ok=True)
 
         # Materialize audio samples into the project folder first (so they exist)
         sample_count = 0
@@ -611,14 +618,13 @@ class ClavusApp(App):
                 if _fn not in _als_relpaths:
                     _als_relpaths[_fn] = _rp
 
-            base_dir = out.parent  # Project folder root
             for sh in snap.sample_hashes:
                 fname = store.get_sample_filename(sh)
                 # Prefer .als RelativePath (preserves subdirectory structure)
                 relpath = _als_relpaths.get(fname) or store.get_sample_relpath(sh) or ""
                 if fname and store.has_object(sh):
                     try:
-                        store.materialize_sample(sh, base_dir, fname, relpath)
+                        store.materialize_sample(sh, als_project, fname, relpath)
                         sample_count += 1
                     except Exception:
                         pass
@@ -629,7 +635,7 @@ class ClavusApp(App):
         if platform.system() == "Darwin":
             try:
                 from clavus.parser import rewrite_als_sample_paths
-                raw = rewrite_als_sample_paths(raw, out.parent)
+                raw = rewrite_als_sample_paths(raw, als_project)
             except Exception:
                 pass  # Fall back to raw blob if rewriting fails
 

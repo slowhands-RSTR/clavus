@@ -2230,15 +2230,20 @@ def cmd_open(args: argparse.Namespace) -> None:
         print(f"❌ .als blob missing. Try pulling again to fetch it.")
         sys.exit(1)
 
-    # Determine output path — create a proper Ableton project folder
+    # Determine output path — Ableton project folder convention:
+    # "Song.als" must live inside "Song Project/" or Ableton auto-creates
+    # a copy there, making Clavus's root_als stale.
     project_name = proj.name.replace(" ", " ")
     if args.output:
         out_path = Path(args.output)
     else:
         project_dir = get_projects_dir() / project_name
-        out_path = project_dir / f"{project_name}.als"
+        als_project = project_dir / f"{project_name} Project"
+        out_path = als_project / f"{project_name}.als"
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Create Samples/ subfolder so Ableton finds it immediately
+    (out_path.parent / "Samples").mkdir(exist_ok=True)
 
     # Materialize audio samples into the project folder first (so they exist)
     sample_written = 0
