@@ -168,7 +168,7 @@ class ClavusApp(App):
         self._peer_reachable: bool = False
         self._status_spinner: bool = False
         self._spin_idx: int = 0
-        self._spin_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self._spin_chars = ["◜", "◝", "◞", "◟"]
         self._spin_label: str = ""
         _cfg = ClavusConfig.load()
         self.author = _cfg.author
@@ -208,15 +208,16 @@ class ClavusApp(App):
     def on_mount(self):
         self._update_header()
         self._update_footer()
-        self.set_interval(0.1, self._tick_spinner)
         self._connect()
 
     def _tick_spinner(self):
-        """Update status bar with spinning braille char when _status_spinner is active."""
-        if self._status_spinner and self._spin_label:
-            char = self._spin_chars[self._spin_idx % len(self._spin_chars)]
-            self._spin_idx += 1
-            self._status(f"{char} {self._spin_label}")
+        """Animate spinner via chained set_timer — runs on main event loop."""
+        if not self._status_spinner:
+            return
+        char = self._spin_chars[self._spin_idx % len(self._spin_chars)]
+        self._spin_idx += 1
+        self._status(f"[{char}] {self._spin_label}")
+        self.set_timer(0.08, self._tick_spinner)
 
     # ─── Input bar ──────────────────────────────────────────────────────
 
@@ -1252,6 +1253,7 @@ class ClavusApp(App):
         self._busy = True
         self._spin_label = "pulling..."
         self._status_spinner = True
+        self.call_from_thread(self._tick_spinner)
         try:
             await self._do_pull()
         finally:
@@ -1264,6 +1266,7 @@ class ClavusApp(App):
         self._busy = True
         self._spin_label = "pushing..."
         self._status_spinner = True
+        self.call_from_thread(self._tick_spinner)
         try:
             await self._do_push()
         finally:
