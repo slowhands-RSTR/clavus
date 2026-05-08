@@ -21,24 +21,31 @@ clavus tui
 
 ## How It Works
 
-Two people. One relay. Zero friction.
+**Two paths — pick yours:**
+
+### Solo (no relay needed)
+Just you, your `.als`, and the TUI. Snapshots, cues, diffs, and restores all work locally. Great for version control and leaving yourself notes.
+
+### Collaborating (one person shares, everyone else joins)
 
 ```
 ┌─────────┐                    ┌───────────────┐                    ┌─────────┐
 │   You   │ ◄── push/pull ───► │     Relay     │ ◄── push/pull ───► │  Peer   │
-│  (Mac)  │   via Tailscale    │  (your Mac)   │   via Tailscale    │  (Win)  │
+│  (Mac)  │   via Tailscale    │(any machine)  │   via Tailscale    │  (Win)  │
 └─────────┘                    └───────────────┘                    └─────────┘
 ```
 
-One person runs the relay (just `clavus share` on their machine). Both push and pull through it. The relay is dumb — it just stores what's pushed. No middleman, no cloud.
+One person runs `clavus share` — that machine becomes the relay. It can be anyone's Mac, Windows, or Linux box. Both people push and pull through it. The relay is dumb — it just stores what's pushed. No cloud, no dedicated server.
 
 **The rhythm:**
-1. `clavus tui` — open the dashboard
-2. Press `p` — pull the latest cues and snapshots
-3. Work in Ableton, save your project
-4. Press `C` — snapshot your changes with a message
-5. Press `P` — push to share your work
-6. Repeat
+1. Host: `clavus share` — starts the relay, prints the URL
+2. Everyone: `clavus join http://<host-ip>:7890` then `clavus pull`
+3. Everyone: `clavus tui` — open the dashboard
+4. Press `p` — pull the latest cues and snapshots
+5. Work in Ableton, save your project
+6. Press `C` — snapshot your changes with a message
+7. Press `P` — push to share your work
+8. Repeat 4-7
 
 ## Collaborator Onboarding
 
