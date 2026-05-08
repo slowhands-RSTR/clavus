@@ -172,6 +172,8 @@ class ClavusApp(App):
         self.author = _cfg.author
         self._clavus_cfg = _cfg
         self._cue_store = None  # Lazy init per project
+        self._header_title: Optional[Static] = None
+        self._footer_stats: Optional[Static] = None
 
     def _load_config(self) -> str:
         from clavus.config import ClavusConfig
@@ -204,6 +206,8 @@ class ClavusApp(App):
             )
 
     def on_mount(self):
+        self._header_title = self.query_one("#header-title", Static)
+        self._footer_stats = self.query_one("#footer-stats", Static)
         self._update_header()
         self._update_footer()
         self._connect()
@@ -1687,13 +1691,12 @@ class ClavusApp(App):
     # ─── Status / Header / Footer ───────────────────────────────────────
 
     def _status(self, msg: str):
-        """Show a status message in the footer and log it to the event list."""
-        try:
-            safe_msg = msg.replace("[", "\\[").replace("]", "\\]")
-            self.query_one("#footer-stats", Static).update(f"[{C['dim']}]{safe_msg}[/]")
-            self.refresh()
-        except NoMatches:
-            pass
+        """Show a status message in the footer."""
+        safe_msg = msg.replace("[", "\\[").replace("]", "\\]")
+        w = self._footer_stats
+        if w is not None:
+            w.update(f"[{C['dim']}]{safe_msg}[/]")
+            w.refresh()
 
     def _log_event(self, event: str):
         """Append a timestamped event to the top of the cue list as a log entry."""
@@ -1726,27 +1729,23 @@ class ClavusApp(App):
             pass
 
     def _update_header(self):
-        try:
-            proj = f"  [white]{self.project}[/]" if self.project else ""
-            cue_part = f"  [{C['dim']}]{len(self.cues)} cues[/]"
-            # Last sync status
-            sync_part = ""
-            if self._sync_status:
-                # Active sync in progress — show it prominently
-                sync_part = f"  [{C['yellow']}]{self._sync_status}[/]"
-            elif self._last_sync:
-                sync_part = f"  [{C['green']}]{self._last_sync}[/]"
-            # Peer dot
-            if self._peer_name and self._peer_reachable:
-                peer = f"  [bold {C['green']}]\u25cf[/]"
-            elif self._peer_name:
-                peer = f"  [{C['yellow']}]\u25cb[/]"
-            else:
-                peer = f"  [{C['dim']}]\u25cb[/]"
-            self.query_one("#header-title", Static).update(
-                f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
-        except Exception as e:
-            self._log_event(f"header update error: {e}")
+        proj = f"  [white]{self.project}[/]" if self.project else ""
+        cue_part = f"  [{C['dim']}]{len(self.cues)} cues[/]"
+        sync_part = ""
+        if self._sync_status:
+            sync_part = f"  [{C['yellow']}]{self._sync_status}[/]"
+        elif self._last_sync:
+            sync_part = f"  [{C['green']}]{self._last_sync}[/]"
+        if self._peer_name and self._peer_reachable:
+            peer = f"  [bold {C['green']}]\u25cf[/]"
+        elif self._peer_name:
+            peer = f"  [{C['yellow']}]\u25cb[/]"
+        else:
+            peer = f"  [{C['dim']}]\u25cb[/]"
+        w = self._header_title
+        if w is not None:
+            w.update(f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
+            w.refresh()
 
     def _update_footer(self):
         try:
