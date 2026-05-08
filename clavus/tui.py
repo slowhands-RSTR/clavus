@@ -166,6 +166,8 @@ class ClavusApp(App):
         self._last_sync: str = ""     # "⬆ push ✓ 12:34" or "⬇ pull ✓ 12:34"
         self._peer_name: str = ""     # remote name (e.g. "mac")
         self._peer_reachable: bool = False
+        self._status_spinner: bool = False
+        self._spin_task = None
         _cfg = ClavusConfig.load()
         self.author = _cfg.author
         self._clavus_cfg = _cfg
@@ -1238,19 +1240,27 @@ class ClavusApp(App):
     @work(exclusive=True)
     async def action_pull(self):
         self._busy = True
-        self._status("\u23f3 pulling...")
+        self._status_spinner = True
+        self._spin_task = asyncio.create_task(self._status_spin("pulling..."))
         try:
             await self._do_pull()
         finally:
+            self._status_spinner = False
+            if self._spin_task:
+                self._spin_task.cancel()
             self._busy = False
 
     @work(exclusive=True)
     async def action_push(self):
         self._busy = True
-        self._status("\u23f3 pushing...")
+        self._status_spinner = True
+        self._spin_task = asyncio.create_task(self._status_spin("pushing..."))
         try:
             await self._do_push()
         finally:
+            self._status_spinner = False
+            if self._spin_task:
+                self._spin_task.cancel()
             self._busy = False
 
     @work(exclusive=True)
@@ -1479,6 +1489,7 @@ class ClavusApp(App):
                     self.project = proj_index.name
                     self._peer_name = remotes[0].name if remotes else ""
                     self._peer_reachable = True
+                    self._last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
                     self._load_cues_from_disk()
                     self._load_snapshots_from_disk()
                     self._update_header()
@@ -1641,6 +1652,18 @@ class ClavusApp(App):
             self.refresh()
         except NoMatches:
             pass
+
+    async def _status_spin(self, label: str):
+        """Animate a braille spinner in the status bar while _status_spinner is True."""
+        chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        i = 0
+        while getattr(self, '_status_spinner', False):
+            self._status(f"{chars[i % len(chars)]} {label}")
+            i += 1
+            try:
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                break
 
     def _log_event(self, event: str):
         """Append a timestamped event to the top of the cue list as a log entry."""
