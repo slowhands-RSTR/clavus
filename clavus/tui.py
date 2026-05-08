@@ -1533,7 +1533,9 @@ class ClavusApp(App):
 
             # ── Normal pull for existing project ──
             with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                _f.write(f"NORMAL_PULL: {len(remotes)} remotes\n")
+                _f.write(f"NORMAL_PULL: {len(remotes)} remotes type={type(remotes).__name__}\n")
+            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
+                _f.write(f"BEFORE_FOR_LOOP: remotes={remotes!r}\n")
             for remote in remotes:
                 with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
                     _f.write(f"FOR_LOOP_BODY: remote={remote.name} url={remote.url}\n")
