@@ -831,7 +831,7 @@ class ClavusApp(App):
         self._status("creating snapshot...")
         try:
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "clavus", "snapshot", message,
+                sys.executable, "-m", "clavus", "snapshot", "--allow-frozen", message,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

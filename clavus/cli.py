@@ -678,6 +678,28 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
     # Parse current state
     project = parse_als(als_path)
 
+    # Check for frozen tracks (cross-platform crash risk)
+    frozen_count = 0
+    try:
+        raw = als_path.read_bytes()
+        frozen_count = raw.count(b'<Freeze Value="true"')
+    except Exception:
+        pass
+    if frozen_count:
+        if args.allow_frozen:
+            print(f"  ⚠️  {frozen_count} frozen track(s) — proceeding anyway (--allow-frozen)")
+        else:
+            print(f"  ⚠️  {frozen_count} frozen track(s) detected — will crash on other platforms.")
+            print(f"  Unfreeze tracks in Ableton first for cross-platform compatibility.")
+            try:
+                choice = input("  Continue anyway? [y/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n❌ Snapshot cancelled.")
+                return
+            if choice != 'y':
+                print("❌ Snapshot cancelled.")
+                return
+
     # Create snapshot
     snap = store.save_snapshot(
         project,
@@ -2503,6 +2525,7 @@ def main():
     p_snap.add_argument("--tag", "-t", default="", help="Comma-separated tags")
     p_snap.add_argument("--parent", "-p", default=None, help="Override parent snapshot hash")
     p_snap.add_argument("--verbose", "-v", action="store_true", help="Show detailed diff")
+    p_snap.add_argument("--allow-frozen", action="store_true", help="Skip frozen track warning (for TUI/non-interactive use)")
 
     # Log
     p_log = subparsers.add_parser("log", help="Show snapshot history")
