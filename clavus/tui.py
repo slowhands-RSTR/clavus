@@ -167,7 +167,9 @@ class ClavusApp(App):
         self._peer_name: str = ""     # remote name (e.g. "mac")
         self._peer_reachable: bool = False
         self._status_spinner: bool = False
-        self._spin_task = None
+        self._spin_idx: int = 0
+        self._spin_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self._spin_label: str = ""
         _cfg = ClavusConfig.load()
         self.author = _cfg.author
         self._clavus_cfg = _cfg
@@ -206,7 +208,15 @@ class ClavusApp(App):
     def on_mount(self):
         self._update_header()
         self._update_footer()
+        self.set_interval(0.1, self._tick_spinner)
         self._connect()
+
+    def _tick_spinner(self):
+        """Update status bar with spinning braille char when _status_spinner is active."""
+        if self._status_spinner and self._spin_label:
+            char = self._spin_chars[self._spin_idx % len(self._spin_chars)]
+            self._spin_idx += 1
+            self._status(f"{char} {self._spin_label}")
 
     # ─── Input bar ──────────────────────────────────────────────────────
 
@@ -1240,27 +1250,25 @@ class ClavusApp(App):
     @work(exclusive=True)
     async def action_pull(self):
         self._busy = True
+        self._spin_label = "pulling..."
         self._status_spinner = True
-        self._spin_task = asyncio.create_task(self._status_spin("pulling..."))
         try:
             await self._do_pull()
         finally:
             self._status_spinner = False
-            if self._spin_task:
-                self._spin_task.cancel()
+            self._spin_label = ""
             self._busy = False
 
     @work(exclusive=True)
     async def action_push(self):
         self._busy = True
+        self._spin_label = "pushing..."
         self._status_spinner = True
-        self._spin_task = asyncio.create_task(self._status_spin("pushing..."))
         try:
             await self._do_push()
         finally:
             self._status_spinner = False
-            if self._spin_task:
-                self._spin_task.cancel()
+            self._spin_label = ""
             self._busy = False
 
     @work(exclusive=True)
@@ -1652,18 +1660,6 @@ class ClavusApp(App):
             self.refresh()
         except NoMatches:
             pass
-
-    async def _status_spin(self, label: str):
-        """Animate a braille spinner in the status bar while _status_spinner is True."""
-        chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        i = 0
-        while getattr(self, '_status_spinner', False):
-            self._status(f"{chars[i % len(chars)]} {label}")
-            i += 1
-            try:
-                await asyncio.sleep(0.1)
-            except asyncio.CancelledError:
-                break
 
     def _log_event(self, event: str):
         """Append a timestamped event to the top of the cue list as a log entry."""
