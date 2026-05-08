@@ -1778,7 +1778,6 @@ class ClavusApp(App):
                 sync_part = f"  [bold {C['accent']}]{self._sync_status}[/]"
             elif self._last_sync:
                 sync_part = f"  [{C['green']}]{self._last_sync}[/]"
-            remote_part = f"  [{C['dim']}]{self._peer_name}[/]" if self._peer_name else ""
             if self._peer_name and self._peer_reachable:
                 peer = f"  [bold {C['green']}]\u25cf[/]"
             elif self._peer_name:
@@ -1787,7 +1786,7 @@ class ClavusApp(App):
                 peer = f"  [{C['dim']}]\u25cb[/]"
             widget = self.query_one("#header-title", Static)
             widget.update(
-                f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}{remote_part}")
+                f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
             widget.refresh()
         except NoMatches:
             pass
