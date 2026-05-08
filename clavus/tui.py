@@ -166,10 +166,6 @@ class ClavusApp(App):
         self._last_sync: str = ""     # "⬆ push ✓ 12:34" or "⬇ pull ✓ 12:34"
         self._peer_name: str = ""     # remote name (e.g. "mac")
         self._peer_reachable: bool = False
-        self._status_spinner: bool = False
-        self._spin_idx: int = 0
-        self._spin_chars = ["◜", "◝", "◞", "◟"]
-        self._spin_label: str = ""
         _cfg = ClavusConfig.load()
         self.author = _cfg.author
         self._clavus_cfg = _cfg
@@ -209,15 +205,6 @@ class ClavusApp(App):
         self._update_header()
         self._update_footer()
         self._connect()
-
-    def _tick_spinner(self):
-        """Animate spinner via chained set_timer — runs on main event loop."""
-        if not self._status_spinner:
-            return
-        char = self._spin_chars[self._spin_idx % len(self._spin_chars)]
-        self._spin_idx += 1
-        self._status(f"[{char}] {self._spin_label}")
-        self.set_timer(0.08, self._tick_spinner)
 
     # ─── Input bar ──────────────────────────────────────────────────────
 
@@ -1248,34 +1235,22 @@ class ClavusApp(App):
                 self._relay_proc.kill()
             self._relay_proc = None
 
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True)
     async def action_pull(self):
         self._busy = True
-        self._spin_label = "pulling..."
-        self._status_spinner = True
-        self._spin_idx = 1  # first frame shown, chain picks up from 1
-        self._status(f"[{self._spin_chars[0]}] {self._spin_label}")
-        self._tick_spinner()  # first chain link — no call_from_thread needed
+        self._status("⏳ pulling...")
         try:
             await self._do_pull()
         finally:
-            self._status_spinner = False
-            self._spin_label = ""
             self._busy = False
 
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True)
     async def action_push(self):
         self._busy = True
-        self._spin_label = "pushing..."
-        self._status_spinner = True
-        self._spin_idx = 1  # first frame shown, chain picks up from 1
-        self._status(f"[{self._spin_chars[0]}] {self._spin_label}")
-        self._tick_spinner()  # first chain link — no call_from_thread needed
+        self._status("⏳ pushing...")
         try:
             await self._do_push()
         finally:
-            self._status_spinner = False
-            self._spin_label = ""
             self._busy = False
 
     @work(exclusive=True)
