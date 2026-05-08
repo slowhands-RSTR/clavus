@@ -1541,10 +1541,13 @@ class ClavusApp(App):
                 await asyncio.sleep(0)
                 result = pull_from_remote(self.store, proj_index, remote)
                 if result.get("error"):
+                    self._last_sync = f"\u2b07 pull \u2717 {time.strftime('%H:%M')}"
                     self._sync_status = ""
                     self._update_header()
                     await asyncio.sleep(0)
                     self._status(f"\u274c {result['error']}")
+                    with open("/tmp/clavus_debug.log", "a") as f:
+                        f.write(f"{time.strftime('%H:%M:%S')} _do_pull ERROR: remote={remote.url} error={result['error']!r}\n")
                     return
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
@@ -1603,10 +1606,13 @@ class ClavusApp(App):
                 await asyncio.sleep(0)
                 result = push_to_remote(self.store, proj_index, remote)
                 if result.get("error"):
+                    self._last_sync = f"\u2b06 push \u2717 {time.strftime('%H:%M')}"
                     self._sync_status = ""
                     self._update_header()
                     await asyncio.sleep(0)
                     self._status(f"\u274c {result['error']}")
+                    with open("/tmp/clavus_debug.log", "a") as f:
+                        f.write(f"{time.strftime('%H:%M:%S')} _do_push ERROR: remote={remote.url} error={result['error']!r}\n")
                     return
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
