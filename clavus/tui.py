@@ -623,11 +623,15 @@ class ClavusApp(App):
                     except Exception:
                         pass
 
-        # NOTE: Path rewriting DISABLED — it corrupts .als XML on Windows.
-        # Write the raw blob as-is. Samples are materialized alongside; Ableton
-        # finds them once you point at any one sample in the project folder.
-        # from clavus.parser import rewrite_als_sample_paths
-        # raw = rewrite_als_sample_paths(raw, out.parent)
+        # NOTE: Path rewriting re-enabled for macOS. Samples materialized alongside
+        # the .als — rewrite absolute paths so Ableton finds them immediately.
+        import platform
+        if platform.system() == "Darwin":
+            try:
+                from clavus.parser import rewrite_als_sample_paths
+                raw = rewrite_als_sample_paths(raw, out.parent)
+            except Exception:
+                pass  # Fall back to raw blob if rewriting fails
 
         out.write_bytes(raw)
 
