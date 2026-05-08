@@ -2180,6 +2180,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
             return
 
     for remote in remotes:
+        from clavus.sync import pull_from_remote, pull_snapshot_blobs
         print(f"📥 Pulling from '{remote.name}' ({remote.url})...")
         result = pull_from_remote(store, proj, remote, output_dir=args.output)
         parts = []
