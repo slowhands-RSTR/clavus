@@ -15,7 +15,6 @@ import io
 import json
 import os
 import subprocess
-import sys
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -1425,8 +1424,6 @@ class ClavusApp(App):
         return sorted(cues, key=sort_key)
 
     async def _do_pull(self):
-        with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-            _f.write(f"DO_PULL_START: project={self.project} _last_sync={self._last_sync!r}\n")
         """Pull cues + snapshots + blobs from remotes — auto-discovers projects if none local."""
         import asyncio
         import time
@@ -1532,22 +1529,12 @@ class ClavusApp(App):
                 return
 
             # ── Normal pull for existing project ──
-            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                _f.write(f"NORMAL_PULL: {len(remotes)} remotes type={type(remotes).__name__}\n")
-            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                _f.write(f"BEFORE_FOR_LOOP: remotes={remotes!r}\n")
             for remote in remotes:
-                with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                    _f.write(f"FOR_LOOP_BODY: remote={remote.name} url={remote.url}\n")
                 self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}..."
                 self._update_header()
-                with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                    _f.write(f"AFTER_UPDATE_HEADER\n")
                 await asyncio.sleep(0)
                 result = pull_from_remote(self.store, proj_index, remote)
                 if result.get("error"):
-                    with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                        _f.write(f"REMOTE_ERROR: {result['error']}\n")
                     self._sync_status = ""
                     self._update_header()
                     await asyncio.sleep(0)
@@ -1557,21 +1544,14 @@ class ClavusApp(App):
                 snaps_n = result.get("snapshots", 0)
                 conflicts_n = result.get("conflicts", 0)
                 blobs = pull_snapshot_blobs(self.store, proj_index, remote)
-                with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                    _f.write(f"AFTER_PULL_SNAPSHOT_BLOBS: blobs={blobs}\n")
                 self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
                 if conflicts_n:
                     self._sync_status += f"  \u26a0{conflicts_n}"
                 self._update_header()
                 await asyncio.sleep(0)
                 self._peer_reachable = True
-            import sys
-            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                _f.write(f"SUCCESS_PATH: setting _last_sync={time.strftime('%H:%M')}\n")
             self._last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
             self._sync_status = ""
-            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                _f.write(f"SUCCESS_PATH: after set _last_sync={self._last_sync!r}\n")
             self._update_header()
             await asyncio.sleep(0)
             self._status(f"\u2705 pulled: {len(self.cues)} cues, {len(self.snaps)} snapshots")
@@ -1584,8 +1564,6 @@ class ClavusApp(App):
                 self._render()
             self.set_timer(0.05, self._update_header)
         except Exception as e:
-            with open(r"C:\Users\chris\clavus\clavus_trace.log", "a") as _f:
-                _f.write(f"EXCEPT_PATH: {e}\n")
             self._log_event(f"\u274c pull error: {e}")
             self._status(f"\u274c pull error: {e}")
 
