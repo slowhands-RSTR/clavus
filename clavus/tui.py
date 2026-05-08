@@ -1540,7 +1540,7 @@ class ClavusApp(App):
                 self._update_header()
                 self._render()
             # Deferred update to ensure header repaints after blocked loop
-            self.call_after_refresh(self._update_header)
+            self.set_timer(0.05, self._update_header)
         except Exception as e:
             self._log_event(f"\u274c pull error: {e}")
             self._status(f"\u274c pull error: {e}")
@@ -1580,7 +1580,7 @@ class ClavusApp(App):
             self._update_header()
             self._log_event("\u2705 push complete")
             self._status("\u2705 push complete")
-            self.call_after_refresh(self._update_header)
+            self.set_timer(0.05, self._update_header)
         except Exception as e:
             self._log_event(f"\u274c push error: {e}")
             self._status(f"\u274c push error: {e}")
