@@ -1003,7 +1003,14 @@ def cmd_share(args: argparse.Namespace) -> None:
         sock.close()
 
     # Show the URL(s) collaborators should use
-    ts_ip = cfg.tailscale_ip
+    # Detect Tailscale IP dynamically
+    import subprocess
+    ts_ip = ""
+    try:
+        result = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5)
+        ts_ip = result.stdout.strip()
+    except Exception:
+        pass
     tailscale_url = f"http://{ts_ip}:{port}" if ts_ip else ""
     lan_url = f"http://{socket.gethostbyname(socket.gethostname())}:{port}"
 
