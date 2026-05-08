@@ -205,8 +205,6 @@ class ClavusApp(App):
             )
 
     def on_mount(self):
-        self._header_title = self.query_one("#header-title", Static)
-        self._footer_stats = self.query_one("#footer-stats", Static)
         self._update_header()
         self._update_footer()
         self.set_interval(0.25, self._update_header)
@@ -1688,10 +1686,10 @@ class ClavusApp(App):
     def _status(self, msg: str):
         """Show a status message in the footer."""
         safe_msg = msg.replace("[", "\\[").replace("]", "\\]")
-        w = self._footer_stats
-        if w is not None:
-            w.update(f"[{C['dim']}]{safe_msg}[/]")
-            w.refresh()
+        try:
+            self.query_one("#footer-stats", Static).update(f"[{C['dim']}]{safe_msg}[/]")
+        except Exception:
+            pass
 
     def _log_event(self, event: str):
         """Append a timestamped event to the top of the cue list as a log entry."""
@@ -1735,16 +1733,11 @@ class ClavusApp(App):
             peer = f"  [{C['yellow']}]○[/]"
         else:
             peer = f"  [{C['dim']}]○[/]"
-        text = f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}"
-        w = self._header_title
-        if w is not None:
-            w.update(text)
-            w.refresh()
-        else:
-            try:
-                self.query_one("#header-title", Static).update(text)
-            except Exception:
-                pass
+        try:
+            self.query_one("#header-title", Static).update(
+                f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
+        except Exception:
+            pass
     def _update_footer(self):
         try:
             self.query_one("#footer-keys", Static).update(
