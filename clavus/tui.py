@@ -635,6 +635,13 @@ class ClavusApp(App):
 
         out.write_bytes(raw)
 
+        # Update root_als so future snapshots find the .als
+        if self.project:
+            proj = self.store.get_index(self.project)
+            if proj:
+                proj.root_als = str(out)
+                self.store.set_index(proj)
+
         msg = f"opened {self.project}.als → {out}"
         if sample_count:
             msg += f" + {sample_count} samples"

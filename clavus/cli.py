@@ -652,10 +652,16 @@ def cmd_project(args: argparse.Namespace) -> None:
 def cmd_snapshot(args: argparse.Namespace) -> None:
     """Create a new snapshot of the current project state."""
     store, proj = get_store_and_project()
-    als_path = Path(proj.root_als)
-    if not als_path.exists():
-        print(f"❌ .als file not found: {als_path}")
-        sys.exit(1)
+    als_path = Path(proj.root_als) if proj.root_als else None
+    # Fallback: if root_als is empty or missing, look in projects dir
+    if not als_path or not als_path.is_file():
+        from clavus.helpers import get_projects_dir
+        candidate = get_projects_dir() / proj.name / f"{proj.name}.als"
+        if candidate.is_file():
+            als_path = candidate
+        else:
+            print(f"❌ .als file not found: {proj.root_als or 'projects/' + proj.name}")
+            sys.exit(1)
 
     # Prompt for message if not provided
     message = args.message

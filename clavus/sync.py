@@ -531,11 +531,18 @@ def pull_snapshot_blobs(
                                 except Exception:
                                     pass
 
-                    # NOTE: Path rewriting DISABLED — it corrupts .als XML on Windows.
-                    # Write the raw blob as-is.
-                    # from clavus.parser import rewrite_als_sample_paths
-                    # raw = rewrite_als_sample_paths(raw, out.parent)
+                    # Rewrite absolute sample paths to project folder (macOS only)
+                    import platform as _plat
+                    if _plat.system() == "Darwin":
+                        try:
+                            from clavus.parser import rewrite_als_sample_paths
+                            raw = rewrite_als_sample_paths(raw, out.parent)
+                        except Exception:
+                            pass
                     out.write_bytes(raw)
+                    # Update project root_als so future snapshots find the .als
+                    proj.root_als = str(out)
+                    store.set_index(proj)
                     print(f"   📁 Project folder → {out.parent}")
     except Exception:
         pass
