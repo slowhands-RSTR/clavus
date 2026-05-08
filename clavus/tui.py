@@ -1563,6 +1563,7 @@ class ClavusApp(App):
                 await asyncio.sleep(0)
                 result = pull_from_remote(self.store, proj_index, remote)
                 if result.get("error"):
+                    print(f"PULL ERROR: {result['error']}", flush=True)
                     self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
                     self._sync_status = ""
                     self._update_header()
