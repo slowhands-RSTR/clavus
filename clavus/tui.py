@@ -1425,6 +1425,7 @@ class ClavusApp(App):
 
     async def _do_pull(self):
         """Pull cues + snapshots + blobs from remotes — auto-discovers projects if none local."""
+        import asyncio
         import time
         from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
         from clavus.store import ClavusProject
@@ -1433,19 +1434,27 @@ class ClavusApp(App):
             remotes = load_remotes(self.store)
             if not remotes:
                 self._sync_activity = ""
+                self._update_header()
+                await asyncio.sleep(0)
                 self._status("\u274c no remotes — use :join http://...")
                 return
             self._sync_activity = f"\u2b07 {time.strftime("%H:%M")} pulling..."
+            self._update_header()
+            await asyncio.sleep(0)
             self._status("\u2b07 pulling...")
 
             # If no local project, auto-discover from remotes
             if not proj_index:
                 self._sync_activity = f"\u2b07 {time.strftime("%H:%M")} probing {len(remotes)} remote(s)..."
+                self._update_header()
+                await asyncio.sleep(0)
                 # Try external remotes first (localhost is slow/unreachable on Windows)
                 remotes_sorted = sorted(remotes, key=lambda r: 0 if "localhost" in r.url else -1)
                 pulled_any = False
                 for remote in remotes_sorted:
                     self._sync_activity = f"\u2b07 {time.strftime("%H:%M")} {remote.name}..."
+                    self._update_header()
+                    await asyncio.sleep(0)
                     client = SyncClient(remote.url)
                     try:
                         r = client.client.get(f"{remote.url}/api/projects", timeout=10)
@@ -1460,6 +1469,8 @@ class ClavusApp(App):
                                 proj_index = self.store.get_index(pname)
                             else:
                                 self._sync_activity = f"\u2b07 {time.strftime("%H:%M")} {pname}..."
+                                self._update_header()
+                                await asyncio.sleep(0)
                                 r2 = client.client.get(
                                     f"{remote.url}/api/sync/pull",
                                     params={"name": pname}, timeout=30)
@@ -1482,17 +1493,23 @@ class ClavusApp(App):
                             if result.get("snapshots"): parts.append(f"{result['snapshots']}s")
                             if blob_count: parts.append(f"{blob_count}b")
                             self._sync_activity = f"\u2b07 {time.strftime("%H:%M")} {pname}  {' '.join(parts)}" if parts else f"\u2b07 {time.strftime("%H:%M")} {pname}  up to date"
+                            self._update_header()
+                            await asyncio.sleep(0)
                             pulled_any = True
                         if pulled_any:
                             break
                     except Exception as e:
                         self._sync_activity = f"\u2b07 {time.strftime("%H:%M")} {remote.name}: err"
+                        self._update_header()
+                        await asyncio.sleep(0)
                         continue
                     finally:
                         client.close()
 
                 if not pulled_any:
                     self._sync_activity = ""
+                    self._update_header()
+                    await asyncio.sleep(0)
                     self._status("\u274c no projects found on any remote")
                     return
 
@@ -1502,6 +1519,8 @@ class ClavusApp(App):
                     self._peer_name = remotes[0].name if remotes else ""
                     self._peer_reachable = True
                     self._sync_activity = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
+                    self._update_header()
+                    await asyncio.sleep(0)
                     self._load_cues_from_disk()
                     self._load_snapshots_from_disk()
                     self._render()
@@ -1511,9 +1530,13 @@ class ClavusApp(App):
             # ── Normal pull for existing project ──
             for remote in remotes:
                 self._sync_activity = f"\u2b07 {time.strftime("%H:%M")} {remote.name}..."
+                self._update_header()
+                await asyncio.sleep(0)
                 result = pull_from_remote(self.store, proj_index, remote)
                 if result.get("error"):
                     self._sync_activity = ""
+                    self._update_header()
+                    await asyncio.sleep(0)
                     self._status(f"\u274c {result['error']}")
                     return
                 cues_n = result.get("cues", 0)
@@ -1521,10 +1544,16 @@ class ClavusApp(App):
                 conflicts_n = result.get("conflicts", 0)
                 blobs = pull_snapshot_blobs(self.store, proj_index, remote)
                 self._sync_activity = f"\u2b07 {time.strftime("%H:%M")} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+                self._update_header()
+                await asyncio.sleep(0)
                 if conflicts_n:
                     self._sync_activity += f"  \u26a0{conflicts_n}"
+                    self._update_header()
+                    await asyncio.sleep(0)
                 self._peer_reachable = True
             self._sync_activity = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
+            self._update_header()
+            await asyncio.sleep(0)
             self._status(f"\u2705 pulled: {len(self.cues)} cues, {len(self.snaps)} snapshots")
             # Refresh from disk
             if self.project:
@@ -1538,38 +1567,54 @@ class ClavusApp(App):
 
     async def _do_push(self):
         """Push cues + snapshots + blobs to remotes — direct function calls, no subprocess."""
+        import asyncio
         import time
         from clavus.sync import load_remotes, push_to_remote, push_snapshot_blobs
         try:
             proj_index = self.store.get_index(self.project)
             if not proj_index:
                 self._sync_activity = ""
+                self._update_header()
+                await asyncio.sleep(0)
                 self._status("\u274c no project")
                 return
             remotes = load_remotes(self.store)
             if not remotes:
                 self._sync_activity = ""
+                self._update_header()
+                await asyncio.sleep(0)
                 self._status("\u274c no remotes configured")
                 return
             self._sync_activity = f"\u2b06 {time.strftime("%H:%M")} pushing..."
+            self._update_header()
+            await asyncio.sleep(0)
             self._status("\u2b06 pushing...")
             for remote in remotes:
                 self._sync_activity = f"\u2b06 {time.strftime("%H:%M")} {remote.name}..."
+                self._update_header()
+                await asyncio.sleep(0)
                 result = push_to_remote(self.store, proj_index, remote)
                 if result.get("error"):
                     self._sync_activity = ""
+                    self._update_header()
+                    await asyncio.sleep(0)
                     self._status(f"\u274c {result['error']}")
                     return
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
                 blobs = push_snapshot_blobs(self.store, proj_index, remote)
                 self._sync_activity = f"\u2b06 {time.strftime("%H:%M")} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+                self._update_header()
+                await asyncio.sleep(0)
                 self._peer_reachable = True
             self._sync_activity = f"\u2b06 push \u2713 {time.strftime('%H:%M')}"
+            await asyncio.sleep(0)
             self._status("\u2705 push complete")
             self.set_timer(0.05, self._update_header)
         except Exception as e:
             self._sync_activity = ""
+            self._update_header()
+            await asyncio.sleep(0)
             self._status(f"\u274c push error: {e}")
 
     def _get_cue(self) -> Optional[Cue]:
