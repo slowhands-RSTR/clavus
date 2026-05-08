@@ -1582,14 +1582,13 @@ class ClavusApp(App):
                 self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
                 self._sync_status = ""
                 self._update_header()
-                with open(os.path.expanduser("~/.clavus_pull_error.log"), "a") as _ef:
-                    _ef.write(f"PULL ERROR (all remotes failed): {last_error}\n")
+                self._log_event(f"pull failed: {last_error} — check relay")
                 return
             self._last_sync = f"\u2b07 {time.strftime('%H:%M')}"
             self._update_header()
             asyncio.create_task(self._delayed_clear_sync())
             await asyncio.sleep(0)
-            self._status(f"\u2705 pulled: {len(self.cues)} cues, {len(self.snaps)} snapshots")
+            self._log_event(f"\u2b07 pulled: {len(self.cues)} cues, {len(self.snaps)} snapshots")
             # Refresh from disk
             if self.project:
                 self._load_cues_from_disk()
@@ -1636,7 +1635,11 @@ class ClavusApp(App):
                     self._sync_status = ""
                     self._update_header()
                     await asyncio.sleep(0)
-                    self._status(f"\u274c {result['error']}")
+                    err = result['error']
+                    if 'pull first' in err.lower() or 'conflict' in err.lower():
+                        self._log_event(f"\u26a0\ufe0f {err} — press p to pull, then P to push")
+                    else:
+                        self._log_event(f"push error: {err}")
                     return
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
