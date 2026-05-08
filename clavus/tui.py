@@ -853,9 +853,8 @@ class ClavusApp(App):
                 self._status(f"snapshot failed: {status_line}" if status_line else "snapshot failed")
         except Exception as e:
             self._status(f"snapshot error: {e}")
-        # Reload snapshots from local disk (snapshot is local, not from remotes)
+        # Reload snapshots from disk and refresh UI
         self._load_snapshots_from_disk()
-        self._render_history()
         self._update_header()
         self._render()
 
@@ -1867,6 +1866,7 @@ class ClavusApp(App):
         lv.clear()
         if not self.snaps:
             lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet[/]")))
+            lv.refresh()
             return
         for s in self.snaps[:10]:
             ts = time.strftime("%m/%d %H:%M", time.localtime(s.timestamp)) if s.timestamp else ""
@@ -1875,6 +1875,7 @@ class ClavusApp(App):
                 f"[{C['accent']}]{s.hash}[/] [{C['dim']}]{ts}[/]"
                 f"  [{C['fg']}]{safe_msg}[/]"
             )))
+        lv.refresh()
 
 
 # ─── Modals ──────────────────────────────────────────────────────────────────
