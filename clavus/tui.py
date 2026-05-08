@@ -1775,7 +1775,7 @@ class ClavusApp(App):
             cue_part = f"  [{C['dim']}]{len(self.cues)} cues[/]"
             sync_part = ""
             if self._sync_status:
-                sync_part = f"  [bold {C['accent']}]{self._sync_status}[/]"
+                sync_part = f"  [bold {C['yellow']}]{self._sync_status}[/]"
             elif self._last_sync:
                 sync_part = f"  [{C['green']}]{self._last_sync}[/]"
             if self._peer_name and self._peer_reachable:
