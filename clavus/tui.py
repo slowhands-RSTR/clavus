@@ -1423,6 +1423,7 @@ class ClavusApp(App):
         try:
             proj_index = self.store.get_index(self.project) if self.project else None
             remotes = load_remotes(self.store)
+            self._log_event(f"DEBUG _do_pull: project={self.project}, proj_index={'yes' if proj_index else 'none'}, remotes={len(remotes)}")
 
             # If no local project, auto-discover from remotes
             if not proj_index:
@@ -1495,6 +1496,7 @@ class ClavusApp(App):
                     self._peer_name = remotes[0].name if remotes else ""
                     self._peer_reachable = True
                     self._last_sync = f"\u2b07 pull \u2713 {time.strftime('%H:%M')}"
+                    self._log_event(f"DEBUG auto-pull: _last_sync={self._last_sync}")
                     self._load_cues_from_disk()
                     self._load_snapshots_from_disk()
                     self._update_header()
