@@ -1563,7 +1563,9 @@ class ClavusApp(App):
                 await asyncio.sleep(0)
                 result = pull_from_remote(self.store, proj_index, remote)
                 if result.get("error"):
-                    print(f"PULL ERROR: {result['error']}", flush=True)
+                    # Write to file since Textual eats terminal output on Windows
+                    with open(os.path.expanduser("~/.clavus_pull_error.log"), "a") as _ef:
+                        _ef.write(f"PULL ERROR: {result['error']}\n")
                     self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
                     self._sync_status = ""
                     self._update_header()
