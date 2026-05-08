@@ -334,13 +334,21 @@ def cmd_setup(args: argparse.Namespace) -> None:
             existing_urls.add(url)
 
     # Also add localhost relay if port is in use (already running)
-    if in_use:
+    # Only if no collaborator IP was given — this IS the relay machine
+    if not collab_ip and in_use:
         print(f"   🔗 Relay detected on port {port} — good!")
-    relay_url = f"http://localhost:{port}"
-    if relay_url not in existing_urls:
-        remotes.append(Remote(name="relay", url=relay_url))
-        save_remotes(store, remotes)
-        print(f"   ✅ Added remote 'relay' → {relay_url}")
+        relay_url = f"http://localhost:{port}"
+        if relay_url not in existing_urls:
+            remotes.append(Remote(name="relay", url=relay_url))
+            save_remotes(store, remotes)
+            print(f"   ✅ Added remote 'relay' → {relay_url}")
+    elif collab_ip:
+        # Remove any stale localhost remotes — they won't work on this machine
+        before = len(remotes)
+        remotes = [r for r in remotes if "localhost" not in r.url and "127.0.0.1" not in r.url]
+        if len(remotes) < before:
+            save_remotes(store, remotes)
+            print(f"   🧹 Removed {before - len(remotes)} stale localhost remote(s)")
 
     # Summary
     remotes = load_remotes(store)

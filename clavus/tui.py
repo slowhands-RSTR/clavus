@@ -1557,31 +1557,34 @@ class ClavusApp(App):
                 return
 
             # ── Normal pull for existing project ──
+            any_ok = False
+            last_error = ""
             for remote in remotes:
-                self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}..."
+                self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}..."
                 self._update_header()
                 await asyncio.sleep(0)
                 result = pull_from_remote(self.store, proj_index, remote)
                 if result.get("error"):
-                    # Write to file since Textual eats terminal output on Windows
-                    with open(os.path.expanduser("~/.clavus_pull_error.log"), "a") as _ef:
-                        _ef.write(f"PULL ERROR: {result['error']}\n")
-                    self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
-                    self._sync_status = ""
-                    self._update_header()
-                    await asyncio.sleep(0)
-                    self._status(f"\u274c {result['error']}")
-                    return
+                    last_error = result["error"]
+                    continue  # try next remote, don't bail
+                any_ok = True
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
                 conflicts_n = result.get("conflicts", 0)
                 blobs = pull_snapshot_blobs(self.store, proj_index, remote)
-                self._sync_status = f"\u2b07 {time.strftime("%H:%M")} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+                self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
                 if conflicts_n:
                     self._sync_status += f"  \u26a0{conflicts_n}"
                 self._update_header()
                 await asyncio.sleep(0)
                 self._peer_reachable = True
+            if not any_ok:
+                self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
+                self._sync_status = ""
+                self._update_header()
+                with open(os.path.expanduser("~/.clavus_pull_error.log"), "a") as _ef:
+                    _ef.write(f"PULL ERROR (all remotes failed): {last_error}\n")
+                return
             self._last_sync = f"\u2b07 {time.strftime('%H:%M')}"
             self._update_header()
             asyncio.create_task(self._delayed_clear_sync())
