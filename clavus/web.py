@@ -1129,8 +1129,12 @@ async def sync_push_snapshots(body: SyncPushSnapshotsBody,
                 who = time.strftime("%H:%M", time.localtime(other.timestamp))
             raise HTTPException(
                 status_code=409,
-                detail=f"HEAD has moved (current: {current_head[:8]}… @ {who}). "
-                       f"Pull first to integrate changes, then push again."
+                detail={"error": "HEAD has moved",
+                        "relay_head": current_head,
+                        "relay_head_short": current_head[:8],
+                        "who": who,
+                        "message": f"HEAD has moved (current: {current_head[:8]}… @ {who}). "
+                                   f"Pull first to integrate changes, then push again."})
             )
 
     for s in body.snapshots:

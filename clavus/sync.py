@@ -132,16 +132,23 @@ class SyncClient:
                 timeout=60,
             )
             if r.status_code == 200:
-                return True, None
+                return True, None, None
             if r.status_code == 409:
                 try:
-                    err = r.json().get("error", "Conflict — pull first")
+                    detail = r.json()
+                    if isinstance(detail, dict):
+                        err = detail.get("message", detail.get("error", "Conflict — pull first"))
+                        relay_head = detail.get("relay_head")
+                    else:
+                        err = str(detail)
+                        relay_head = None
                 except Exception:
                     err = "Conflict — pull first"
-                return False, err
-            return False, None
+                    relay_head = None
+                return False, err, relay_head
+            return False, None, None
         except Exception:
-            return False, None
+            return False, None, None
 
     def close(self):
         self.client.close()
@@ -631,12 +638,22 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote) -> dic
         # Push snapshots (always push, even empty — ensures project exists on relay)
         snap_data = _snapshots_to_dicts(store, proj)
         print(f"  📸 Pushing {len(snap_data)} snapshot(s)...")
-        ok, conflict = client.push_snapshots(proj.name, snap_data,
+        ok, conflict, relay_head = client.push_snapshots(proj.name, snap_data,
                                               expected_parent=remote.last_head)
         if snap_data:
             result["snapshots"] = len(snap_data) if ok else 0
         if conflict:
             result["error"] = conflict
+            # Auto-update last_head from relay's 409 response
+            if relay_head:
+                remote.last_head = relay_head
+                remotes = load_remotes(store)
+                for r in remotes:
+                    if r.url.rstrip("/") == remote.url.rstrip("/"):
+                        r.last_head = relay_head
+                        r.last_sync = time.time()
+                        break
+                save_remotes(store, remotes)
         elif not ok and not result["error"]:
             result["error"] = "Failed to push snapshots"
         print(f"  {'✅' if ok else '❌'} Snapshots: {result['snapshots']} sent")
