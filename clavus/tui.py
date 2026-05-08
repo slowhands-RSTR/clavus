@@ -1722,8 +1722,6 @@ class ClavusApp(App):
             pass
 
     def _update_header(self):
-        with open(__file__ + ".log", "a") as _f:
-            _f.write(f"UPDATE_HEADER sync_activity={getattr(self, '_sync_activity', 'MISSING')!r}\n")
         proj = f"  [white]{self.project}[/]" if self.project else ""
         cue_part = f"  [{C['dim']}]{len(self.cues)} cues[/]"
         sync_part = ""
@@ -1735,11 +1733,8 @@ class ClavusApp(App):
             peer = f"  [{C['yellow']}]○[/]"
         else:
             peer = f"  [{C['dim']}]○[/]"
-        try:
-            self.query_one("#header-title", Static).update(
-                f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
-        except Exception:
-            pass
+        self.query_one("#header-title", Static).update(
+            f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
     def _update_footer(self):
         try:
             self.query_one("#footer-keys", Static).update(
