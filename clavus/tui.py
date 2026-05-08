@@ -828,13 +828,23 @@ class ClavusApp(App):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
             out = stdout.decode().strip()
+            err = stderr.decode().strip()
             if out:
                 for line in out.split("\n"):
                     if line.strip():
                         self._log_event(line.strip())
-            self._status("snapshot complete" if proc.returncode == 0 else "snapshot failed")
+            if err:
+                for line in err.split("\n"):
+                    if line.strip():
+                        self._log_event(line.strip())
+            # Use last line of output as status (most informative)
+            status_line = (out + "\n" + err).strip().split("\n")[-1] if (out or err) else ""
+            if proc.returncode == 0:
+                self._status(status_line if status_line else "snapshot complete")
+            else:
+                self._status(f"snapshot failed: {status_line}" if status_line else "snapshot failed")
         except Exception as e:
             self._status(f"snapshot error: {e}")
         # Reload snapshots from local disk (snapshot is local, not from remotes)
