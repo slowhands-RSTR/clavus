@@ -2179,6 +2179,15 @@ def cmd_pull(args: argparse.Namespace) -> None:
             print(f"❌ Remote '{args.remote}' not found.")
             return
 
+    # Deduplicate remotes by URL (same relay shouldn't be pulled twice)
+    seen_urls = set()
+    unique_remotes = []
+    for r in remotes:
+        if r.url not in seen_urls:
+            seen_urls.add(r.url)
+            unique_remotes.append(r)
+    remotes = unique_remotes
+
     for remote in remotes:
         from clavus.sync import pull_from_remote, pull_snapshot_blobs
         print(f"📥 Pulling from '{remote.name}' ({remote.url})...")
