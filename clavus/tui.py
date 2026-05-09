@@ -106,7 +106,7 @@ class ClavusApp(App):
     #history-list ListView {{ height: 100%; border: none; background: transparent; }}
     #history-list ListItem {{ background: transparent; padding: 0 1; min-height: 1; }}
 
-    #footer {{ height: 2; background: {C['surface']}; padding: 0 1; }}
+    #footer {{ height: 1; background: {C['surface']}; padding: 0 1; }}
     #footer.input-mode {{ height: 3; padding: 0; }}
     #footer-keys {{ color: {C['accent']}; }}
     #footer-stats {{ color: {C['muted']}; text-align: right; }}
@@ -1872,14 +1872,10 @@ class ClavusApp(App):
                 f"[{C['accent']}]e[/] edit  "
                 f"[{C['accent']}]c[/] cue  "
                 f"[{C['accent']}]C[/] snap  "
-                f"[{C['accent']}]T[/] restore  "
-                f"[{C['accent']}]i[/] inject\n"
-                f"[{C['accent']}]p[/] pull  "
-                f"[{C['accent']}]P[/] push  "
                 f"[{C['accent']}]a[/] assign  "
-                f"[{C['accent']}]s[/] skip  "
+                f"[{C['accent']}]i[/] inject  "
+                f"[{C['accent']}]T[/] restore  "
                 f"[{C['accent']}]x[/] archive  "
-                f"[{C['accent']}]d[/] diff  "
                 f"[{C['accent']}]![/] conflict  "
                 f"[{C['accent']}]q[/] quit  "
                 f"[{C['accent']}]:[/] cmd"
