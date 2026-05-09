@@ -184,7 +184,6 @@ class ClavusApp(App):
         Binding("e", "edit", "Edit"),
         Binding("c", "cue_new", "New cue"),
         Binding("S", "snapshot", "Snapshot"),
-        Binding("s", "snapshot", "Snapshot", show=False),
         Binding("R", "resolve", "Resolve"),
         Binding("T", "restore_snapshot", "Restore"),
         Binding("i", "inject_cues", "Inject"),
