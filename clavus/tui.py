@@ -595,11 +595,21 @@ class ClavusApp(App):
             self._status("raw .als blob missing — try pulling")
             return
 
-        # Write snapshot blob to the existing project folder
+        # Write to Ableton project folder convention:
+        # Ableton expects "Song.als" inside "Song Project/" subfolder.
+        # If we write flat, Ableton auto-creates the subfolder with a COPY
+        # and saves there instead — so snapshots see the stale flat file.
+        # Write into the proper structure and update root_als to match.
         from pathlib import Path
-        out = Path(proj.root_als)
+        base = Path(proj.root_als).parent  # e.g. Projects/On Your Feet/
+        als_dir = base / f"{self.project} Project"
+        out = als_dir / f"{self.project}.als"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(raw)
+
+        # Update root_als so future snapshots find the right file
+        proj.root_als = str(out)
+        self.store.set_index(proj)
 
         msg = f"restored {self.project}.als ← snapshot {resolved[:10]}"
         self._status(msg)
