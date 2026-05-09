@@ -596,6 +596,7 @@ class ClavusApp(App):
             return
 
         # Write snapshot blob to the existing project folder
+        from pathlib import Path
         out = Path(proj.root_als)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(raw)
