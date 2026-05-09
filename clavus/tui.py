@@ -281,8 +281,8 @@ class ClavusApp(App):
         self._update_header()
         self._update_footer()
         self._connect()
-        # Refresh header every 60s to update snap time indicator
-        self.set_interval(60.0, self._update_header)
+        # Periodic health probe — re-check relay reachability every 60s
+        self.set_interval(60.0, self._probe_reachability)
 
     # ─── Input bar ──────────────────────────────────────────────────────
 
@@ -1377,6 +1377,27 @@ class ClavusApp(App):
         except Exception:
             self._status("save failed")
 
+    def _probe_reachability(self):
+        """Periodic health check — updates dot color based on relay reachability."""
+        if not self._peer_name:
+            return
+        try:
+            from clavus.sync import load_remotes, SyncClient
+            remotes = load_remotes(self.store)
+            if not remotes:
+                return
+            client = SyncClient(remotes[0].url)
+            r, _ = client.request_with_retry("GET", "/api/ping", timeout=3)
+            was_reachable = self._peer_reachable
+            self._peer_reachable = (r is not None and r.status_code == 200)
+            client.close()
+            if was_reachable != self._peer_reachable:
+                self._update_header()
+        except Exception:
+            if self._peer_reachable:
+                self._peer_reachable = False
+                self._update_header()
+
     # ─── Connection ─────────────────────────────────────────────────────
 
     def _connect(self):
@@ -1668,6 +1689,12 @@ class ClavusApp(App):
                 await asyncio.sleep(0)
                 result = pull_from_remote(self.store, proj_index, remote)
                 if result.get("error"):
+                    self._peer_reachable = False
+                    self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
+                    self._sync_status = ""
+                    self._update_header()
+                    await asyncio.sleep(0)
+                    self._log_event(f"● {self._peer_name} unreachable — pull failed")
                     last_error = result["error"]
                     continue  # try next remote, don't bail
                 any_ok = True
@@ -1734,6 +1761,7 @@ class ClavusApp(App):
                 await asyncio.sleep(0)
                 result = push_to_remote(self.store, proj_index, remote)
                 if result.get("error"):
+                    self._peer_reachable = False
                     self._last_sync = f"\u2b06 \u2717 {time.strftime('%H:%M')}"
                     self._sync_status = ""
                     self._update_header()
