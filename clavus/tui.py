@@ -1455,6 +1455,7 @@ class ClavusApp(App):
         """Pull cues + snapshots + blobs from remotes — auto-discovers projects if none local."""
         import asyncio
         import time
+        from pathlib import Path
         from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
         from clavus.store import ClavusProject
         try:
@@ -1557,6 +1558,30 @@ class ClavusApp(App):
                 return
 
             # ── Normal pull for existing project ──
+            # Auto-snapshot local work before overwriting with remote changes.
+            # This ensures the user can always go back to what they had.
+            try:
+                als_path = Path(proj_index.root_als)
+                if als_path.exists() and proj_index.head:
+                    raw_als = als_path.read_bytes()
+                    current_hash = hashlib.sha256(raw_als).hexdigest()
+                    if current_hash != proj_index.head:
+                        from clavus import parse_als
+                        project = parse_als(als_path)
+                        if project:
+                            snap = self.store.save_snapshot(
+                                project,
+                                message="auto-snapshot before sync",
+                                parent=proj_index.head,
+                            )
+                            if snap.hash != proj_index.head:
+                                self.store.update_ref("HEAD", snap.hash)
+                                proj_index.head = snap.hash
+                                self.store.set_index(proj_index)
+                                self._log_event(f"\U0001f4f8 auto-snapshot {snap.hash[:8]} (local changes saved)")
+            except Exception:
+                pass  # best-effort — don't block pull on snapshot failure
+
             any_ok = False
             last_error = ""
             for remote in remotes:

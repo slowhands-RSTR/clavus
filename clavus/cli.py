@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import os
 import sys
 import time
@@ -2079,6 +2080,31 @@ def cmd_pull(args: argparse.Namespace) -> None:
 
     for remote in remotes:
         from clavus.sync import pull_from_remote, pull_snapshot_blobs
+
+        # Auto-snapshot local work before overwriting with remote changes
+        try:
+            from pathlib import Path
+            als_path = Path(proj.root_als)
+            if als_path.exists() and proj.head:
+                raw_als = als_path.read_bytes()
+                current_hash = hashlib.sha256(raw_als).hexdigest()
+                if current_hash != proj.head:
+                    from clavus import parse_als
+                    project = parse_als(als_path)
+                    if project:
+                        snap = store.save_snapshot(
+                            project,
+                            message="auto-snapshot before sync",
+                            parent=proj.head,
+                        )
+                        if snap.hash != proj.head:
+                            store.update_ref("HEAD", snap.hash)
+                            proj.head = snap.hash
+                            store.set_index(proj)
+                            print(f"📸 Auto-snapshot {snap.hash[:8]} (local changes saved)")
+        except Exception:
+            pass
+
         print(f"📥 Pulling from '{remote.name}' ({remote.url})...")
         result = pull_from_remote(store, proj, remote, output_dir=args.output)
         parts = []

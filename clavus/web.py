@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -1101,10 +1102,28 @@ class SyncPushSnapshotsBody(BaseModel):
     expected_parent: str | None = None  # HEAD hash peer expects on relay
 
 
+# ── Per-project mutex to prevent concurrent push races ──────────────────
+_project_locks: dict[str, threading.Lock] = {}
+
+
+def _get_project_lock(name: str) -> threading.Lock:
+    """Get or create a lock for a project to serialize push operations."""
+    if name not in _project_locks:
+        _project_locks[name] = threading.Lock()
+    return _project_locks[name]
+
+
 @app.post("/api/sync/push-snapshots")
 async def sync_push_snapshots(body: SyncPushSnapshotsBody,
                                name: str = Query(..., description="Project name")):
     """Push (import) snapshots from a remote peer."""
+    lock = _get_project_lock(name)
+    with lock:
+        return _sync_push_snapshots_impl(body, name)
+
+
+def _sync_push_snapshots_impl(body: SyncPushSnapshotsBody, name: str):
+    """Inner implementation — called under project lock."""
     store = BlobStore()
     try:
         _, proj = _get_project(name)
@@ -1141,10 +1160,14 @@ async def sync_push_snapshots(body: SyncPushSnapshotsBody,
         if not snap_hash:
             continue
 
-        # Store snapshot metadata (always update — fields may change)
+        # NEVER overwrite existing metadata — parent chains are sacred.
+        # If the relay already has this snapshot (from a prior push), skip it.
         meta_dir = store.objects_dir / snap_hash[:2]
-        meta_dir.mkdir(parents=True, exist_ok=True)
         meta_path = meta_dir / f"{snap_hash}.meta"
+        if meta_path.exists():
+            continue
+
+        meta_dir.mkdir(parents=True, exist_ok=True)
 
         from dataclasses import asdict
         snap = Snapshot(
