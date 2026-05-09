@@ -343,8 +343,8 @@ def push_snapshot_blobs(
                                 json=upload_batch,
                                 timeout=120,
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"    ⚠️  .als upload failed ({len(upload_batch)} blob(s)): {e}")
 
         # Check which sample blobs the remote is missing
         if sample_hashes_list:
@@ -513,15 +513,15 @@ def pull_snapshot_blobs(
                 continue
             try:
                 r = client.client.get(
-                    f"{remote.url}/api/stems/blob/{h}",
+                    f"{remote.url}/api/blobs/{h}",
                     timeout=120,
                 )
                 if r.status_code == 200:
                     store.put_object(r.content, h)
                     count += 1
                     downloaded.add(h)
-            except Exception:
-                print(f"    ⚠️  Could not fetch .als backup {h[:12]}")
+            except Exception as e:
+                print(f"    ⚠️  Could not fetch .als backup {h[:12]}: {e}")
 
         # Download missing audio samples
         if missing_samples:
