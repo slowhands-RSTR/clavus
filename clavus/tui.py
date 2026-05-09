@@ -269,7 +269,10 @@ class ClavusApp(App):
             else:
                 self._focus_cues()
         elif mode == "confirm_archive":
-            self._do_archive_cue()
+            if text.lower() in ("y", "yes"):
+                self._do_archive_cue()
+            else:
+                self._focus_cues()
         elif mode == "command":
             self._do_command(text)
 
@@ -1141,8 +1144,12 @@ class ClavusApp(App):
         self._show_input("assign", "assign to:")
 
     def action_start(self):
+        """Toggle cue in_progress (start/stop playback marker)."""
         cue = self._get_cue()
         if not cue:
+            return
+        if self._input_mode:
+            # Don't toggle while input prompt is active
             return
         if cue.in_progress:
             cue.in_progress = False
