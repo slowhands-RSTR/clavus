@@ -565,15 +565,12 @@ class ClavusApp(App):
 
     @work(exclusive=False)
     async def _run_open(self, hash_str: str = ""):
-        """Materialize the .als to a usable path and optionally open it."""
+        """Restore the HEAD snapshot .als to the project folder and open it."""
         if not self.project:
             self._status("no project selected")
             return
-        from clavus.store import BlobStore
-        from pathlib import Path
-        store = BlobStore()
-        proj = store.get_index(self.project)
-        if not proj:
+        proj = self.store.get_index(self.project)
+        if not proj or not proj.root_als:
             self._status("project not found in store")
             return
 
@@ -582,89 +579,35 @@ class ClavusApp(App):
             self._status("no snapshots to open")
             return
 
-        # Resolve short hash
-        from clavus.helpers import resolve_snapshot, get_projects_dir
-        resolved = resolve_snapshot(store, h)
+        from clavus.helpers import resolve_snapshot
+        resolved = resolve_snapshot(self.store, h)
         if not resolved:
             self._status(f"could not resolve hash: {h}")
             return
 
-        snap = store.load_snapshot(resolved)
+        snap = self.store.load_snapshot(resolved)
         if not snap or not snap.als_hash:
             self._status("snapshot has no .als backup")
             return
 
-        raw = store.get_object(snap.als_hash)
+        raw = self.store.get_object(snap.als_hash)
         if not raw:
             self._status("raw .als blob missing — try pulling")
             return
 
-        # Write to a proper Ableton project folder structure.
-        # Ableton convention: "Song.als" → expects "Song Project/" folder.
-        # If we write flat, Ableton auto-creates a project folder with a COPY
-        # of the .als — and root_als points to the stale flat copy, so
-        # snapshots see "no changes." Write into the project folder upfront.
-        project_name = self.project.replace(" ", " ")
-        project_dir = get_projects_dir() / project_name
-        als_project = project_dir / f"{project_name} Project"
-        out = als_project / f"{project_name}.als"
-
+        # Write snapshot blob to the existing project folder
+        out = Path(proj.root_als)
         out.parent.mkdir(parents=True, exist_ok=True)
-        # Create Samples/ subfolder so Ableton finds it immediately
-        (als_project / "Samples").mkdir(exist_ok=True)
-
-        # Materialize audio samples into the project folder first (so they exist)
-        sample_count = 0
-        if snap.sample_hashes:
-            # Extract filename → RelativePath mapping from the original .als
-            import gzip, re
-            _xml = gzip.decompress(raw).decode("utf-8", errors="replace")
-            _als_relpaths: dict[str, str] = {}
-            for _m in re.finditer(r'<RelativePath\s+Value="([^"]+)"', _xml):
-                _rp = _m.group(1)
-                _fn = _rp.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-                if _fn not in _als_relpaths:
-                    _als_relpaths[_fn] = _rp
-
-            for sh in snap.sample_hashes:
-                fname = store.get_sample_filename(sh)
-                # Prefer .als RelativePath (preserves subdirectory structure)
-                relpath = _als_relpaths.get(fname) or store.get_sample_relpath(sh) or ""
-                if fname and store.has_object(sh):
-                    try:
-                        store.materialize_sample(sh, als_project, fname, relpath)
-                        sample_count += 1
-                    except Exception:
-                        pass
-
-        # NOTE: Path rewriting re-enabled for macOS. Samples materialized alongside
-        # the .als — rewrite absolute paths so Ableton finds them immediately.
-        import platform
-        if platform.system() == "Darwin":
-            try:
-                from clavus.parser import rewrite_als_sample_paths
-                raw = rewrite_als_sample_paths(raw, als_project)
-            except Exception:
-                pass  # Fall back to raw blob if rewriting fails
-
         out.write_bytes(raw)
 
-        # Update root_als so future snapshots find the .als
-        if self.project:
-            proj = self.store.get_index(self.project)
-            if proj:
-                proj.root_als = str(out)
-                self.store.set_index(proj)
-
-        msg = f"opened {self.project}.als → {out}"
-        if sample_count:
-            msg += f" + {sample_count} samples"
+        msg = f"restored {self.project}.als ← snapshot {resolved[:10]}"
         self._status(msg)
         self._log_event(msg)
 
-        # Launch if Ableton available (macOS only for now)
-        import platform, subprocess as sp
+        # Launch in Ableton
+        import platform
         if platform.system() == "Darwin":
+            import subprocess as sp
             for v in ["12", "11", "10"]:
                 able = Path(f"/Applications/Ableton Live {v}/Ableton Live {v}.app")
                 if able.exists():
