@@ -563,6 +563,13 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
     )
     logs.append(f"✅ Copied → {target_dir}")
 
+    # Rename .als to match project name if they differ
+    if not target_als.exists():
+        existing = list(target_dir.glob("*.als"))
+        if existing:
+            existing[0].rename(target_als)
+            logs.append(f"📛 Renamed {existing[0].name} → {target_als.name}")
+
     # Update als_path to the copy
     als_path = target_als
     project.file_path = str(als_path)
@@ -725,6 +732,13 @@ def cmd_init(args: argparse.Namespace) -> None:
         ignore=shutil.ignore_patterns("Backup*", "Ableton Project Info", ".DS_Store"),
         dirs_exist_ok=True,
     )
+
+    # Rename .als to match project name if they differ
+    if not target_als.exists():
+        existing = list(target_dir.glob("*.als"))
+        if existing:
+            existing[0].rename(target_als)
+            print(f"   📛 Renamed {existing[0].name} → {target_als.name}")
 
     # Update als_path to the copy and re-parse
     als_path = target_als
