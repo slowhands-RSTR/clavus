@@ -269,10 +269,7 @@ class ClavusApp(App):
             else:
                 self._focus_cues()
         elif mode == "confirm_archive":
-            if text.lower() in ("y", "yes"):
-                self._do_archive_cue()
-            else:
-                self._focus_cues()
+            self._do_archive_cue()
         elif mode == "command":
             self._do_command(text)
 
