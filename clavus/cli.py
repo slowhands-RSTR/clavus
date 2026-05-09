@@ -2828,7 +2828,7 @@ def main():
                                 help="Path to backup archive (default: latest)")
 
     # Diff
-    p_diff = subparsers.add_parser("diff", help=argparse.SUPPRESS)
+    p_diff = subparsers.add_parser("diff", help="Show changes in a snapshot")
     p_diff.add_argument("hash", nargs="?", default=None, help="Snapshot hash or ref name (default: HEAD)")
     p_diff.add_argument("--verbose", "-v", action="store_true", help="Show unchanged tracks")
     p_diff.add_argument("--visual", action="store_true", help="Show visual timeline diff")
@@ -2861,20 +2861,20 @@ def main():
     p_cues.add_argument("--author", "-a", default="", help="Filter by author")
     p_cues.add_argument("--verbose", "-v", action="store_true", help="Show replies and resolved cues")
 
-    p_cue_assign = subparsers.add_parser("cue-assign", help=argparse.SUPPRESS)
+    p_cue_assign = subparsers.add_parser("cue-assign", help="Assign a cue to someone")
     p_cue_assign.add_argument("cue_id", help="ID of the cue to assign")
     p_cue_assign.add_argument("name", help="Name of the person to assign to")
 
-    p_cue_unassign = subparsers.add_parser("cue-unassign", help=argparse.SUPPRESS)
+    p_cue_unassign = subparsers.add_parser("cue-unassign", help="Remove assignee from a cue")
     p_cue_unassign.add_argument("cue_id", help="ID of the cue to unassign")
 
-    p_cue_start = subparsers.add_parser("cue-start", help=argparse.SUPPRESS)
+    p_cue_start = subparsers.add_parser("cue-start", help="Mark a cue as in-progress")
     p_cue_start.add_argument("cue_id", help="ID of the cue to start")
 
-    p_cue_stop = subparsers.add_parser("cue-stop", help=argparse.SUPPRESS)
+    p_cue_stop = subparsers.add_parser("cue-stop", help="Mark a cue as no longer in-progress")
     p_cue_stop.add_argument("cue_id", help="ID of the cue to stop")
 
-    p_cue_delete = subparsers.add_parser("cue-delete", help=argparse.SUPPRESS)
+    p_cue_delete = subparsers.add_parser("cue-delete", help="Permanently delete a cue")
     p_cue_delete.add_argument("cue_id", help="ID of the cue to delete")
 
     p_cue_archive = subparsers.add_parser("cue-archive", help="Archive a resolved/skipped cue")
@@ -2904,26 +2904,26 @@ def main():
     p_pull.add_argument("--output", "-o", type=str, default=None,
                         help="Output directory for project folder")
 
-    p_sync = subparsers.add_parser("sync", help=argparse.SUPPRESS)
+    p_sync = subparsers.add_parser("sync", help="Start auto-sync daemon")
     p_sync.add_argument("--interval", "-i", type=int, default=30,
                         help="Poll interval in seconds (default: 30)")
 
     # ── Branch / Checkout / Merge ──
-    p_branch = subparsers.add_parser("branch", help=argparse.SUPPRESS)
+    p_branch = subparsers.add_parser("branch", help="List or create branches")
     p_branch.add_argument("name", nargs="?", default=None, help="Branch name to create")
     p_branch.add_argument("--delete", "-d", default="", help="Delete a branch")
     p_branch.add_argument("--list", "-l", action="store_true", help="List all branches")
 
-    p_checkout = subparsers.add_parser("checkout", help=argparse.SUPPRESS)
+    p_checkout = subparsers.add_parser("checkout", help="Switch branches")
     p_checkout.add_argument("name", help="Branch to switch to")
     p_checkout.add_argument("-b", action="store_true", help="Create branch then switch")
 
-    p_merge = subparsers.add_parser("merge", help=argparse.SUPPRESS)
+    p_merge = subparsers.add_parser("merge", help="Merge another branch into current")
     p_merge.add_argument("branch", help="Branch name to merge from")
     p_merge.add_argument("--message", "-m", default="", help="Merge commit message")
     p_merge.add_argument("--no-ff", action="store_true", help="Create a merge commit even if fast-forward")
 
-    p_cue_render = subparsers.add_parser("cue-render", help=argparse.SUPPRESS)
+    p_cue_render = subparsers.add_parser("cue-render", help="Export cues as Ableton markers")
     p_cue_render.add_argument("--output", "-o", default="", help="Output file path")
     p_cue_render.add_argument("--inject", action="store_true",
                              help="Inject cues directly into the project's .als file (creates backup)")
@@ -2977,7 +2977,7 @@ def main():
                        help="Clavus server URL (default: from config or http://localhost:7890)")
 
     # Find (LAN discovery)
-    p_find = subparsers.add_parser("find", help=argparse.SUPPRESS)
+    p_find = subparsers.add_parser("find", help="Find Clavus servers on your LAN or Tailscale tailnet")
     p_find.add_argument("--timeout", "-t", type=int, default=3,
                         help="Seconds to scan for (default: 3)")
     p_find.add_argument("--pair", "-p", default="",
@@ -2986,7 +2986,7 @@ def main():
                         help="Scan your Tailscale tailnet instead of LAN")
 
     # ── Stem subcommands ──
-    p_stem = subparsers.add_parser("stem", help=argparse.SUPPRESS)
+    p_stem = subparsers.add_parser("stem", help="Manage stems (audio exports)")
     stem_sub = p_stem.add_subparsers(dest="stem_action", help="Stem commands")
 
     p_stem_import = stem_sub.add_parser("import", help="Import a stem file")
