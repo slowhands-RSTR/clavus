@@ -1135,7 +1135,6 @@ async def sync_push_snapshots(body: SyncPushSnapshotsBody,
                         "who": who,
                         "message": f"HEAD has moved (current: {current_head[:8]}… @ {who}). "
                                    f"Pull first to integrate changes, then push again."})
-            )
 
     for s in body.snapshots:
         snap_hash = s.get("full_hash", s.get("hash", ""))

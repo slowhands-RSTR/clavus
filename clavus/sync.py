@@ -135,7 +135,9 @@ class SyncClient:
                 return True, None, None
             if r.status_code == 409:
                 try:
-                    detail = r.json()
+                    body = r.json()
+                    # FastAPI wraps detail in {"detail": ...}
+                    detail = body.get("detail", body) if isinstance(body, dict) else body
                     if isinstance(detail, dict):
                         err = detail.get("message", detail.get("error", "Conflict — pull first"))
                         relay_head = detail.get("relay_head")
