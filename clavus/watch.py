@@ -4,6 +4,9 @@ Clavus — file watcher daemon.
 Auto-snapshots an Ableton project every time the .als file is modified on disk.
 Uses mtime polling (cross-platform, no extra deps) with configurable debounce.
 
+Tracks the active project from index.json and auto-reloads when you switch
+projects via clavus project or the TUI.
+
 Usage:
     clavus watch           # start daemon (foreground, for testing)
     clavus watch --once    # take one snapshot if changed and exit (for cron)
@@ -23,14 +26,16 @@ import platform
 from pathlib import Path
 from typing import Optional
 
-from clavus import parse_als
+from clavus.store import BlobStore, ClavusProject
+from clavus.parser import parse_als
 from clavus.helpers import get_store_and_project
-from clavus.store import BlobStore, ClavusProject, diff_projects
+from clavus.store import diff_projects
 
 # ─── Config ──────────────────────────────────────────────────────────────
 
 DEFAULT_COOLDOWN = 30   # seconds to wait after last change before snapshotting
 POLL_INTERVAL = 2       # seconds between file system checks
+PROJECT_CHECK_INTERVAL = 10  # re-check active project every N polls
 SERVICE_NAME = "com.clavus.watch"
 LOG_FILE = Path.home() / ".clavus" / "watch.log"
 
@@ -40,38 +45,47 @@ def _auto_message() -> str:
     return f"Auto-snapshot @ {time.strftime('%Y-%m-%d %H:%M:%S')}"
 
 
+def _get_active_project() -> tuple[Optional[BlobStore], Optional[ClavusProject], Optional[str]]:
+    """Re-read the index to get the currently active project.
+    
+    Returns (store, project, project_name) or (None, None, None) if no active project.
+    """
+    try:
+        store = BlobStore()
+        index = store.load_index()
+        proj_name = index.get("_last_project")
+        if not proj_name:
+            return None, None, None
+        proj = store.get_index(proj_name)
+        if not proj:
+            return None, None, None
+        return store, proj, proj_name
+    except Exception:
+        return None, None, None
+
+
 def watch(
-    store: BlobStore,
-    proj: ClavusProject,
     cooldown: int = DEFAULT_COOLDOWN,
     verbose: bool = True,
     once: bool = False,
     log_file: Optional[Path] = None,
 ) -> None:
-    """Watch the project's .als file for changes and auto-snapshot.
+    """Watch the active project's .als file for changes and auto-snapshot.
 
-    Uses mtime as a cheap first-pass check — only re-hashes if mtime changed.
+    Polls every POLL_INTERVAL seconds. Uses mtime as a cheap first-pass check.
     Debounce prevents snapshotting mid-write (Ableton takes ~1s to finish saving).
 
+    Re-reads the active project from index.json on every poll cycle, so switching
+    projects via 'clavus project' or the TUI is picked up automatically.
+
     Args:
-        store: BlobStore instance
-        proj: Active ClavusProject
         cooldown: Seconds to wait after last detected change before snapshotting
         verbose: Print snapshot info on each auto-snapshot
         once: If True, take one snapshot and return (for cron usage)
         log_file: If set, write all output to this file instead of stdout
     """
-    als_path = Path(proj.root_als)
-    if not als_path.exists():
-        _log(log_file, f"❌ .als file not found: {als_path}")
-        return
-
-    # Track state
-    last_mtime = als_path.stat().st_mtime
-    last_snapshot_mtime = last_mtime
-    last_snapshot_hash: Optional[str] = None
-    pending_snapshot = False
-    pending_since: float = 0.0
+    poll_count = 0
+    current_proj_name: Optional[str] = None
 
     def _print(msg: str) -> None:
         if verbose:
@@ -80,49 +94,82 @@ def watch(
             else:
                 print(msg)
 
-    _print(f"👁  Watching '{proj.name}' — {als_path.name}")
+    _print(f"👁  Clavus watch daemon started")
     _print(f"   Cooldown: {cooldown}s  Poll: {POLL_INTERVAL}s")
     if once:
         _print(f"   Mode: one-shot")
     else:
+        _print(f"   Will track whichever project is active in Clavus")
         _print(f"   Press Ctrl+C to stop")
     _print("")
 
     try:
         while True:
             time.sleep(POLL_INTERVAL)
+            poll_count += 1
 
+            # Periodically re-check which project is active
+            # Always check on first poll, then every PROJECT_CHECK_INTERVAL cycles
+            if poll_count == 1 or (poll_count % PROJECT_CHECK_INTERVAL == 0):
+                store, proj, proj_name = _get_active_project()
+                if proj_name != current_proj_name:
+                    if proj_name:
+                        _print(f"   → Switching to project: {proj_name}")
+                    current_proj_name = proj_name
+
+            if not current_proj_name:
+                # No active project — wait and keep polling
+                continue
+
+            store, proj, proj_name = _get_active_project()
+            if not proj:
+                # Project disappeared (maybe was deleted from index)
+                current_proj_name = None
+                continue
+
+            als_path = Path(proj.root_als)
+
+            # Check if .als file exists
+            if not als_path.exists():
+                # File might be moved, renamed, or project not open in Ableton
+                # Keep watching — it might come back
+                continue
+
+            # Track state for this file
             try:
                 current_mtime = als_path.stat().st_mtime
             except OSError:
-                # File deleted or inaccessible
                 continue
 
-            if current_mtime != last_mtime:
-                # File was modified — reset cooldown
-                last_mtime = current_mtime
-                if not pending_snapshot:
-                    pending_snapshot = True
-                    pending_since = time.time()
-                    remaining = cooldown
-                    _print(f"   ✏️  Change detected — snapshot in {remaining:.0f}s...")
-                else:
-                    remaining = max(0, cooldown - (time.time() - pending_since))
-                    if remaining > 0:
-                        _print(f"   ✏️  Change detected — resetting countdown ({remaining:.0f}s)...")
-                        pending_since = time.time()
+            # Use file-specific tracking (keyed by project path)
+            state_key = str(als_path)
+            state = _WatchState.get(state_key)
 
-            elif pending_snapshot:
-                elapsed = time.time() - pending_since
+            if current_mtime != state.last_mtime:
+                # File was modified — reset cooldown
+                state.last_mtime = current_mtime
+                if not state.pending_snapshot:
+                    state.pending_snapshot = True
+                    state.pending_since = time.time()
+                    remaining = cooldown
+                    _print(f"   ✏️  [{proj_name}] Change detected — snapshot in {remaining:.0f}s...")
+                else:
+                    remaining = max(0, cooldown - (time.time() - state.pending_since))
+                    if remaining > 0:
+                        _print(f"   ✏️  [{proj_name}] Change detected — resetting countdown ({remaining:.0f}s)...")
+                        state.pending_since = time.time()
+
+            elif state.pending_snapshot:
+                elapsed = time.time() - state.pending_since
                 remaining = max(0, cooldown - elapsed)
 
                 if remaining == 0:
                     # Cooldown expired — take snapshot
-                    _print(f"   📸 Snapshotting...")
+                    _print(f"   📸 [{proj_name}] Snapshotting...")
                     changed = _take_snapshot(store, proj, log_file)
-                    pending_snapshot = False
-                    last_snapshot_mtime = als_path.stat().st_mtime
-                    last_snapshot_hash = changed
+                    state.pending_snapshot = False
+                    state.last_snapshot_mtime = als_path.stat().st_mtime
+                    state.last_snapshot_hash = changed
 
                     if once:
                         return
@@ -130,6 +177,31 @@ def watch(
     except KeyboardInterrupt:
         _print("")
         _print("👋 Watch stopped.")
+
+
+class _WatchState:
+    """Per-file state for the watch daemon. Persists across polls."""
+
+    _instances: dict[str, "_WatchState"] = {}
+    last_mtime: float = 0.0
+    last_snapshot_mtime: float = 0.0
+    last_snapshot_hash: Optional[str] = None
+    pending_snapshot: bool = False
+    pending_since: float = 0.0
+
+    def __init__(self, key: str):
+        self.key = key
+        self.last_mtime = 0.0
+        self.last_snapshot_mtime = 0.0
+        self.last_snapshot_hash = None
+        self.pending_snapshot = False
+        self.pending_since = 0.0
+
+    @classmethod
+    def get(cls, key: str) -> "_WatchState":
+        if key not in cls._instances:
+            cls._instances[key] = cls(key)
+        return cls._instances[key]
 
 
 def _log(log_file: Optional[Path], msg: str) -> None:
@@ -266,12 +338,7 @@ def install_service() -> bool:
 
 def _launchd_plist() -> str:
     """Generate the launchd plist for macOS."""
-    # Get the current Python executable path
     python_path = sys.executable
-
-    # Get the clavus module path
-    import clavus
-    clavus_path = Path(clavus.__file__).parent.parent
 
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -300,11 +367,6 @@ def _launchd_plist() -> str:
     <string>{LOG_FILE}</string>
     <key>StandardErrorPath</key>
     <string>{LOG_FILE}</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>CLAVUS_PROJECT</key>
-        <string></string>
-    </dict>
 </dict>
 </plist>"""
 

@@ -43,7 +43,7 @@ from clavus.cues import (
     render_cues_as_markers, add_cue_command,
 )
 from clavus.helpers import find_als_file, get_store_and_project, resolve_snapshot, get_desktop_path, get_projects_dir
-from clavus.watch import watch as cmd_watch_daemon
+from clavus.watch import watch
 from clavus.store import (
     StemStore, StemEntry, StemManifest,
 )
@@ -961,13 +961,16 @@ def cmd_status(args: argparse.Namespace) -> None:
 def cmd_watch(args: argparse.Namespace) -> None:
     """Start the file watcher daemon, or manage the system service.
 
-    clavus watch            — start daemon (foreground)
+    clavus watch            — start daemon (foreground, tracks active project)
     clavus watch --once     — take one snapshot if changed and exit
     clavus watch install    — install as system service (launchd/systemd)
     clavus watch start      — start the installed service
     clavus watch stop       — stop the service
-    clavus watch restart    — stop + start
-    clavus watch status     — show if service is running
+    clavus watch restart   — stop + start
+    clavus watch status    — show if service is running
+
+    The daemon auto-tracks whichever project is active in Clavus. Switch projects
+    in the TUI or CLI and the watcher picks it up without restarting.
     """
     sub = getattr(args, 'subcommand', None)
 
@@ -997,14 +1000,13 @@ def cmd_watch(args: argparse.Namespace) -> None:
             print(f'⚠️  Service status not available on this platform')
         return
     else:
-        # Default: run the watcher
-        store, proj = get_store_and_project()
-        cmd_watch_daemon(
-            store,
-            proj,
+        # Default: run the daemon. No store/proj args — reads from index.json each poll.
+        from clavus.watch import LOG_FILE
+        watch(
             cooldown=args.cooldown,
             verbose=not args.quiet,
             once=args.once,
+            log_file=LOG_FILE,
         )
 
 
