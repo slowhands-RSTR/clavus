@@ -1395,18 +1395,16 @@ class ClavusApp(App):
         from clavus.sync import load_remotes
         remotes = load_remotes(self.store)
         self._peer_name = remotes[0].name if remotes else ""
-        self._peer_reachable = False  # default yellow — proven below or via pull/push
+        self._peer_reachable = False  # only turns green after confirmed push/pull
         self._update_footer()
 
         # Load cues from disk
         self._load_cues_from_disk()
         # Load snapshots from store
         self._load_snapshots_from_disk()
-        # Green dot if we already have pulled data (reachability already proven)
-        if remotes and (self.cues or self.snaps):
-            self._peer_reachable = True
-            if not self._last_sync:
-                self._last_sync = f"synced {time.strftime('%H:%M')}"
+        # Peer dot: only green after confirmed sync. Don't auto-green just because
+        # we have local data — that tells the user lies about reachability.
+        self._peer_reachable = False
         self._update_header()
         self._status(f"{len(self.cues)} cues, {len(self.snaps)} snapshots")
         self._render()
@@ -1854,10 +1852,10 @@ class ClavusApp(App):
                 elapsed = time.time() - self._last_snap_time
                 if elapsed < 3600:
                     mins = int(elapsed // 60)
-                    snap_part = f"  [{C['dim']}]\U0001F4F7 {mins}m[/]"
+                    snap_part = f"  [{C['dim']}]● {mins}m[/]"
                 else:
                     hours = int(elapsed // 3600)
-                    snap_part = f"  [{C['dim']}]\U0001F4F7 {hours}h[/]"
+                    snap_part = f"  [{C['dim']}]● {hours}h[/]"
             widget = self.query_one("#header-title", Static)
             widget.update(
                 f"[bold {C['accent']}]clavus[/]{proj}{cue_part}{snap_part}{peer}{sync_part}")
