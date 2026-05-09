@@ -129,7 +129,7 @@ P              # push
 | `Tab` | Switch between cues / history pane |
 | `j` / `k` | Navigate up / down |
 | `q` | Quit |
-| `:` | Command mode (`:snapshot msg`, `:share`, `:join URL`, `:stem push/pull`, `:backup`, `:restore`, `:doctor`, etc.) |
+| `:` | Command mode (`:snapshot msg`, `:share`, `:join URL`, `:browse`, `:init path`, `:stem push/pull`, `:backup`, `:restore`, `:doctor`, etc.) |
 
 ## Stem Sync
 
@@ -171,7 +171,19 @@ Clavus also creates rotating index backups automatically before every write, and
 
 ### Nothing shows up in the TUI. It says "no project."
 
-You need to either initialize a project (`:init ~/path/to/project.als`) or pull from a remote (`:join http://IP:PORT` then `p`). If you've already pulled via CLI, just open the TUI — it picks up your last project.
+You need to either initialize a project or pull from a remote:
+
+- **From the TUI:** type `:init C:\path\to\project.als` (or `:browse` to find one)
+- **From the TUI:** type `:join http://IP:PORT` then press `p` to pull
+- **From CLI:** `clavus init /path/to/project.als` then `clavus tui`
+
+If you've already pulled via CLI, just open the TUI — it picks up your last project.
+
+### How do I add a project from inside the TUI?
+
+Type `:browse` to navigate your filesystem. When you find the directory with your `.als` file, type `:init` to import it. The TUI runs the init in-process — no subprocess, no waiting. See the log entries appear right in the cue area.
+
+You can also type `:init /full/path/to/project.als` directly if you know the path. No quotes needed around paths with spaces.
 
 ### The dot in the header is yellow (or dim).
 
@@ -189,6 +201,8 @@ Check `:status` in the TUI. If it says "no remotes," you need to add one with `:
 2. Host: verify Tailscale is connected: `tailscale status`
 3. Collaborator: `clavus join http://<host-ip>:7890`
 4. Collaborator: `clavus pull`
+
+If the relay says "No projects found" after joining, that's fine — it means the relay is empty. Push your own projects with `clavus push` or `P` in the TUI. The remote is saved regardless.
 
 If it still fails, check the relay is reachable:
 ```bash
@@ -213,6 +227,11 @@ This is conflict protection. Someone else pushed while you were working. Just pr
 ### How do I resolve a sync conflict?
 
 If both people edit the same cue, the TUI shows ⚠ on that cue. Press `!` to open the conflict resolution screen — pick your version or theirs. Push after resolving. The other side pulls and gets the resolved version automatically.
+
+### What's the difference between archiving and deleting a cue?
+
+- **Archive (`x`) — sync-safe.** The cue is hidden from your list but stays on the relay. Your collaborator still sees it. Status propagates on next push/pull. This is the intended workflow — mark things done without losing history.
+- **Delete (`:delete`) — hidden, local-only.** Available as an escape hatch, but deleted cues come back on next pull (the relay still has them). Only use delete if you made a cue by mistake before ever pushing. Archive is almost always what you want.
 
 ### Clavus warned me about frozen tracks. What do I do?
 
