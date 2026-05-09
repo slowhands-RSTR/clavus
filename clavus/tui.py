@@ -320,7 +320,7 @@ class ClavusApp(App):
         elif cmd == "restore":
             self._run_restore(arg)
         elif cmd == "open":
-            asyncio.ensure_future(self._run_open(arg))
+            self._run_open(arg)
         elif cmd == "setup":
             self._run_setup()
         elif cmd in ("status", "info"):
