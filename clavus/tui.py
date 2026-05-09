@@ -824,6 +824,12 @@ class ClavusApp(App):
             elif proc.returncode != 0:
                 self._status(f"remote failed (exit {proc.returncode})")
             else:
+                # On success, reload remote name so header updates immediately
+                if parts[0] in ("rename", "add", "remove") and proc.returncode == 0:
+                    from clavus.sync import load_remotes
+                    remotes = load_remotes(self.store)
+                    self._peer_name = remotes[0].name if remotes else ""
+                    self._update_header()
                 self._status("remote list" if not action else f"remote {action}")
         except Exception as e:
             self._status(f"remote failed: {e}")
