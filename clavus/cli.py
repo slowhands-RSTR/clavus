@@ -959,15 +959,53 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def cmd_watch(args: argparse.Namespace) -> None:
-    """Start the file watcher daemon."""
-    store, proj = get_store_and_project()
-    cmd_watch_daemon(
-        store,
-        proj,
-        cooldown=args.cooldown,
-        verbose=not args.quiet,
-        once=args.once,
-    )
+    """Start the file watcher daemon, or manage the system service.
+
+    clavus watch            — start daemon (foreground)
+    clavus watch --once     — take one snapshot if changed and exit
+    clavus watch install    — install as system service (launchd/systemd)
+    clavus watch start      — start the installed service
+    clavus watch stop       — stop the service
+    clavus watch restart    — stop + start
+    clavus watch status     — show if service is running
+    """
+    sub = getattr(args, 'subcommand', None)
+
+    if sub == 'install':
+        from clavus.watch import install_service
+        ok = install_service()
+        sys.exit(0 if ok else 1)
+    elif sub == 'start':
+        from clavus.watch import start_service
+        ok = start_service()
+        sys.exit(0 if ok else 1)
+    elif sub == 'stop':
+        from clavus.watch import stop_service
+        ok = stop_service()
+        sys.exit(0 if ok else 1)
+    elif sub == 'restart':
+        from clavus.watch import stop_service, start_service
+        stop_service()
+        ok = start_service()
+        sys.exit(0 if ok else 1)
+    elif sub == 'status':
+        from clavus.watch import service_status
+        status = service_status()
+        if status:
+            print(f'✅ Watch service: {status}')
+        else:
+            print(f'⚠️  Service status not available on this platform')
+        return
+    else:
+        # Default: run the watcher
+        store, proj = get_store_and_project()
+        cmd_watch_daemon(
+            store,
+            proj,
+            cooldown=args.cooldown,
+            verbose=not args.quiet,
+            once=args.once,
+        )
 
 
 def cmd_relay(args: argparse.Namespace) -> None:
@@ -2831,6 +2869,9 @@ def main():
 
     # Watch
     p_watch = subparsers.add_parser("watch", help="Auto-snapshot on file changes")
+    p_watch.add_argument("subcommand", nargs="?", default=None,
+                        choices=["install", "start", "stop", "restart", "status"],
+                        help="install (set up launchd/systemd service), start, stop, restart, status")
     p_watch.add_argument("--cooldown", "-c", type=int, default=30,
                         help="Seconds to wait after last change before snapshotting (default: 30)")
     p_watch.add_argument("--quiet", "-q", action="store_true",
