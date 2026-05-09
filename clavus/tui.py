@@ -2142,7 +2142,7 @@ class ClavusApp(App):
         for i, c in enumerate(self.cues):
             color = C["yellow"] if c.status == "pending" else (
                 C["green"] if c.status == "resolved" else C["muted"])
-            dot = "●" if c.status == "pending" else ("✓" if c.status == "resolved" else "–")
+            dot = "✓" if c.status == "resolved" else ""  # no marker for pending
             rc = f" [{C['dim']}]{len(c.replies)}r[/]" if c.replies else ""
             assignee_part = f"  👤 {c.assignee}" if c.assignee else ""
             in_prog = f" [{C['yellow']}]▶[/]" if c.in_progress else ""
@@ -2150,7 +2150,7 @@ class ClavusApp(App):
             conflict_mark = f" [{C['yellow']}]⚠[/]" if getattr(c, 'conflict', False) else ""
             ago = self._time_ago(c.timestamp)
             cue_line = (
-                f"  [{color}]{dot}[/] [dim]@{c.position}[/] "
+                f"  [{color}]{dot}[/] [{color}]@{c.position}[/] "
                 f"[{C['fg']}]{safe_text}[/]{rc}{conflict_mark}"
                 + (f" [{C['dim']}]{ago}[/]" if ago else "")
             )
