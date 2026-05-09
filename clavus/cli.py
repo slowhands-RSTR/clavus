@@ -3087,7 +3087,7 @@ def main():
         else:
             print("Usage: clavus stem {import|list|push|pull}")
     else:
-        parser.print_help()
+        cmd_help(args)
 
 
 if __name__ == "__main__":
