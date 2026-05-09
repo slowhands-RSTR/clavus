@@ -232,6 +232,8 @@ class ClavusApp(App):
         self._last_sync: str = ""     # "⬆ ✓ 12:34" or "⬇ ✓ 12:34" — last completed sync
         self._last_snap_time: float = 0.0  # unix timestamp of last auto-snapshot
         self._sync_status: str = ""    # Live sync progress: "⬆ pushing...", "⬇ pulling..."
+        self._spinner_idx: int = 0     # Braille spinner frame
+        self._spinner_timer = None     # Timer handle for spinner animation
         self._peer_name: str = ""     # remote name (e.g. "mac")
         self._peer_reachable: bool = False
         self._archived_count: int = 0  # cues with status="archived" (hidden from list)
@@ -855,10 +857,13 @@ class ClavusApp(App):
         if not message:
             self._status("usage: :snapshot <message>")
             return
-        self._status("creating snapshot...")
+        self._sync_status = "creating snapshot..."
+        self._update_header()
+        await asyncio.sleep(0)
         try:
             from clavus.cli import create_snapshot
             snap_hash, logs = create_snapshot(message, allow_frozen=True)
+            self._sync_status = ""
             for line in logs:
                 self._log_event(line)
             if snap_hash:
@@ -878,9 +883,11 @@ class ClavusApp(App):
                         break
                 self._status(f"📸 skipped: {reason}")
         except Exception as e:
+            self._sync_status = ""
             self._status(f"snapshot error: {e}")
             self._log_event(f"snapshot error: {e}")
         # Reload snapshots from disk and refresh UI
+        self._sync_status = ""
         self._load_snapshots_from_disk()
         self._update_header()
         self._render()
@@ -1888,6 +1895,12 @@ class ClavusApp(App):
             widget.refresh()
             # Also update the history label with snap age
             self._update_history_label()
+            # Keep footer in sync — start/stop spinner based on sync activity
+            if self._sync_status:
+                self._start_spinner()
+            else:
+                self._stop_spinner()
+            self._update_footer()
         except NoMatches:
             pass
 
@@ -1930,9 +1943,10 @@ class ClavusApp(App):
                 if head_short:
                     parts.append(f"📸 {head_short}")
                 if self._sync_status:
-                    parts.append(f"[{C['yellow']}]{self._sync_status}[/]")
+                    spinner = self.BRAILLE[self._spinner_idx % len(self.BRAILLE)]
+                    parts.append(f"[{C['yellow']}]{spinner} {self._sync_status}[/]")
                 elif self._last_sync:
-                    parts.append(self._last_sync)
+                    parts.append(f"[{C['green']}]{self._last_sync}[/]")
                 elif self._peer_name:
                     reachable = "✓" if self._peer_reachable else "✗"
                     parts.append(f"🔗 {self._peer_name} {reachable}")
@@ -1941,6 +1955,32 @@ class ClavusApp(App):
                 status.update(f"[{C['dim']}]no project — :init <path> to start[/]")
             # Right side: :help hint is always visible (set in compose)
         except NoMatches:
+            pass
+
+    BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def _start_spinner(self):
+        """Start the braille spinner animation (updates footer every 100ms)."""
+        if self._spinner_timer is not None:
+            return
+        self._spinner_timer = self.set_interval(0.1, self._tick_spinner)
+
+    def _stop_spinner(self):
+        """Stop the braille spinner."""
+        if self._spinner_timer is not None:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
+
+    def _tick_spinner(self):
+        """Advance spinner and refresh footer."""
+        self._spinner_idx = (self._spinner_idx + 1) % len(self.BRAILLE)
+        if not self._sync_status:
+            self._stop_spinner()
+            self._update_footer()
+            return
+        try:
+            self._update_footer()
+        except Exception:
             pass
 
     def _focus_cues(self):
