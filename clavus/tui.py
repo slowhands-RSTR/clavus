@@ -1947,7 +1947,7 @@ class ClavusApp(App):
         self._update_header()
 
     def _update_header(self):
-        """Minimal header: clavus logo, project, connection dot, remote name."""
+        """Header: clavus logo, project, connection dot + remote, sync activity."""
         try:
             # Project name
             proj = f"  [white]{self.project}[/]" if self.project else ""
@@ -1958,8 +1958,15 @@ class ClavusApp(App):
                 peer = f"  [{C['yellow']}]\u25cb[/] {self._peer_name}"
             else:
                 peer = ""
+            # Sync activity — spinner during, timestamp after
+            sync = ""
+            if self._sync_status:
+                s = self.BRAILLE[self._spinner_idx % len(self.BRAILLE)]
+                sync = f"  [{C['yellow']}]{s} {self._sync_status}[/]"
+            elif self._last_sync:
+                sync = f"  [{C['green']}]{self._last_sync}[/]"
             widget = self.query_one("#header-title", Static)
-            widget.update(f"[bold {C['accent']}]clavus[/]{proj}{peer}")
+            widget.update(f"[bold {C['accent']}]clavus[/]{proj}{peer}{sync}")
             widget.refresh()
             # Also update the history label with snap age
             self._update_history_label()
@@ -1991,7 +1998,7 @@ class ClavusApp(App):
             pass
 
     def _update_footer(self):
-        """Footer is the single source of truth for project state and activity."""
+        """Footer: project state — cues, snapshots. Sync activity lives in header."""
         try:
             status = self.query_one("#footer-status", Static)
             if not self.project:
@@ -2009,13 +2016,6 @@ class ClavusApp(App):
                 snap = self.snaps[0]
                 msg = snap.message[:30] if snap.message else ""
                 parts.append(f"📸 {snap.hash[:8]}" + (f" '{msg}'" if msg else ""))
-
-            # Sync activity — spinner during, timestamp after
-            if self._sync_status:
-                s = self.BRAILLE[self._spinner_idx % len(self.BRAILLE)]
-                parts.append(f"[{C['yellow']}]{s} {self._sync_status}[/]")
-            elif self._last_sync:
-                parts.append(f"[{C['green']}]{self._last_sync}[/]")
 
             status.update("  ".join(parts))
         except NoMatches:
