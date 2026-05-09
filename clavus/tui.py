@@ -115,7 +115,8 @@ class HelpScreen(Screen):
             Static("  R    Resolve        !    Conflict      d    Diff"),
             Static("  T    Restore snap   i    Inject cues"),
             Static("SNAPSHOTS & SYNC", classes="help-section"),
-            Static("  S    Snapshot       p    Pull          P    Push"),
+            Static("  S    Quick snap     p    Pull          P    Push"),
+            Static("  :snapshot <msg>  Named snapshot with custom message"),
             Static("NAVIGATION", classes="help-section"),
             Static("  j/↓  Down           k/↑  Up           Tab  Switch pane"),
             Static("  Esc  Cancel/Dismiss ?/h  Help         :    Command mode"),
@@ -166,7 +167,7 @@ class ClavusApp(App):
     #footer-status {{ color: {C['fg']}; }}
     #footer-hint {{ color: {C['muted']}; text-align: right; }}
     #footer-stats {{ display: none; }}
-    #share-banner {{ display: none; padding: 0 1; background: {C['surface']}; color: {C['muted']}; height: 1; text-style: bold; }}
+    #share-banner {{ padding: 0 1; background: {C['surface']}; color: {C['dim']}; height: 1; text-style: bold; }}
     #join-banner {{ display: none; padding: 0 1; background: {C['surface']}; color: {C['yellow']}; height: 1; text-style: bold; }}
     #footer-input {{ display: none; width: 100%; height: 3; background: {C['bg']}; border: solid {C['accent']}; color: {C['fg']}; padding: 0 1; }}
     #footer.input-mode #footer-input {{ display: block; }}
@@ -275,9 +276,10 @@ class ClavusApp(App):
         self._update_header()
         self._update_footer()
         self._update_footer_hint()
+        self._update_share_banner()
         self._connect()
-        # Periodic health probe — re-check relay reachability every 60s
-        self.set_interval(60.0, self._probe_reachability)
+        # Periodic health probe — re-check relay reachability every 15s
+        self.set_interval(15.0, self._probe_reachability)
 
     # ─── Input bar ──────────────────────────────────────────────────────
 
@@ -1011,6 +1013,7 @@ class ClavusApp(App):
     def action_resolve(self):
         cue = self._get_cue()
         if not cue:
+            self._status("select a cue first")
             return
         cue.status = "resolved" if cue.status == "pending" else "pending"
         self._render()
@@ -1091,6 +1094,7 @@ class ClavusApp(App):
     def action_skip(self):
         cue = self._get_cue()
         if not cue:
+            self._status("select a cue first")
             return
         cue.status = "skipped" if cue.status != "skipped" else "pending"
         self._render()
@@ -1198,8 +1202,9 @@ class ClavusApp(App):
         self.push_screen(DiffScreen())
 
     def action_snapshot(self):
-        """Prompt for a snapshot message then create one."""
-        self._show_input("command", ":", prefill="snapshot ")
+        """Quick-snapshot — instant capture with auto-timestamp. No prompt."""
+        ts = time.strftime("%H:%M")
+        self._run_snapshot(f"snap {ts}")
 
     def action_help(self):
         """Show full key bindings and commands overlay."""
@@ -1834,7 +1839,8 @@ class ClavusApp(App):
             self._update_header()
             asyncio.create_task(self._delayed_clear_sync())
             await asyncio.sleep(0)
-            self._status("\u2705 push complete")
+            self._status(f"⬆ pushed: {len(self.cues)} cues, {len(self.snaps)} snaps")
+            self._log_event(f"⬆ pushed: {len(self.cues)} cues, {len(self.snaps)} snapshots")
             self.set_timer(0.05, self._update_header)
         except Exception as e:
             self._sync_status = ""
@@ -1987,6 +1993,7 @@ class ClavusApp(App):
             else:
                 self._stop_spinner()
             self._update_footer()
+            self._update_share_banner()
         except NoMatches:
             pass
 
@@ -2032,6 +2039,20 @@ class ClavusApp(App):
         except NoMatches:
             pass
 
+    def _update_share_banner(self):
+        """Show relay sharing status in the banner above the cue list."""
+        try:
+            banner = self.query_one("#share-banner", Static)
+        except NoMatches:
+            return
+        if self._peer_name and self._peer_reachable:
+            parts = [f"🎹  relay: [{C['accent']}]{self._peer_name}[/]"]
+            if self._last_sync:
+                parts.append(f"[{C['dim']}]· last sync: {self._last_sync}[/]")
+            banner.update("  ".join(parts))
+        else:
+            banner.update("")
+
     BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
     def _start_spinner(self):
@@ -2066,6 +2087,22 @@ class ClavusApp(App):
 
     # ─── Rendering ──────────────────────────────────────────────────────
 
+    def _time_ago(self, ts: float) -> str:
+        """Relative time string — 'just now', '2m ago', '3h ago', '2d ago'."""
+        if not ts:
+            return ""
+        delta = time.time() - ts
+        if delta < 60:
+            return "just now"
+        mins = int(delta // 60)
+        if mins < 60:
+            return f"{mins}m ago"
+        hours = int(delta // 3600)
+        if hours < 24:
+            return f"{hours}h ago"
+        days = int(delta // 86400)
+        return f"{days}d ago"
+
     def _render(self):
         try:
             self._render_cues()
@@ -2091,10 +2128,12 @@ class ClavusApp(App):
             in_prog = f" [{C['yellow']}]▶[/]" if c.in_progress else ""
             safe_text = c.text[:60].replace("[", "\\[").replace("]", "\\]")
             conflict_mark = f" [{C['yellow']}]⚠[/]" if getattr(c, 'conflict', False) else ""
+            ago = self._time_ago(c.timestamp)
             cue_line = (
                 f"  [{color}]{dot}[/] [dim]@{c.position}[/] "
                 f"[{C['fg']}]{safe_text}[/]"
                 f" [{C['muted']}]{c.id[:8]}[/]{rc}{conflict_mark}"
+                + (f" [{C['dim']}]{ago}[/]" if ago else "")
             )
             lines = [cue_line]
             if assignee_part:
@@ -2104,11 +2143,11 @@ class ClavusApp(App):
             if c.replies:
                 for j, r in enumerate(c.replies):
                     tag = r.author or "anon"
-                    ts = time.strftime("%H:%M", time.localtime(r.timestamp)) if r.timestamp else ""
+                    r_ago = self._time_ago(r.timestamp)
                     conn = "╰─" if j == len(c.replies) - 1 else "├─"
                     safe_reply = r.text[:55].replace("[", "\\[").replace("]", "\\]")
                     lines.append(
-                        f"  [{C['dim']}]{conn} {tag} [{C['muted']}]{ts}[/]"
+                        f"  [{C['dim']}]{conn} {tag} [{C['muted']}]{r_ago}[/]"
                         f"  [{C['dim']}]{safe_reply}[/]"
                     )
             lv.append(ListItem(Label("\n".join(lines))))
