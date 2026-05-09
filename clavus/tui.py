@@ -1749,7 +1749,7 @@ class ClavusApp(App):
             log_entries = [c for c in lv.children if isinstance(c, ListItem) and
                           c.children and hasattr(c.children[0], "classes") and
                           "event-log" in c.children[0].classes]
-            while len(log_entries) > 5:
+            while len(log_entries) > 10:
                 log_entries[-1].remove()
                 log_entries.pop()
             self.set_timer(8.0, lambda: self._clear_log_events())
