@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
+import json
 import os
 import sys
 import time
@@ -507,6 +508,87 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print()
     if has_external:
         print("   💡 Quick start: clavus pull && clavus tui")
+
+
+def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Optional[str], list[str]]:
+    """Core init logic (non-interactive). Returns (project_name, log_lines). 
+    
+    If auto_confirm=True, skips all prompts and uses defaults. Used by TUI.
+    Returns (None, [...]) on failure.
+    """
+    logs: list[str] = []
+    if path_str:
+        target = Path(path_str).resolve()
+        als_path = find_als_file(target)
+        if als_path is None:
+            logs.append(f"❌ No .als file found at {target}")
+            return None, logs
+    else:
+        return None, ["❌ No path provided"]
+
+    store = BlobStore()
+    store.init()
+
+    # Check if already initialized
+    existing = store.get_index(als_path.stem)
+    if existing:
+        logs.append(f"⚠️  Project '{als_path.stem}' already tracked at {existing.root_als}")
+        return existing.name, logs
+
+    # Project name from .als filename
+    project_name = als_path.stem
+    logs.append(f"📁 Project: {project_name}")
+
+    # Parse the .als
+    project = parse_als(als_path)
+    logs.append(f"🔍 {project.track_count} tracks @ {project.bpm}bpm")
+
+    # Copy to ~/Clavus/Projects/
+    from clavus.helpers import get_projects_dir
+    import shutil
+
+    projects_root = get_projects_dir()
+    target_dir = projects_root / project_name
+    target_als = target_dir / f"{project_name}.als"
+
+    if target_dir.exists():
+        logs.append(f"⚠️  '{project_name}' already exists in {projects_root}")
+        return project_name, logs
+
+    source_dir = als_path.parent
+    shutil.copytree(
+        source_dir, target_dir,
+        ignore=shutil.ignore_patterns("Backup*", "Ableton Project Info", ".DS_Store"),
+        dirs_exist_ok=True,
+    )
+    logs.append(f"✅ Copied → {target_dir}")
+
+    # Update als_path to the copy
+    als_path = target_als
+    project.file_path = str(als_path)
+
+    config = ClavusConfig.load()
+    clavus_proj = ClavusProject(
+        name=project_name,
+        root_als=str(als_path),
+        created_at=time.time(),
+        description="",
+    )
+
+    snap = store.save_snapshot(project, "Initial import", parent=None)
+    clavus_proj.head = snap.hash
+    store.update_ref("HEAD", snap.hash)
+    store.update_ref("refs/tags/initial", snap.hash)
+    store.set_index(clavus_proj)
+
+    # Set as last project
+    if store.index_path.exists():
+        index = json.loads(store.index_path.read_text())
+        index["_last_project"] = project_name
+        store.index_path.write_text(json.dumps(index, indent=2, default=str))
+
+    logs.append(f"✅ Initialized '{project_name}' — {project.track_count} tracks, snapshot {snap.short_hash()}")
+    return project_name, logs
 
 
 def cmd_init(args: argparse.Namespace) -> None:

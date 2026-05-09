@@ -299,6 +299,9 @@ class ClavusApp(App):
             return
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
+        # Strip surrounding quotes users often type around paths with spaces
+        if arg and len(arg) >= 2 and arg[0] in ('"', "'") and arg[0] == arg[-1]:
+            arg = arg[1:-1]
 
         if cmd == "project" and arg:
             self._run_switch_project(arg)
@@ -440,28 +443,25 @@ class ClavusApp(App):
 
     @work(exclusive=False)
     async def _run_init_project(self, path: str):
-        """Import a project from a filesystem path via CLI subprocess."""
-        import asyncio
+        """Import a project from a filesystem path — in-process, no subprocess."""
+        # Defensive: strip quotes that may have leaked through
+        if path and len(path) >= 2 and path[0] in ('"', "'") and path[0] == path[-1]:
+            path = path[1:-1]
         self._status(f"importing {path}...")
         try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "clavus", "init", path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
-            out = stdout.decode().strip()
-            if out:
-                for line in out.split("\n"):
-                    self._log_event(line.strip())
-            if proc.returncode != 0:
-                self._status("init failed")
+            from clavus.cli import init_project
+            name, logs = init_project(path)
+            for line in logs:
+                self._log_event(line)
+            if name is None:
+                self._status("init failed — see log")
                 return
-            self._status(f"imported: {path}")
+            self._status(f"imported: {name}")
             # Reload from disk
             self._connect()
         except Exception as e:
             self._status(f"init error: {e}")
+            self._log_event(f"init error: {e}")
 
     @work(exclusive=False)
     async def _run_browse(self, directory: str):
