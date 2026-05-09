@@ -273,6 +273,7 @@ class ClavusApp(App):
         self._footer_stats = self.query_one("#footer-status", Static)
         self._update_header()
         self._update_footer()
+        self._update_footer_hint()
         self._connect()
         # Periodic health probe — re-check relay reachability every 60s
         self.set_interval(60.0, self._probe_reachability)
@@ -527,7 +528,6 @@ class ClavusApp(App):
             # Reload from disk
             self._connect()
         except Exception as e:
-            self._status(f"init error: {e}")
             self._log_event(f"init error: {e}")
 
     @work(exclusive=False)
@@ -679,7 +679,6 @@ class ClavusApp(App):
         self.store.set_index(proj)
 
         msg = f"restored {self.project}.als ← snapshot {resolved[:10]}"
-        self._status(msg)
         self._log_event(msg)
 
         # Launch in Ableton
@@ -1893,13 +1892,29 @@ class ClavusApp(App):
             clv = self.query_one("#clv", ListView)
             if hlv.has_focus:
                 clv.focus()
-                self._status("cues")
             elif self.query_one("#cues-list").has_focus or clv.has_focus:
                 hlv.focus()
-                self._status("history")
             else:
                 clv.focus()
-                self._status("cues")
+            self._update_footer_hint()
+        except NoMatches:
+            pass
+
+    def _update_footer_hint(self):
+        """Context-aware hint: shows relevant keys for the focused pane."""
+        hint = ":help"
+        try:
+            hlv = self.query_one("#hlv", ListView)
+            if hlv.has_focus:
+                hint = "C snap  T restore  d diff  :help"
+            else:
+                clv = self.query_one("#clv", ListView)
+                if clv.has_focus:
+                    hint = "c cue  r reply  a assign  p pull  :help"
+        except NoMatches:
+            pass
+        try:
+            self.query_one("#footer-hint", Static).update(hint)
         except NoMatches:
             pass
 
@@ -1910,29 +1925,29 @@ class ClavusApp(App):
 
     # ─── Status / Header / Footer ───────────────────────────────────────
 
-    def _status(self, msg: str):
-        """Show a status message in the footer."""
-        safe_msg = msg.replace("[", "\\[").replace("]", "\\]")
+    def _footer_toast(self, msg: str, duration: float = 4.0):
+        """Write to footer, auto-restore project info after duration seconds."""
         w = self._footer_stats
         if w is not None:
-            w.update(f"[{C['dim']}]{safe_msg}[/]")
+            w.update(msg)
             w.refresh()
+        # Cancel any pending restore, then schedule new one
+        if hasattr(self, "_toast_timer") and self._toast_timer is not None:
+            self._toast_timer.stop()
+        self._toast_timer = self.set_timer(duration, lambda: self._update_footer())
+
+    def _status(self, msg: str):
+        """Short footer toast — auto-clears after 3s."""
+        safe = msg.replace("[", "\\[").replace("]", "\\]")
+        self._footer_toast(f"[{C['dim']}]{safe}[/]", 3.0)
 
     def _log_event(self, event: str):
-        """Show a timestamped event in the footer, then restore project info after 8s."""
+        """Timestamped footer toast — auto-clears after 8s."""
         ts = time.strftime("%H:%M:%S")
         safe = event.replace("[", "\\[").replace("]", "\\]")
-        w = self._footer_stats
-        if w is not None:
-            w.update(f"[{C['dim']}]{ts}[/] [{C['accent']}⟩[/] {safe}")
-            w.refresh()
-        # Cancel any pending restore timer, then set a new one
-        if hasattr(self, "_log_timer") and self._log_timer is not None:
-            self._log_timer.stop()
-        self._log_timer = self.set_timer(8.0, lambda: self._update_footer())
+        self._footer_toast(f"[{C['dim']}]{ts}[/] [{C['accent']}⟩[/] {safe}", 8.0)
 
     def _clear_log_events(self):
-        """No-op — events go to footer now, not the cue list. Restore footer on next update."""
         self._update_footer()
 
     async def _delayed_clear_sync(self):
@@ -1997,7 +2012,7 @@ class ClavusApp(App):
         try:
             status = self.query_one("#footer-status", Static)
             if not self.project:
-                status.update(f"[{C['dim']}]no project — :init <path> to start[/]")
+                status.update(f"[{C['dim']}]welcome — :init <path> to open a project[/]")
                 return
 
             parts = [f"[bold]{self.project}[/]"]
@@ -2063,7 +2078,7 @@ class ClavusApp(App):
         lv.clear()
 
         if not self.cues:
-            lv.append(ListItem(Label(f"  [{C['dim']}]no cues yet  (c to create one)[/]")))
+            lv.append(ListItem(Label(f"  [{C['dim']}]no cues yet — c to place one at the playhead[/]")))
             return
 
         for i, c in enumerate(self.cues):
@@ -2104,7 +2119,7 @@ class ClavusApp(App):
         lv = self.query_one("#hlv", ListView)
         lv.clear()
         if not self.snaps:
-            lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet[/]")))
+            lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet — C to capture[/]")))
             lv.refresh()
             return
         for s in self.snaps[:10]:
