@@ -144,6 +144,8 @@ class ClavusApp(App):
 
     #content {{ layout: grid; grid-size: 2 1; grid-columns: 5fr 2fr; height: 100%; }}
 
+    #welcome {{ display: none; column-span: 2; content-align: center middle; height: 100%; color: {C['dim']}; text-style: bold; }}
+
     #cues-list {{ height: 100%; min-height: 5; border: solid {C['border']}; background: transparent; }}
     #cues-list:focus-within {{ border: solid {C['accent']}; background: rgba(26,158,158,0.03); }}
     #cues-list ListView {{ height: 100%; border: none; background: transparent; }}
@@ -166,7 +168,7 @@ class ClavusApp(App):
     #footer-status {{ color: {C['fg']}; }}
     #footer-hint {{ color: {C['muted']}; text-align: right; }}
     #footer-stats {{ display: none; }}
-    #share-banner {{ padding: 0 1; background: {C['surface']}; color: {C['dim']}; height: 1; text-style: bold; }}
+    #share-banner {{ display: none; padding: 0 1; background: {C['surface']}; color: {C['dim']}; height: 1; text-style: bold; }}
     #join-banner {{ display: none; padding: 0 1; background: {C['surface']}; color: {C['yellow']}; height: 1; text-style: bold; }}
     #footer-input {{ display: none; width: 100%; height: 3; background: {C['bg']}; border: solid {C['accent']}; color: {C['fg']}; padding: 0 1; }}
     #footer.input-mode #footer-input {{ display: block; }}
@@ -258,13 +260,14 @@ class ClavusApp(App):
                     Container(ListView(id="hlv"), id="history-list"),
                     id="history",
                 ),
+                Static("", id="welcome"),
                 id="content",
             )
             yield Horizontal(
                 Static("", id="footer-status"),
                 Input(placeholder="type here...", id="footer-input"),
                 Static("", id="footer-keys"),
-                Static(":help", id="footer-hint"),
+                Static("? help", id="footer-hint"),
                 id="footer",
             )
 
@@ -275,6 +278,7 @@ class ClavusApp(App):
         self._update_footer()
         self._update_footer_hint()
         self._update_share_banner()
+        self._update_welcome()
         self._connect()
         # Periodic health probe — re-check relay reachability every 15s
         self.set_interval(15.0, self._probe_reachability)
@@ -1897,15 +1901,15 @@ class ClavusApp(App):
 
     def _update_footer_hint(self):
         """Context-aware hint: shows relevant keys for the focused pane."""
-        hint = ":help"
+        hint = "? help"
         try:
             hlv = self.query_one("#hlv", ListView)
             if hlv.has_focus:
-                hint = "S snap  T restore  d diff  :help"
+                hint = "S snap  T restore  d diff  ? help"
             else:
                 clv = self.query_one("#clv", ListView)
                 if clv.has_focus:
-                    hint = "c cue  r reply  a assign  S snap  p pull  :help"
+                    hint = "c cue  r reply  a assign  S snap  p pull  ? help"
         except NoMatches:
             pass
         try:
@@ -1988,7 +1992,8 @@ class ClavusApp(App):
     def _update_history_label(self):
         try:
             label = self.query_one('#history-label', Static)
-            text = ' History'
+            n = len(self.snaps)
+            text = f' History ({n})' if n else ' History'
             if self._last_snap_time:
                 elapsed = time.time() - self._last_snap_time
                 if elapsed < 120:
@@ -2009,6 +2014,7 @@ class ClavusApp(App):
             status = self.query_one("#footer-status", Static)
             if not self.project:
                 status.update(f"[{C['dim']}]welcome — :init <path> to open a project[/]")
+                self._update_welcome()
                 return
 
             parts = [f"[bold]{self.project}[/]"]
@@ -2017,15 +2023,40 @@ class ClavusApp(App):
             n = len(self.cues)
             parts.append(f"{n} cue{'s' if n != 1 else ''}")
 
-            # Snapshot — most recent hash + message
+            # Snapshot — most recent message
             if self.snaps:
                 snap = self.snaps[0]
                 msg = snap.message[:30] if snap.message else ""
-                parts.append(f"📸 {snap.hash[:8]}" + (f" '{msg}'" if msg else ""))
+                parts.append(f"📸 '{msg}'" if msg else "📸")
 
             status.update("  ".join(parts))
         except NoMatches:
             pass
+
+    def _update_welcome(self):
+        """Show/hide centered welcome message based on project state."""
+        try:
+            welcome = self.query_one("#welcome", Static)
+            cues_list = self.query_one("#cues-list")
+            history = self.query_one("#history")
+        except NoMatches:
+            return
+        if not self.project:
+            welcome.update(
+                f"\n\n"
+                f"    [{C['accent']}]clavus[/]\n\n"
+                f"    [{C['dim']}]cue management for Ableton[/]\n\n"
+                f"    [{C['fg']}]:init <path>[/]  open a project\n"
+                f"    [{C['fg']}]:join <URL>[/]   connect to a relay\n\n"
+                f"    [{C['dim']}]S snapshot  ? help  :cmd[/]\n"
+            )
+            welcome.styles.display = "block"
+            cues_list.styles.display = "none"
+            history.styles.display = "none"
+        else:
+            welcome.styles.display = "none"
+            cues_list.styles.display = "block"
+            history.styles.display = "block"
 
     def _update_share_banner(self):
         """Show relay sharing status in the banner above the cue list."""
@@ -2038,8 +2069,9 @@ class ClavusApp(App):
             if self._last_sync:
                 parts.append(f"[{C['dim']}]· last sync: {self._last_sync}[/]")
             banner.update("  ".join(parts))
+            banner.styles.display = "block"
         else:
-            banner.update("")
+            banner.styles.display = "none"
 
     BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -2119,8 +2151,7 @@ class ClavusApp(App):
             ago = self._time_ago(c.timestamp)
             cue_line = (
                 f"  [{color}]{dot}[/] [dim]@{c.position}[/] "
-                f"[{C['fg']}]{safe_text}[/]"
-                f" [{C['muted']}]{c.id[:8]}[/]{rc}{conflict_mark}"
+                f"[{C['fg']}]{safe_text}[/]{rc}{conflict_mark}"
                 + (f" [{C['dim']}]{ago}[/]" if ago else "")
             )
             lines = [cue_line]
@@ -2151,11 +2182,10 @@ class ClavusApp(App):
             lv.refresh()
             return
         for s in self.snaps[:10]:
-            ts = time.strftime("%m/%d %H:%M", time.localtime(s.timestamp)) if s.timestamp else ""
+            ago = self._time_ago(s.timestamp)
             safe_msg = s.message[:50].replace("[", "\\[").replace("]", "\\]")
             lv.append(ListItem(Label(
-                f"[{C['accent']}]{s.hash}[/] [{C['dim']}]{ts}[/]"
-                f"  [{C['fg']}]{safe_msg}[/]"
+                f"[{C['fg']}]{safe_msg}[/]  [{C['dim']}]{s.hash[:8]}  {ago}[/]"
             )))
         lv.refresh()
 
