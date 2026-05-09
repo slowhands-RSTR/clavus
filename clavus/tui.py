@@ -1359,6 +1359,8 @@ class ClavusApp(App):
                 from clavus.sync import load_remotes
                 remotes = load_remotes(self.store)
                 if remotes:
+                    self._peer_name = remotes[0].name
+                    self._peer_reachable = False  # yellow until proven
                     self._status("connected — press p to pull projects")
                     self._log_event("remotes configured — press p to pull")
                 else:
