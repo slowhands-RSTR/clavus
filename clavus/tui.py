@@ -1873,12 +1873,7 @@ class ClavusApp(App):
                 f"[{C['accent']}]c[/] cue  "
                 f"[{C['accent']}]C[/] snap  "
                 f"[{C['accent']}]a[/] assign  "
-                f"[{C['accent']}]i[/] inject  "
-                f"[{C['accent']}]T[/] restore  "
-                f"[{C['accent']}]x[/] archive  "
-                f"[{C['accent']}]![/] conflict  "
-                f"[{C['accent']}]q[/] quit  "
-                f"[{C['accent']}]:[/] cmd"
+                f"[{C['accent']}]x[/] archive"
             )
             # Don't touch #footer-stats here — _status() owns that
         except NoMatches:
