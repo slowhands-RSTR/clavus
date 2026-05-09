@@ -111,12 +111,11 @@ class HelpScreen(Screen):
             Static("CLAVUS — KEY BINDINGS", classes="help-title"),
             Static("CUES & COLLABORATION", classes="help-section"),
             Static("  c    New cue        r    Reply        e    Edit"),
-            Static("  a    Assign         s    Skip          x    Archive"),
+            Static("  a    Assign         x    Archive       s    Quick snap"),
             Static("  R    Resolve        !    Conflict      d    Diff"),
             Static("  T    Restore snap   i    Inject cues"),
             Static("SNAPSHOTS & SYNC", classes="help-section"),
-            Static("  S    Quick snap     p    Pull          P    Push"),
-            Static("  :snapshot <msg>  Named snapshot with custom message"),
+            Static("  p    Pull           P    Push          :snapshot <msg>"),
             Static("NAVIGATION", classes="help-section"),
             Static("  j/↓  Down           k/↑  Up           Tab  Switch pane"),
             Static("  Esc  Cancel/Dismiss ?/h  Help         :    Command mode"),
@@ -184,8 +183,8 @@ class ClavusApp(App):
         Binding("r", "reply", "Reply"),
         Binding("e", "edit", "Edit"),
         Binding("c", "cue_new", "New cue"),
-        Binding("s", "skip", "Skip"),
-        Binding("S", "snapshot", "Snapshot"),
+        Binding("s", "snapshot", "Snapshot"),
+        Binding("S", "snapshot", "Snapshot", show=False),
         Binding("R", "resolve", "Resolve"),
         Binding("T", "restore_snapshot", "Restore"),
         Binding("i", "inject_cues", "Inject"),
@@ -1091,16 +1090,6 @@ class ClavusApp(App):
 
         self.push_screen(ConflictScreen(self, cue))
 
-    def action_skip(self):
-        cue = self._get_cue()
-        if not cue:
-            self._status("select a cue first")
-            return
-        cue.status = "skipped" if cue.status != "skipped" else "pending"
-        self._render()
-        self._status("skipped" if cue.status == "skipped" else "unskipped")
-        self._save()
-
     def action_inject_cues(self):
         """Inject unresolved cues as Ableton markers."""
         if not self.project:
@@ -1913,11 +1902,11 @@ class ClavusApp(App):
         try:
             hlv = self.query_one("#hlv", ListView)
             if hlv.has_focus:
-                hint = "S snap  T restore  d diff  :help"
+                hint = "s snap  T restore  d diff  :help"
             else:
                 clv = self.query_one("#clv", ListView)
                 if clv.has_focus:
-                    hint = "c cue  r reply  a assign  S snap  p pull  :help"
+                    hint = "c cue  r reply  a assign  s snap  p pull  :help"
         except NoMatches:
             pass
         try:
@@ -2159,7 +2148,7 @@ class ClavusApp(App):
         lv = self.query_one("#hlv", ListView)
         lv.clear()
         if not self.snaps:
-            lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet — S to capture[/]")))
+            lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet — s to capture[/]")))
             lv.refresh()
             return
         for s in self.snaps[:10]:
