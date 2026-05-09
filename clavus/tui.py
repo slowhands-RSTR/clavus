@@ -1911,34 +1911,21 @@ class ClavusApp(App):
             w.refresh()
 
     def _log_event(self, event: str):
-        """Append a timestamped event to the top of the cue list as a log entry."""
-        try:
-            ts = time.strftime("%H:%M:%S")
-            safe = event.replace("[", "\\[").replace("]", "\\]")
-            lv = self.query_one("#clv", ListView)
-            label = Label(f"  [{C['dim']}]{ts}[/] [{C['accent']}⟩[/] {safe}", classes="event-log")
-            lv.mount(ListItem(label), before=0)
-            # Keep max 5 log entries, remove oldest
-            log_entries = [c for c in lv.children if isinstance(c, ListItem) and
-                          c.children and hasattr(c.children[0], "classes") and
-                          "event-log" in c.children[0].classes]
-            while len(log_entries) > 10:
-                log_entries[-1].remove()
-                log_entries.pop()
-            self.set_timer(8.0, lambda: self._clear_log_events())
-        except NoMatches:
-            pass
+        """Show a timestamped event in the footer, then restore project info after 8s."""
+        ts = time.strftime("%H:%M:%S")
+        safe = event.replace("[", "\\[").replace("]", "\\]")
+        w = self._footer_stats
+        if w is not None:
+            w.update(f"[{C['dim']}]{ts}[/] [{C['accent']}⟩[/] {safe}")
+            w.refresh()
+        # Cancel any pending restore timer, then set a new one
+        if hasattr(self, "_log_timer") and self._log_timer is not None:
+            self._log_timer.stop()
+        self._log_timer = self.set_timer(8.0, lambda: self._update_footer())
 
     def _clear_log_events(self):
-        try:
-            lv = self.query_one("#clv", ListView)
-            for c in list(lv.children):
-                if (isinstance(c, ListItem) and c.children and
-                    hasattr(c.children[0], "classes") and
-                    "event-log" in c.children[0].classes):
-                    c.remove()
-        except NoMatches:
-            pass
+        """No-op — events go to footer now, not the cue list. Restore footer on next update."""
+        self._update_footer()
 
     async def _delayed_clear_sync(self):
         """Keep live sync status visible for 1.5s after sync completes."""
