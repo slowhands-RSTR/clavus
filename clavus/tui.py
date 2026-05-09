@@ -168,6 +168,7 @@ class ClavusApp(App):
         self._sync_status: str = ""    # Live sync progress: "⬆ pushing...", "⬇ pulling..."
         self._peer_name: str = ""     # remote name (e.g. "mac")
         self._peer_reachable: bool = False
+        self._archived_count: int = 0  # cues with status="archived" (hidden from list)
         _cfg = ClavusConfig.load()
         self.author = _cfg.author
         self._clavus_cfg = _cfg
@@ -1193,7 +1194,7 @@ class ClavusApp(App):
             return
         self._status(f"deleting {cue.id[:8]}...")
         try:
-            self._cue_store.delete_cue(cue.id)
+            self._cue_store.delete(cue.id)
             self._status("deleted")
             self._log_event(f"deleted @{cue.position}")
             self._load_cues_from_disk()
@@ -1399,8 +1400,11 @@ class ClavusApp(App):
         cue_store = CueStore(self.project, store=self.store)
         self._cue_store = cue_store
         all_cues = cue_store.list_cues(CueFilter())
-        self._log_event(f"_load_cues: {len(all_cues)} cue(s) from {cue_store.cues_dir}")
-        self.cues = self._sort_cues(all_cues)
+        # Split archived from active — archived are hidden from the cue list
+        self._archived_count = sum(1 for c in all_cues if c.status == "archived")
+        active_cues = [c for c in all_cues if c.status != "archived"]
+        self._log_event(f"_load_cues: {len(active_cues)} active cue(s) + {self._archived_count} archived from {cue_store.cues_dir}")
+        self.cues = self._sort_cues(active_cues)
         self.idx = min(self.idx, len(self.cues) - 1) if self.cues else 0
 
     def _load_snapshots_from_disk(self):
@@ -1809,6 +1813,8 @@ class ClavusApp(App):
         try:
             proj = f"  [white]{self.project}[/]" if self.project else ""
             cue_part = f"  [{C['dim']}]{len(self.cues)} cues[/]"
+            if self._archived_count:
+                cue_part += f" [{C['dim']}]+{self._archived_count} archived[/]"
             sync_part = ""
             if self._sync_status:
                 sync_part = f"  [bold {C['yellow']}]{self._sync_status}[/]"
