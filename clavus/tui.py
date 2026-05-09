@@ -1858,7 +1858,7 @@ class ClavusApp(App):
                     snap_part = f"  [{C['dim']}]● {hours}h[/]"
             widget = self.query_one("#header-title", Static)
             widget.update(
-                f"[bold {C['accent']}]clavus[/]{proj}{cue_part}{snap_part}{peer}{sync_part}")
+                f"[bold {C['accent']}]clavus[/]{proj}{cue_part}{peer}{sync_part}")
             widget.refresh()
         except NoMatches:
             pass
@@ -1945,12 +1945,27 @@ class ClavusApp(App):
             lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet[/]")))
             lv.refresh()
             return
-        for s in self.snaps[:10]:
+
+        # Build snap age indicator (shown on the most recent snapshot)
+        snap_age = ""
+        if self._last_snap_time:
+            elapsed = time.time() - self._last_snap_time
+            if elapsed < 120:
+                snap_age = f" [{C['dim']}]{int(elapsed)}s ago[/]"
+            elif elapsed < 3600:
+                snap_age = f" [{C['dim']}]{int(elapsed // 60)}m ago[/]"
+            elif elapsed < 86400:
+                snap_age = f" [{C['dim']}]{int(elapsed // 3600)}h ago[/]"
+            else:
+                snap_age = f" [{C['dim']}]{int(elapsed // 86400)}d ago[/]"
+
+        for i, s in enumerate(self.snaps[:10]):
             ts = time.strftime("%m/%d %H:%M", time.localtime(s.timestamp)) if s.timestamp else ""
             safe_msg = s.message[:50].replace("[", "\\[").replace("]", "\\]")
+            age = snap_age if i == 0 else ""
             lv.append(ListItem(Label(
                 f"[{C['accent']}]{s.hash}[/] [{C['dim']}]{ts}[/]"
-                f"  [{C['fg']}]{safe_msg}[/]"
+                f"{age}  [{C['fg']}]{safe_msg}[/]"
             )))
         lv.refresh()
 
