@@ -1425,7 +1425,8 @@ class ClavusApp(App):
             self._status("save failed")
 
     def _probe_reachability(self):
-        """Periodic health check — updates dot color based on relay reachability."""
+        """Periodic health check — updates dot color based on relay reachability.
+        Also detects new data pushed from collaborators and auto-refreshes the UI."""
         if not self._peer_name:
             return
         try:
@@ -1441,10 +1442,44 @@ class ClavusApp(App):
             self._peer_reachable = (r.status == 200)
             if was_reachable != self._peer_reachable:
                 self._update_header()
+            # Auto-refresh: check if new data arrived from a collaborator push
+            if self._peer_reachable and self.project:
+                self._auto_refresh_if_changed()
         except Exception:
             if self._peer_reachable:
                 self._peer_reachable = False
                 self._update_header()
+
+    def _auto_refresh_if_changed(self):
+        """Check local store for new cues/snapshots pushed from a collaborator.
+        If anything changed, reload and re-render without a network pull.
+        (The relay shares ~/.clavus/ with this TUI process.)"""
+        try:
+            # Check if cues changed
+            from clavus.cues import CueStore, CueFilter
+            cue_store = CueStore(self.project, store=self.store)
+            current_cues = cue_store.list_cues(CueFilter())
+            active_count = sum(1 for c in current_cues if c.status != "archived")
+            
+            # Check if HEAD moved (new snapshot pushed)
+            proj = self.store.get_index(self.project)
+            current_head = proj.head if proj else None
+            
+            cue_changed = active_count != len(self.cues)
+            head_changed = current_head != getattr(self, '_last_auto_head', None)
+            
+            if cue_changed or head_changed:
+                self._last_auto_head = current_head
+                self._log_event(f"auto-refresh: cues {len(self.cues)}→{active_count}, head {str(getattr(self, '_last_auto_head', '?'))[:8]}→{str(current_head or '?')[:8]}")
+                self._load_cues_from_disk()
+                self._load_snapshots_from_disk()
+                self._last_snap_time = time.time()
+                self._render_cues()
+                self._render_history()
+                self._update_header()
+                self._update_footer()
+        except Exception:
+            pass  # auto-refresh is best-effort
 
     # ─── Connection ─────────────────────────────────────────────────────
 
@@ -1516,6 +1551,8 @@ class ClavusApp(App):
         self._load_cues_from_disk()
         # Load snapshots from store
         self._load_snapshots_from_disk()
+        # Auto-create initial snapshot if this project has none
+        self._ensure_initial_snapshot()
         # Peer dot: only green after confirmed sync. Don't auto-green just because
         # we have local data — that tells the user lies about reachability.
         self._peer_reachable = False
@@ -1570,10 +1607,32 @@ class ClavusApp(App):
             )
             for s in history
         ]
-        # Track last snapshot time for auto-snap indicator in header
         if self.snaps:
             self._last_snap_time = self.snaps[0].timestamp
         self._render_history()
+
+    def _ensure_initial_snapshot(self):
+        """Auto-create a snapshot if this project has none — baseline to restore from."""
+        if not self.project or self.snaps:
+            return
+        try:
+            proj = self.store.get_index(self.project)
+            if not proj or not proj.root_als:
+                return
+            from pathlib import Path
+            als_path = Path(proj.root_als)
+            if not als_path.exists():
+                return
+            from clavus.cli import create_snapshot
+            snap_hash, logs = create_snapshot("initial", allow_frozen=True)
+            if snap_hash:
+                self._log_event(f"📸 initial snapshot {snap_hash[:10]} — baseline saved")
+                self._load_snapshots_from_disk()
+            else:
+                # Not an error — project might have no changes yet
+                pass
+        except Exception:
+            pass  # don't block project load on snapshot failure
 
     def _sort_cues(self, cues: list[Cue]) -> list[Cue]:
         """Sort cues by timeline position, then by creation timestamp.
