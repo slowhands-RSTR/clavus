@@ -253,6 +253,65 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     print(f"  💡 Run 'clavus restore-store' to restore from backup")
 
 
+def cmd_help(args: argparse.Namespace) -> None:
+    """Show all available commands including hidden ones."""
+    print("clavus — all commands")
+    print("─" * 43)
+    print()
+    print(" Essentials:")
+    print("   init              Initialize a new project")
+    print("   projects          List all tracked projects")
+    print("   project <name>    Switch active project")
+    print("   snapshot          Create a snapshot")
+    print("   log               Show snapshot history")
+    print("   restore           Restore .als from a snapshot")
+    print("   tui               Launch the dashboard (recommended)")
+    print()
+    print(" Daily workflow:")
+    print("   status            Current project status")
+    print("   cue <text>        Leave a note on the timeline")
+    print("   cues              List all cues")
+    print("   cue-reply <id>    Reply to a cue thread")
+    print("   cue-resolve <id>  Mark a cue done")
+    print("   cue-skip <id>     Skip a cue")
+    print("   cue-archive       Archive resolved cues")
+    print()
+    print(" Collaboration:")
+    print("   share             Start a share session (one command)")
+    print("   join <url>        Connect to a collaborator's session")
+    print("   push              Push to remotes")
+    print("   pull              Pull from remotes")
+    print("   remote            Manage remotes")
+    print()
+    print(" Background:")
+    print("   watch             Auto-snapshot on file changes")
+    print()
+    print(" Safety:")
+    print("   backup            Backup entire store")
+    print("   backups           List backups")
+    print("   restore-store     Restore store from backup")
+    print()
+    print(" Utilities:")
+    print("   open              Open latest .als in Ableton Live")
+    print("   config            View or edit config")
+    print("   doctor            Diagnose store health")
+    print("   setup             First-run wizard")
+    print("   repair            Fix damaged store")
+    print()
+    print(" Advanced (clavus help):")
+    print("   diff              Show snapshot changes")
+    print("   cue-render        Export cues as Ableton markers")
+    print("   cue-assign        Assign a cue to someone")
+    print("   cue-unassign      Remove assignee")
+    print("   cue-start         Mark cue in-progress")
+    print("   cue-stop          Mark cue not in-progress")
+    print("   cue-delete        Delete a cue permanently")
+    print("   branch            List/create branches")
+    print("   checkout          Switch branches")
+    print("   merge             Merge branches")
+    print()
+
+
 def cmd_setup(args: argparse.Namespace) -> None:
     """Guided first-run setup — author, port, Tailscale, Ableton detection."""
     import platform, socket, subprocess
@@ -2769,7 +2828,7 @@ def main():
                                 help="Path to backup archive (default: latest)")
 
     # Diff
-    p_diff = subparsers.add_parser("diff", help="Show changes in a snapshot")
+    p_diff = subparsers.add_parser("diff", help=argparse.SUPPRESS)
     p_diff.add_argument("hash", nargs="?", default=None, help="Snapshot hash or ref name (default: HEAD)")
     p_diff.add_argument("--verbose", "-v", action="store_true", help="Show unchanged tracks")
     p_diff.add_argument("--visual", action="store_true", help="Show visual timeline diff")
@@ -2802,20 +2861,20 @@ def main():
     p_cues.add_argument("--author", "-a", default="", help="Filter by author")
     p_cues.add_argument("--verbose", "-v", action="store_true", help="Show replies and resolved cues")
 
-    p_cue_assign = subparsers.add_parser("cue-assign", help="Assign a cue to someone")
+    p_cue_assign = subparsers.add_parser("cue-assign", help=argparse.SUPPRESS)
     p_cue_assign.add_argument("cue_id", help="ID of the cue to assign")
     p_cue_assign.add_argument("name", help="Name of the person to assign to")
 
-    p_cue_unassign = subparsers.add_parser("cue-unassign", help="Remove assignee from a cue")
+    p_cue_unassign = subparsers.add_parser("cue-unassign", help=argparse.SUPPRESS)
     p_cue_unassign.add_argument("cue_id", help="ID of the cue to unassign")
 
-    p_cue_start = subparsers.add_parser("cue-start", help="Mark a cue as in-progress")
+    p_cue_start = subparsers.add_parser("cue-start", help=argparse.SUPPRESS)
     p_cue_start.add_argument("cue_id", help="ID of the cue to start")
 
-    p_cue_stop = subparsers.add_parser("cue-stop", help="Mark a cue as no longer in-progress")
+    p_cue_stop = subparsers.add_parser("cue-stop", help=argparse.SUPPRESS)
     p_cue_stop.add_argument("cue_id", help="ID of the cue to stop")
 
-    p_cue_delete = subparsers.add_parser("cue-delete", help="Permanently delete a cue")
+    p_cue_delete = subparsers.add_parser("cue-delete", help=argparse.SUPPRESS)
     p_cue_delete.add_argument("cue_id", help="ID of the cue to delete")
 
     p_cue_archive = subparsers.add_parser("cue-archive", help="Archive a resolved/skipped cue")
@@ -2845,26 +2904,26 @@ def main():
     p_pull.add_argument("--output", "-o", type=str, default=None,
                         help="Output directory for project folder")
 
-    p_sync = subparsers.add_parser("sync", help="Start auto-sync daemon")
+    p_sync = subparsers.add_parser("sync", help=argparse.SUPPRESS)
     p_sync.add_argument("--interval", "-i", type=int, default=30,
                         help="Poll interval in seconds (default: 30)")
 
     # ── Branch / Checkout / Merge ──
-    p_branch = subparsers.add_parser("branch", help="List or create branches")
+    p_branch = subparsers.add_parser("branch", help=argparse.SUPPRESS)
     p_branch.add_argument("name", nargs="?", default=None, help="Branch name to create")
     p_branch.add_argument("--delete", "-d", default="", help="Delete a branch")
     p_branch.add_argument("--list", "-l", action="store_true", help="List all branches")
 
-    p_checkout = subparsers.add_parser("checkout", help="Switch branches")
+    p_checkout = subparsers.add_parser("checkout", help=argparse.SUPPRESS)
     p_checkout.add_argument("name", help="Branch to switch to")
     p_checkout.add_argument("-b", action="store_true", help="Create branch then switch")
 
-    p_merge = subparsers.add_parser("merge", help="Merge another branch into current")
+    p_merge = subparsers.add_parser("merge", help=argparse.SUPPRESS)
     p_merge.add_argument("branch", help="Branch name to merge from")
     p_merge.add_argument("--message", "-m", default="", help="Merge commit message")
     p_merge.add_argument("--no-ff", action="store_true", help="Create a merge commit even if fast-forward")
 
-    p_cue_render = subparsers.add_parser("cue-render", help="Export cues as Ableton markers")
+    p_cue_render = subparsers.add_parser("cue-render", help=argparse.SUPPRESS)
     p_cue_render.add_argument("--output", "-o", default="", help="Output file path")
     p_cue_render.add_argument("--inject", action="store_true",
                              help="Inject cues directly into the project's .als file (creates backup)")
@@ -2918,7 +2977,7 @@ def main():
                        help="Clavus server URL (default: from config or http://localhost:7890)")
 
     # Find (LAN discovery)
-    p_find = subparsers.add_parser("find", help="Find Clavus servers on your LAN or Tailscale tailnet")
+    p_find = subparsers.add_parser("find", help=argparse.SUPPRESS)
     p_find.add_argument("--timeout", "-t", type=int, default=3,
                         help="Seconds to scan for (default: 3)")
     p_find.add_argument("--pair", "-p", default="",
@@ -2927,7 +2986,7 @@ def main():
                         help="Scan your Tailscale tailnet instead of LAN")
 
     # ── Stem subcommands ──
-    p_stem = subparsers.add_parser("stem", help="Manage stems (audio exports)")
+    p_stem = subparsers.add_parser("stem", help=argparse.SUPPRESS)
     stem_sub = p_stem.add_subparsers(dest="stem_action", help="Stem commands")
 
     p_stem_import = stem_sub.add_parser("import", help="Import a stem file")
@@ -2987,6 +3046,7 @@ def main():
         "remote": cmd_remote,
         "doctor": cmd_doctor,
         "setup": cmd_setup,
+        "help": cmd_help,
         "repair": cmd_repair,
         "push": cmd_push,
         "pull": cmd_pull,

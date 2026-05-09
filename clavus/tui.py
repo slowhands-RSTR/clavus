@@ -133,6 +133,7 @@ class ClavusApp(App):
         Binding("i", "inject_cues", "Inject"),
         Binding("a", "assign", "Assign"),
         Binding("x", "archive", "Archive"),
+        Binding("!", "resolve_conflict", "Conflict"),
         Binding("C", "snapshot", "Snapshot"),
         Binding("d", "diff", "Diff"),
         Binding("p", "pull", "Pull"),
@@ -1858,7 +1859,7 @@ class ClavusApp(App):
                     snap_part = f"  [{C['dim']}]● {hours}h[/]"
             widget = self.query_one("#header-title", Static)
             widget.update(
-                f"[bold {C['accent']}]clavus[/]{proj}{cue_part}{peer}{sync_part}")
+                f"[bold {C['accent']}]clavus[/]{proj}{cue_part}{snap_part}{peer}{sync_part}")
             widget.refresh()
             # Also update the history label with snap age
             self._update_history_label()
@@ -1893,8 +1894,11 @@ class ClavusApp(App):
                 f"[{C['accent']}]C[/] snap  "
                 f"[{C['accent']}]a[/] assign  "
                 f"[{C['accent']}]x[/] archive  "
+                f"[{C['accent']}]![/] conflict  "
                 f"[{C['accent']}]p[/] pull  "
-                f"[{C['accent']}]P[/] push"
+                f"[{C['accent']}]P[/] push  "
+                f"[{C['accent']}]q[/] quit  "
+                f"[{C['accent']}]:[/] cmd"
             )
             # Don't touch #footer-stats here — _status() owns that
         except NoMatches:
@@ -1967,7 +1971,7 @@ class ClavusApp(App):
             return
         for s in self.snaps[:10]:
             ts = time.strftime("%m/%d %H:%M", time.localtime(s.timestamp)) if s.timestamp else ""
-            safe_msg = s.message[:50].replace("[", "\[").replace("]", "\]")
+            safe_msg = s.message[:50].replace("[", "\\[").replace("]", "\\]")
             lv.append(ListItem(Label(
                 f"[{C['accent']}]{s.hash}[/] [{C['dim']}]{ts}[/]"
                 f"  [{C['fg']}]{safe_msg}[/]"
