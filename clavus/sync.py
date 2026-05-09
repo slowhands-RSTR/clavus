@@ -599,14 +599,12 @@ def pull_snapshot_blobs(
                                 except Exception:
                                     pass
 
-                    # Rewrite absolute sample paths to project folder (macOS only)
-                    import platform as _plat
-                    if _plat.system() == "Darwin":
-                        try:
-                            from clavus.parser import rewrite_als_sample_paths
-                            raw = rewrite_als_sample_paths(raw, out.parent)
-                        except Exception:
-                            pass
+                    # Path rewriting DISABLED (May 2026).
+                    # rewrite_als_sample_paths() corrupts .als files, causing Ableton crashes.
+                    # Samples are materialized alongside the .als; Ableton auto-resolves
+                    # when you point it at any one sample in the project folder.
+                    # Do NOT re-enable without validating output .als opens in Ableton
+                    # on both macOS and Windows.
                     out.write_bytes(raw)
                     # Update project root_als so future snapshots find the .als
                     proj.root_als = str(out)

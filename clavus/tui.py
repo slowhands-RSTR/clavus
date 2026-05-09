@@ -912,6 +912,7 @@ class ClavusApp(App):
         self._sync_status = "creating snapshot..."
         self._update_header()
         await asyncio.sleep(0)
+        snap_hash = None
         try:
             from clavus.cli import create_snapshot
             snap_hash, logs = create_snapshot(message, allow_frozen=True)
@@ -938,6 +939,13 @@ class ClavusApp(App):
             self._sync_status = ""
             self._status(f"snapshot error: {e}")
             self._log_event(f"snapshot error: {e}")
+        # Auto-push snapshot to relay if connected (debounced to avoid flooding)
+        if snap_hash and self._peer_reachable:
+            now = time.time()
+            if now - getattr(self, '_last_auto_push', 0) > 5:
+                self._last_auto_push = now
+                self._log_event(f"auto-push: {snap_hash[:8]}")
+                asyncio.create_task(self._do_push())
         # Reload snapshots from disk and refresh UI
         self._sync_status = ""
         self._load_snapshots_from_disk()
@@ -1444,15 +1452,17 @@ class ClavusApp(App):
                 self._update_header()
             # Auto-refresh: check if new data arrived from a collaborator push
             if self._peer_reachable and self.project:
-                self._auto_refresh_if_changed()
+                self._auto_refresh_if_changed(remotes[0])
         except Exception:
             if self._peer_reachable:
                 self._peer_reachable = False
                 self._update_header()
 
-    def _auto_refresh_if_changed(self):
+    def _auto_refresh_if_changed(self, remote=None):
         """Check local store for new cues/snapshots pushed from a collaborator.
-        If anything changed, reload and re-render without a network pull.
+        If anything changed, reload and re-render. When HEAD moved (new
+        snapshot arrived), also download missing blobs and reconstruct
+        the .als file so the user can open/restore it.
         (The relay shares ~/.clavus/ with this TUI process.)"""
         try:
             # Check if cues changed
@@ -1469,8 +1479,18 @@ class ClavusApp(App):
             head_changed = current_head != getattr(self, '_last_auto_head', None)
             
             if cue_changed or head_changed:
+                prev_head = getattr(self, '_last_auto_head', None)
                 self._last_auto_head = current_head
-                self._log_event(f"auto-refresh: cues {len(self.cues)}→{active_count}, head {str(getattr(self, '_last_auto_head', '?'))[:8]}→{str(current_head or '?')[:8]}")
+                self._log_event(f"auto-refresh: cues {len(self.cues)}→{active_count}, head {str(prev_head or '?')[:8]}→{str(current_head or '?')[:8]}")
+                
+                # If HEAD moved, pull missing blobs and reconstruct .als on disk
+                if head_changed and current_head and remote:
+                    try:
+                        from clavus.sync import pull_snapshot_blobs
+                        pull_snapshot_blobs(self.store, proj, remote)
+                    except Exception:
+                        pass  # best-effort — don't break UI refresh on blob failure
+                
                 self._load_cues_from_disk()
                 self._load_snapshots_from_disk()
                 self._last_snap_time = time.time()
