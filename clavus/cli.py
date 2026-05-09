@@ -379,15 +379,23 @@ def cmd_setup(args: argparse.Namespace) -> None:
     existing_urls = {r.url for r in remotes}
 
     prompt = "👥 Collaborator's Tailscale IP" if ts_ip else "👥 Collaborator's IP"
-    print(f"{prompt} (or enter to skip)")
+    print(f"{prompt} (IP or full URL, enter to skip)")
     try:
-        collab_ip = input("   IP [skip]: ").strip()
+        collab_ip = input("   IP/URL [skip]: ").strip()
     except (EOFError, KeyboardInterrupt):
         collab_ip = ""
     if collab_ip:
-        url = f"http://{collab_ip}:{port}"
+        # Accept IP or full URL — strip http:// and extract port if present
+        from urllib.parse import urlparse
+        if collab_ip.startswith("http://") or collab_ip.startswith("https://"):
+            parsed = urlparse(collab_ip)
+            host = parsed.hostname or collab_ip
+            port = parsed.port or port
+        else:
+            host = collab_ip
+        url = f"http://{host}:{port}"
         if url not in existing_urls:
-            name = collab_ip.replace(".", "-")
+            name = host.replace(".", "-")
             remotes.append(Remote(name=name, url=url))
             save_remotes(store, remotes)
             print(f"   ✅ Added remote '{name}' → {url}")
