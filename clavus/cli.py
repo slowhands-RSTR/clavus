@@ -2186,6 +2186,23 @@ def cmd_remote(args: argparse.Namespace) -> None:
         print(f"🗑 Removed remote '{remove_name}'")
         return
 
+    # ── rename <old_name> <new_name> ──
+    if args.action == "rename":
+        old_name = args.name
+        new_name = args.url  # argparse puts 3rd positional into url
+        if not old_name or not new_name:
+            print("❌ Usage: clavus remote rename <old_name> <new_name>")
+            return
+        match = next((r for r in remotes if r.name == old_name), None)
+        if not match:
+            print(f"❌ Remote '{old_name}' not found.")
+            print(f"   Available: {', '.join(r.name for r in remotes)}")
+            return
+        match.name = new_name
+        save_remotes(store, remotes)
+        print(f"✏️  Renamed '{old_name}' → '{new_name}'")
+        return
+
     # List remotes
     if not remotes:
         print(f"📡 No remotes configured.")

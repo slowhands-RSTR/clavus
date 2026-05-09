@@ -122,6 +122,7 @@ class HelpScreen(Screen):
             Static("NAVIGATION", classes="help-section"),
             Static("  j/↓  Down           k/↑  Up"),
             Static("  Tab  Switch pane     Esc  Cancel / Dismiss"),
+            Static("  ?/h  Help            :help  Show this screen"),
             Static(""),
             Static("COMMANDS (:)", classes="help-section"),
             Static("  :snapshot <msg>  Create named snapshot"),
@@ -182,8 +183,8 @@ class ClavusApp(App):
     #footer.input-mode #footer-status {{ display: none; }}
     #footer.input-mode #footer-hint {{ display: none; }}
 
-    Scrollbar {{ scrollbar-color: rgba(26,158,158,0.5) {C['border']}; }}
-    Scrollbar > .scrollbar--grabber {{ background: rgba(26,158,158,0.4); }}
+    Scrollbar {{ scrollbar-color: #1a9e9e #0f1a20; }}
+    Scrollbar > .scrollbar--grabber {{ background: #1a9e9e; }}
     Scrollbar.vertical > .scrollbar--grabber {{ min-height: 3; }}
     """
 
@@ -210,6 +211,7 @@ class ClavusApp(App):
         Binding("up", "cursor_up", "Up", show=False),
         Binding(":", "command", ":cmd", show=False),
         Binding("?", "help", "Help", show=False),
+        Binding("h", "help", "Help", show=False),
         Binding("escape", "cancel_input", "Cancel input", show=False),
     ]
 
@@ -1382,15 +1384,16 @@ class ClavusApp(App):
         if not self._peer_name:
             return
         try:
-            from clavus.sync import load_remotes, SyncClient
+            from clavus.sync import load_remotes
             remotes = load_remotes(self.store)
             if not remotes:
                 return
-            client = SyncClient(remotes[0].url)
-            r, _ = client.request_with_retry("GET", "/api/ping", timeout=3)
+            import urllib.request
+            url = remotes[0].url.rstrip("/") + "/api/ping"
+            req = urllib.request.Request(url)
+            r = urllib.request.urlopen(req, timeout=2)
             was_reachable = self._peer_reachable
-            self._peer_reachable = (r is not None and r.status_code == 200)
-            client.close()
+            self._peer_reachable = (r.status == 200)
             if was_reachable != self._peer_reachable:
                 self._update_header()
         except Exception:
@@ -1450,16 +1453,16 @@ class ClavusApp(App):
         remotes = load_remotes(self.store)
         self._peer_name = remotes[0].name if remotes else ""
         self._peer_reachable = False
-        # Quick health probe — green dot if relay is actually reachable
+        # Quick health probe — use urllib (fast, no httpx overhead)
         if self._peer_name and remotes:
             try:
-                from clavus.sync import SyncClient
-                client = SyncClient(remotes[0].url)
-                r, _ = client.request_with_retry("GET", "/api/ping", timeout=3)
-                if r and r.status_code == 200:
+                import urllib.request
+                url = remotes[0].url.rstrip("/") + "/api/ping"
+                req = urllib.request.Request(url)
+                r = urllib.request.urlopen(req, timeout=2)
+                if r.status == 200:
                     self._peer_reachable = True
-                    self._log_event(f"● {self._peer_name} reachable")
-                client.close()
+                    self._log_event(f"\u25cf {self._peer_name} reachable")
             except Exception:
                 pass
         self._update_footer()
@@ -1904,9 +1907,11 @@ class ClavusApp(App):
         self._update_header()
 
     def _update_header(self):
-        """Minimal header: clavus logo, connection dot, remote name."""
+        """Minimal header: clavus logo, project, connection dot, remote name."""
         try:
-            # Connection dot
+            # Project name
+            proj = f"  [white]{self.project}[/]" if self.project else ""
+            # Connection dot + remote
             if self._peer_name and self._peer_reachable:
                 peer = f"  [bold {C['green']}]\u25cf[/] {self._peer_name}"
             elif self._peer_name:
@@ -1914,7 +1919,7 @@ class ClavusApp(App):
             else:
                 peer = ""
             widget = self.query_one("#header-title", Static)
-            widget.update(f"[bold {C['accent']}]clavus[/]{peer}")
+            widget.update(f"[bold {C['accent']}]clavus[/]{proj}{peer}")
             widget.refresh()
             # Also update the history label with snap age
             self._update_history_label()
