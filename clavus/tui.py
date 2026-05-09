@@ -115,7 +115,7 @@ class HelpScreen(Screen):
             Static("  R    Resolve        !    Conflict      d    Diff"),
             Static("  T    Restore snap   i    Inject cues"),
             Static("SNAPSHOTS & SYNC", classes="help-section"),
-            Static("  C    Snapshot       p    Pull          P    Push"),
+            Static("  S    Snapshot       p    Pull          P    Push"),
             Static("NAVIGATION", classes="help-section"),
             Static("  j/↓  Down           k/↑  Up           Tab  Switch pane"),
             Static("  Esc  Cancel/Dismiss ?/h  Help         :    Command mode"),
@@ -184,13 +184,14 @@ class ClavusApp(App):
         Binding("e", "edit", "Edit"),
         Binding("c", "cue_new", "New cue"),
         Binding("s", "skip", "Skip"),
+        Binding("S", "snapshot", "Snapshot"),
         Binding("R", "resolve", "Resolve"),
         Binding("T", "restore_snapshot", "Restore"),
         Binding("i", "inject_cues", "Inject"),
         Binding("a", "assign", "Assign"),
         Binding("x", "archive", "Archive"),
         Binding("!", "resolve_conflict", "Conflict"),
-        Binding("C", "snapshot", "Snapshot"),
+        Binding("C", "snapshot", "Snapshot", show=False),
         Binding("d", "diff", "Diff"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
@@ -1906,11 +1907,11 @@ class ClavusApp(App):
         try:
             hlv = self.query_one("#hlv", ListView)
             if hlv.has_focus:
-                hint = "C snap  T restore  d diff  :help"
+                hint = "S snap  T restore  d diff  :help"
             else:
                 clv = self.query_one("#clv", ListView)
                 if clv.has_focus:
-                    hint = "c cue  r reply  a assign  p pull  :help"
+                    hint = "c cue  r reply  a assign  S snap  p pull  :help"
         except NoMatches:
             pass
         try:
@@ -2119,7 +2120,7 @@ class ClavusApp(App):
         lv = self.query_one("#hlv", ListView)
         lv.clear()
         if not self.snaps:
-            lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet — C to capture[/]")))
+            lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet — S to capture[/]")))
             lv.refresh()
             return
         for s in self.snaps[:10]:
