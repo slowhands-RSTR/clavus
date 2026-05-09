@@ -2193,14 +2193,19 @@ def cmd_remote(args: argparse.Namespace) -> None:
         if not old_name or not new_name:
             print("❌ Usage: clavus remote rename <old_name> <new_name>")
             return
-        match = next((r for r in remotes if r.name == old_name), None)
+        match = next((r for r in remotes if r.name.lower() == old_name.lower()), None)
         if not match:
             print(f"❌ Remote '{old_name}' not found.")
-            print(f"   Available: {', '.join(r.name for r in remotes)}")
+            if remotes:
+                print(f"   Available: {', '.join(r.name for r in remotes)}")
+            return
+        old = match.name
+        if any(r.name.lower() == new_name.lower() and r.name != old for r in remotes):
+            print(f"❌ Remote '{new_name}' already exists.")
             return
         match.name = new_name
         save_remotes(store, remotes)
-        print(f"✏️  Renamed '{old_name}' → '{new_name}'")
+        print(f"✏️  Renamed '{old}' → '{new_name}'")
         return
 
     # List remotes

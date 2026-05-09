@@ -123,7 +123,7 @@ class HelpScreen(Screen):
             Static("  :snapshot <msg>  Create snapshot     :project <name>  Switch project"),
             Static("  :open [path]     Open in Ableton     :pull / :push    Manual sync"),
             Static("  :stem push/pull  Stem file sync      :init <path>     Init project"),
-            Static("  :remote rename <old> <new>           :remote add <name> <url>"),
+            Static("  :remote rename <name>               :remote add <name> <url>"),
             Static("[dim]Esc / q / Enter / h — close[/]", classes="help-dim"),
             id="help-box",
         )
@@ -769,18 +769,42 @@ class ClavusApp(App):
         self._status("  |  ".join(lines))
 
     def _run_remote(self, action: str = ""):
-        """Manage remotes: list, add, remove, rename."""
+        """Manage remotes: list, add, remove, rename.
+        
+        Smart rename: :remote rename Relay  → renames connected remote to Relay
+                      :remote rename mac Relay → renames specific remote
+        """
         import subprocess, sys
         try:
             cmd = [sys.executable, "-m", "clavus", "remote"]
             if action:
-                cmd.extend(action.split())  # split "rename mac pc" into separate args
+                parts = action.split()
+                # Smart rename: if only one arg and it's not list/add/remove, 
+                # auto-fill the old name from connected remote
+                if parts[0] == "rename" and len(parts) == 2:
+                    if self._peer_name:
+                        cmd.extend(["rename", self._peer_name, parts[1]])
+                        self._log_event(f"renaming connected remote '{self._peer_name}' → '{parts[1]}'")
+                    else:
+                        self._status("no connected remote — use :remote rename <old> <new>")
+                        return
+                else:
+                    cmd.extend(parts)
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             out = proc.stdout.strip()
+            err = proc.stderr.strip()
             if out:
                 for line in out.split("\n")[:5]:
                     self._log_event(line)
-            self._status("remote list" if not action else f"remote {action}")
+            if err:
+                for line in err.split("\n")[:3]:
+                    self._log_event(f"remote: {line}")
+            if not out and not err:
+                self._status("remote list" if not action else f"remote {action}")
+            elif proc.returncode != 0:
+                self._status(f"remote failed (exit {proc.returncode})")
+            else:
+                self._status("remote list" if not action else f"remote {action}")
         except Exception as e:
             self._status(f"remote failed: {e}")
 
