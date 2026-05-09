@@ -24,7 +24,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import ModalScreen
+from textual.screen import Screen, ModalScreen
 from textual.widgets import Static, Input, ListView, ListItem, Label, Button
 from textual.css.query import NoMatches
 
@@ -77,6 +77,69 @@ class Snap:
             track_count=d.get("track_count", 0),
         )
 
+# ─── Help Screen ───────────────────────────────────────────────────────
+
+class HelpScreen(Screen):
+    """Full overlay showing all key bindings and commands."""
+
+    CSS = f"""
+    HelpScreen {{ background: {C['bg']}e0; align: center middle; }}
+    #help-box {{ 
+        width: 54; max-height: 90%; overflow-y: auto;
+        background: {C['surface']}; border: thick {C['accent']};
+        padding: 1 2;
+    }}
+    #help-box Static {{ width: 100%; }}
+    #help-box .help-title {{ color: {C['accent']}; text-style: bold; }}
+    #help-box .help-key {{ color: {C['accent']}; }}
+    #help-box .help-desc {{ color: {C['fg']}; }}
+    #help-box .help-dim {{ color: {C['muted']}; }}
+    #help-box .help-section {{ color: {C['yellow']}; text-style: bold; padding-top: 1; }}
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("q", "dismiss", "Close"),
+        Binding("enter", "dismiss", "Close"),
+        Binding("h", "dismiss", "Close"),
+    ]
+
+    def compose(self):
+        yield Container(
+            Static("CLAVUS — KEY BINDINGS", classes="help-title"),
+            Static(""),
+            Static("CUES & COLLABORATION", classes="help-section"),
+            Static("  c    New cue        r    Reply to cue"),
+            Static("  e    Edit cue        a    Assign cue"),
+            Static("  s    Skip cue        x    Archive cue"),
+            Static("  R    Resolve cue     !    Resolve conflict"),
+            Static("  d    View diff       T    Restore snapshot"),
+            Static(""),
+            Static("SNAPSHOTS & SYNC", classes="help-section"),
+            Static("  C    Snapshot        p    Pull from remote"),
+            Static("  P    Push to remote  i    Inject cues"),
+            Static(""),
+            Static("NAVIGATION", classes="help-section"),
+            Static("  j/↓  Down           k/↑  Up"),
+            Static("  Tab  Switch pane     Esc  Cancel / Dismiss"),
+            Static(""),
+            Static("COMMANDS (:)", classes="help-section"),
+            Static("  :snapshot <msg>  Create named snapshot"),
+            Static("  :project <name>  Switch project"),
+            Static("  :open [path]     Open .als in Ableton"),
+            Static("  :pull / :push    Manual sync"),
+            Static("  :stem push/pull  Stem file sync"),
+            Static("  :init <path>     Init a new project"),
+            Static("  :remote <url>    Add a remote relay"),
+            Static("  :help            Show this screen"),
+            Static(""),
+            Static("[dim]Press Esc, q, Enter, or h to close[/]", classes="help-dim"),
+            id="help-box",
+        )
+
+    def action_dismiss(self):
+        self.app.pop_screen()
+
 # ─── App ────────────────────────────────────────────────────────────────────
 
 class ClavusApp(App):
@@ -108,14 +171,16 @@ class ClavusApp(App):
 
     #footer {{ height: 1; background: {C['surface']}; padding: 0 1; }}
     #footer.input-mode {{ height: 3; padding: 0; }}
-    #footer-keys {{ color: {C['accent']}; }}
-    #footer-stats {{ color: {C['muted']}; text-align: right; }}
+    #footer-keys {{ display: none; }}
+    #footer-status {{ color: {C['fg']}; }}
+    #footer-hint {{ color: {C['muted']}; text-align: right; }}
+    #footer-stats {{ display: none; }}
     #share-banner {{ display: none; padding: 0 1; background: {C['surface']}; color: {C['muted']}; height: 1; text-style: bold; }}
     #join-banner {{ display: none; padding: 0 1; background: {C['surface']}; color: {C['yellow']}; height: 1; text-style: bold; }}
     #footer-input {{ display: none; width: 100%; height: 3; background: {C['bg']}; border: solid {C['accent']}; color: {C['fg']}; padding: 0 1; }}
     #footer.input-mode #footer-input {{ display: block; }}
-    #footer.input-mode #footer-keys {{ display: none; }}
-    #footer.input-mode #footer-stats {{ display: none; }}
+    #footer.input-mode #footer-status {{ display: none; }}
+    #footer.input-mode #footer-hint {{ display: none; }}
 
     Scrollbar {{ scrollbar-color: rgba(26,158,158,0.5) {C['border']}; }}
     Scrollbar > .scrollbar--grabber {{ background: rgba(26,158,158,0.4); }}
@@ -144,6 +209,7 @@ class ClavusApp(App):
         Binding("down", "cursor_down", "Down", show=False),
         Binding("up", "cursor_up", "Up", show=False),
         Binding(":", "command", ":cmd", show=False),
+        Binding("?", "help", "Help", show=False),
         Binding("escape", "cancel_input", "Cancel input", show=False),
     ]
 
@@ -200,15 +266,16 @@ class ClavusApp(App):
                 id="content",
             )
             yield Horizontal(
-                Static("", id="footer-keys"),
+                Static("", id="footer-status"),
                 Input(placeholder="type here...", id="footer-input"),
-                Static("", id="footer-stats"),
+                Static("", id="footer-keys"),
+                Static(":help", id="footer-hint"),
                 id="footer",
             )
 
     def on_mount(self):
         self._header_title = self.query_one("#header-title", Static)
-        self._footer_stats = self.query_one("#footer-stats", Static)
+        self._footer_stats = self.query_one("#footer-status", Static)
         self._update_header()
         self._update_footer()
         self._connect()
@@ -222,7 +289,7 @@ class ClavusApp(App):
         footer = self.query_one("#footer")
         inp = self.query_one("#footer-input", Input)
         inp.value = prefill
-        self.query_one("#footer-keys", Static).update(f"[{C['accent']}]{prompt}[/]")
+        self.query_one("#footer-status", Static).update(f"[{C['accent']}]{prompt}[/]")
         footer.add_class("input-mode")
         inp.focus()
 
@@ -248,7 +315,7 @@ class ClavusApp(App):
             footer = self.query_one("#footer")
             inp = self.query_one("#footer-input", Input)
             inp.value = "1.1.1"
-            self.query_one("#footer-keys", Static).update(
+            self.query_one("#footer-status", Static).update(
                 f"[{C['accent']}]position @ (or blank for 1.1.1):[/]")
             footer.add_class("input-mode")
             inp.focus()
@@ -375,7 +442,7 @@ class ClavusApp(App):
             else:
                 self._status("use :join http://IP:PORT — get URL from 'clavus share' on host")
         elif cmd in ("help", "h", "?"):
-            self._status("commands: project, projects, init, setup, browse, name, inject, restore, open, snapshot, archive, delete, share, join, backup, backups, restore-store, stem push/pull, log, config, remote, branch, status, doctor, help | C=snapshot")
+            self.push_screen(HelpScreen())
         else:
             self._status(f"unknown: {cmd}")
 
@@ -797,7 +864,19 @@ class ClavusApp(App):
             if snap_hash:
                 self._status(f"📸 {snap_hash[:10]} — '{message}'")
             else:
-                self._status("snapshot skipped (no changes or error) — see log")
+                # Surface the actual reason so it's visible even if log entries expire
+                reason = "no changes or error"
+                for line in logs:
+                    if "No changes" in line:
+                        reason = "no changes — save project first"
+                        break
+                    elif "frozen" in line:
+                        reason = f"frozen tracks — unfreeze first"
+                        break
+                    elif ".als file not found" in line:
+                        reason = ".als missing — open & save in Ableton first"
+                        break
+                self._status(f"📸 skipped: {reason}")
         except Exception as e:
             self._status(f"snapshot error: {e}")
             self._log_event(f"snapshot error: {e}")
@@ -1066,6 +1145,10 @@ class ClavusApp(App):
     def action_snapshot(self):
         """Prompt for a snapshot message then create one."""
         self._show_input("command", ":", prefill="snapshot ")
+
+    def action_help(self):
+        """Show full key bindings and commands overlay."""
+        self.push_screen(HelpScreen())
 
     def action_assign(self):
         cue = self._get_cue()
@@ -1827,22 +1910,36 @@ class ClavusApp(App):
             pass
 
     def _update_footer(self):
+        """Build context-aware status bar — project, cues, snaps, connection."""
         try:
-            self.query_one("#footer-keys", Static).update(
-                f"[{C['accent']}]r[/] reply  "
-                f"[{C['accent']}]R[/] resolve  "
-                f"[{C['accent']}]e[/] edit  "
-                f"[{C['accent']}]c[/] cue  "
-                f"[{C['accent']}]C[/] snap  "
-                f"[{C['accent']}]a[/] assign  "
-                f"[{C['accent']}]x[/] archive  "
-                f"[{C['accent']}]![/] conflict  "
-                f"[{C['accent']}]p[/] pull  "
-                f"[{C['accent']}]P[/] push  "
-                f"[{C['accent']}]q[/] quit  "
-                f"[{C['accent']}]:[/] cmd"
-            )
-            # Don't touch #footer-stats here — _status() owns that
+            status = self.query_one("#footer-status", Static)
+            if self.project:
+                proj = self.project
+                n_cues = len(self.cues)
+                n_snaps = len(self.snaps)
+                head_short = ""
+                if self.snaps:
+                    head_short = self.snaps[0].hash[:8]
+                    last_msg = self.snaps[0].message[:40] if self.snaps[0].message else ""
+                else:
+                    last_msg = ""
+                # Build segments
+                parts = [f"[bold]{proj}[/]"]
+                if n_cues:
+                    parts.append(f"{n_cues} cues")
+                if head_short:
+                    parts.append(f"📸 {head_short}")
+                if self._sync_status:
+                    parts.append(f"[{C['yellow']}]{self._sync_status}[/]")
+                elif self._last_sync:
+                    parts.append(self._last_sync)
+                elif self._peer_name:
+                    reachable = "✓" if self._peer_reachable else "✗"
+                    parts.append(f"🔗 {self._peer_name} {reachable}")
+                status.update("  ".join(parts))
+            else:
+                status.update(f"[{C['dim']}]no project — :init <path> to start[/]")
+            # Right side: :help hint is always visible (set in compose)
         except NoMatches:
             pass
 
