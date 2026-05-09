@@ -769,12 +769,12 @@ class ClavusApp(App):
         self._status("  |  ".join(lines))
 
     def _run_remote(self, action: str = ""):
-        """Manage remotes: list, add, remove."""
+        """Manage remotes: list, add, remove, rename."""
         import subprocess, sys
         try:
             cmd = [sys.executable, "-m", "clavus", "remote"]
             if action:
-                cmd.append(action)
+                cmd.extend(action.split())  # split "rename mac pc" into separate args
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             out = proc.stdout.strip()
             if out:
