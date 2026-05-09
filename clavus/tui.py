@@ -1428,7 +1428,19 @@ class ClavusApp(App):
         from clavus.sync import load_remotes
         remotes = load_remotes(self.store)
         self._peer_name = remotes[0].name if remotes else ""
-        self._peer_reachable = False  # only turns green after confirmed push/pull
+        self._peer_reachable = False
+        # Quick health probe — green dot if relay is actually reachable
+        if self._peer_name and remotes:
+            try:
+                from clavus.sync import SyncClient
+                client = SyncClient(remotes[0].url)
+                r, _ = client.request_with_retry("GET", "/api/ping", timeout=3)
+                if r and r.status_code == 200:
+                    self._peer_reachable = True
+                    self._log_event(f"● {self._peer_name} reachable")
+                client.close()
+            except Exception:
+                pass
         self._update_footer()
 
         # Load cues from disk
