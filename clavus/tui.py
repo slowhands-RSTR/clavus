@@ -320,7 +320,7 @@ class ClavusApp(App):
         elif cmd == "restore":
             self._run_restore(arg)
         elif cmd == "open":
-            self._run_open(arg)
+            asyncio.ensure_future(self._run_open(arg))
         elif cmd == "setup":
             self._run_setup()
         elif cmd in ("status", "info"):
@@ -673,8 +673,8 @@ class ClavusApp(App):
             else:
                 sp.Popen(["open", str(out)])
         elif platform.system() == "Windows":
-            sp.Popen(["start", "", str(out)], shell=True)
-
+            import os as _os
+            _os.startfile(str(out))
     @work(exclusive=False)
     async def _run_setup(self):
         """Run the interactive setup wizard (same as 'clavus setup')."""
