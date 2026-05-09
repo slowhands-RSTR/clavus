@@ -990,6 +990,76 @@ def cmd_relay(args: argparse.Namespace) -> None:
     cfg = ClavusConfig.load()
     host = args.host or cfg.host
     port = args.port or cfg.port
+    # Check for --bg / --background flag
+    if getattr(args, 'background', False) or getattr(args, 'bg', False):
+        import platform, sys, os, time, subprocess
+        pid_path = Path.home() / '.clavus' / 'relay.pid'
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Check if already running
+        if pid_path.exists():
+            try:
+                old_pid = int(pid_path.read_text().strip())
+                os.kill(old_pid, 0)
+                print(f'⚠️  Relay already running (PID {old_pid}). Use --kill to stop.')
+                return
+            except (ProcessLookupError, ValueError):
+                pid_path.unlink()
+        
+        if platform.system() == 'Windows':
+            DETACHED = 0x00000008
+            proc = subprocess.Popen(
+                [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=DETACHED,
+            )
+            pid = proc.pid
+        else:
+            pid = os.fork()
+            if pid == 0:
+                # Child: become daemon
+                os.setsid()
+                devnull = os.open('/dev/null', os.O_RDWR)
+                os.dup2(devnull, 0)
+                os.dup2(devnull, 1)
+                os.dup2(devnull, 2)
+                os.close(devnull)
+                os.execv(sys.executable, [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)])
+            # Parent: pid is the child
+        
+        pid_path.write_text(str(pid))
+        time.sleep(0.5)
+        # Verify it started
+        try:
+            import httpx
+            r = httpx.get(f'http://127.0.0.1:{port}/api/ping', timeout=3)
+            if r.status_code == 200:
+                print(f'✅ Relay running in background (PID {pid})')
+                print(f'   Share URL: http://127.0.0.1:{port}')
+                return
+        except Exception:
+            pass
+        print(f'⚠️  Relay started (PID {pid}) but not responding — logs: ~/.clavus/relay.log')
+        return
+    
+    # Check for --kill flag
+    if getattr(args, 'kill', False):
+        pid_path = Path.home() / '.clavus' / 'relay.pid'
+        if pid_path.exists():
+            try:
+                pid = int(pid_path.read_text().strip())
+                os.kill(pid, 9)
+                pid_path.unlink()
+                print(f'✅ Relay (PID {pid}) stopped.')
+            except ProcessLookupError:
+                pid_path.unlink()
+                print('Relay was not running.')
+            except Exception as e:
+                print(f'Failed to stop relay: {e}')
+        else:
+            print('No relay PID file found.')
+        return
+    
     run_relay_server(host=host, port=port)
 
 
@@ -1065,6 +1135,76 @@ def cmd_share(args: argparse.Namespace) -> None:
     print(f"  {'─' * 45}")
     print()
 
+    # Check for --bg / --background flag
+    if getattr(args, 'background', False) or getattr(args, 'bg', False):
+        import platform, sys, os, time, subprocess
+        pid_path = Path.home() / '.clavus' / 'relay.pid'
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Check if already running
+        if pid_path.exists():
+            try:
+                old_pid = int(pid_path.read_text().strip())
+                os.kill(old_pid, 0)
+                print(f'⚠️  Relay already running (PID {old_pid}). Use --kill to stop.')
+                return
+            except (ProcessLookupError, ValueError):
+                pid_path.unlink()
+        
+        if platform.system() == 'Windows':
+            DETACHED = 0x00000008
+            proc = subprocess.Popen(
+                [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=DETACHED,
+            )
+            pid = proc.pid
+        else:
+            pid = os.fork()
+            if pid == 0:
+                # Child: become daemon
+                os.setsid()
+                devnull = os.open('/dev/null', os.O_RDWR)
+                os.dup2(devnull, 0)
+                os.dup2(devnull, 1)
+                os.dup2(devnull, 2)
+                os.close(devnull)
+                os.execv(sys.executable, [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)])
+            # Parent: pid is the child
+        
+        pid_path.write_text(str(pid))
+        time.sleep(0.5)
+        # Verify it started
+        try:
+            import httpx
+            r = httpx.get(f'http://127.0.0.1:{port}/api/ping', timeout=3)
+            if r.status_code == 200:
+                print(f'✅ Relay running in background (PID {pid})')
+                print(f'   Share URL: http://127.0.0.1:{port}')
+                return
+        except Exception:
+            pass
+        print(f'⚠️  Relay started (PID {pid}) but not responding — logs: ~/.clavus/relay.log')
+        return
+    
+    # Check for --kill flag
+    if getattr(args, 'kill', False):
+        pid_path = Path.home() / '.clavus' / 'relay.pid'
+        if pid_path.exists():
+            try:
+                pid = int(pid_path.read_text().strip())
+                os.kill(pid, 9)
+                pid_path.unlink()
+                print(f'✅ Relay (PID {pid}) stopped.')
+            except ProcessLookupError:
+                pid_path.unlink()
+                print('Relay was not running.')
+            except Exception as e:
+                print(f'Failed to stop relay: {e}')
+        else:
+            print('No relay PID file found.')
+        return
+    
     run_relay_server(host=host, port=port)
 
 
@@ -2712,6 +2852,12 @@ def main():
     p_share.add_argument("--port", "-p", type=int, default=None,
                         help="Port to listen on (default: from config or 7890)")
 
+    p_share.add_argument("--background", "-b", action="store_true",
+                        help="Run relay in background, return immediately")
+    p_share.add_argument("--bg", action="store_true",
+                        help="Alias for --background")
+    p_share.add_argument("--kill", action="store_true",
+                        help="Stop the background relay")
     # Join (discover and connect)
     p_join = subparsers.add_parser("join", help="Discover and connect to a Clavus share session")
     p_join.add_argument("code", nargs="?", default="",

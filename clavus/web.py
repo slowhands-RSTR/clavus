@@ -1148,13 +1148,13 @@ def _sync_push_snapshots_impl(body: SyncPushSnapshotsBody, name: str):
                 who = time.strftime("%H:%M", time.localtime(other.timestamp))
             raise HTTPException(
                 status_code=409,
-                detail={"error": "HEAD has moved",
-                        "relay_head": current_head,
-                        "relay_head_short": current_head[:8],
-                        "who": who,
-                        "message": f"HEAD has moved (current: {current_head[:8]}… @ {who}). "
-                                   f"Pull first to integrate changes, then push again."})
-
+                detail={
+                    "error": "conflict",
+                    "message": f"Someone else pushed changes at {who}. Pull first to merge, then push again.",
+                    "relay_head_short": current_head[:8] if current_head else "?",
+                    "hint": "Press P to pull, resolve any conflicts, then push again.",
+                }
+            )
     for s in body.snapshots:
         snap_hash = s.get("full_hash", s.get("hash", ""))
         if not snap_hash:

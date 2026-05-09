@@ -536,7 +536,7 @@ def render_cues_as_markers(cues: list[Cue], output_path: str,
         # Insert new markers
         inserted = 0
         for cue in unresolved:
-            marker_name = f"💬 {cue.text[:60]}"
+            marker_name = cue.text[:60].strip()
             if marker_name in existing_names:
                 continue  # skip duplicates
             
@@ -603,7 +603,7 @@ def render_cues_as_markers(cues: list[Cue], output_path: str,
     for cue in unresolved:
         cue_elem = ET.SubElement(root_als, "CuePoint")
         ET.SubElement(cue_elem, "Time").set("Value", cue.position)
-        ET.SubElement(cue_elem, "Name").set("Value", f"💬 {cue.text[:60]}")
+        ET.SubElement(cue_elem, "Name").set("Value", cue.text[:60].strip())
 
     xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xml_str += ET.tostring(root_als, encoding="unicode")

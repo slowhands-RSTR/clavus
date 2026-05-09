@@ -187,7 +187,7 @@ class ClavusApp(App):
 
     def compose(self):
         with Container(id="main"):
-            yield Static("~▼~ clavus", id="header-title")
+            yield Static("clavus", id="header-title")
             yield Container(
                 Static("", id="share-banner"),
                 Static("", id="join-banner"),
@@ -1828,7 +1828,7 @@ class ClavusApp(App):
                 peer = f"  [{C['dim']}]\u25cb[/]"
             widget = self.query_one("#header-title", Static)
             widget.update(
-                f"[bold {C['accent']}]~▼~ clavus[/]{proj}{cue_part}{peer}{sync_part}")
+                f"[bold {C['accent']}]clavus[/]{proj}{cue_part}{peer}{sync_part}")
             widget.refresh()
         except NoMatches:
             pass
