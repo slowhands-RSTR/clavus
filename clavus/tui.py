@@ -218,6 +218,7 @@ class ClavusApp(App):
         self.snaps: list[Snap] = []
         self.idx: int = 0
         self._input_mode: str = ""
+        self._input_debounce: float = 0.0  # unix ts after last _hide_input
         self._pending_cue_text: str = ""
         self._relay_proc = None
         self._busy: bool = False
@@ -279,6 +280,10 @@ class ClavusApp(App):
     # ─── Input bar ──────────────────────────────────────────────────────
 
     def _show_input(self, mode: str, prompt: str, prefill: str = ""):
+        if self._input_mode:
+            return  # already showing input
+        if time.time() - self._input_debounce < 0.3:
+            return  # within 300ms of dismiss, ignore double-tap
         self._input_mode = mode
         footer = self.query_one("#footer")
         inp = self.query_one("#footer-input", Input)
@@ -289,6 +294,7 @@ class ClavusApp(App):
 
     def _hide_input(self):
         self._input_mode = ""
+        self._input_debounce = time.time()  # block double-tap after dismiss
         self.query_one("#footer").remove_class("input-mode")
         self.call_after_refresh(self._update_footer)
 
@@ -1200,6 +1206,8 @@ class ClavusApp(App):
         self.push_screen(HelpScreen())
 
     def action_assign(self):
+        if self._input_mode or time.time() - self._input_debounce < 0.3:
+            return  # ignore while input active or within 300ms of dismiss
         cue = self._get_cue()
         if not cue:
             return
