@@ -566,7 +566,7 @@ def pull_snapshot_blobs(
     finally:
         client.close()
 
-    # Always materialize the latest snapshot to Desktop after any pull
+    # Always materialize the latest snapshot to project folder after any pull
     try:
         head = proj.head
         if head:
@@ -575,8 +575,10 @@ def pull_snapshot_blobs(
                 raw = store.get_object(snap.als_hash)
                 if raw:
                     project_name = proj.name.replace(" ", " ")
-                    project_dir = (Path(output_dir) / project_name) if output_dir else (get_projects_dir() / project_name)
-                    out = project_dir / f"{project_name}.als"
+                    # Use Ableton project subfolder convention (matching TUI _run_open)
+                    base_dir = (Path(output_dir) / project_name) if output_dir else (get_projects_dir() / project_name)
+                    als_dir = base_dir / f"{project_name} Project"
+                    out = als_dir / f"{project_name}.als"
                     out.parent.mkdir(parents=True, exist_ok=True)
 
                     # Materialize samples first — use .als RelativePath for correct dir structure
@@ -585,7 +587,7 @@ def pull_snapshot_blobs(
                         import gzip as _gzip, re as _re
                         _xml = _gzip.decompress(raw).decode("utf-8", errors="replace")
                         _als_relpaths: dict[str, str] = {}
-                        for _m in _re.finditer(r'<RelativePath\s+Value="([^"]+)"', _xml):
+                        for _m in _re.finditer(r'<RelativePath\s+Value=\"([^\"]+)\"', _xml):
                             _rp = _m.group(1)
                             _fn = _rp.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]  # filename only
                             if _fn not in _als_relpaths:
@@ -614,8 +616,8 @@ def pull_snapshot_blobs(
                     proj.root_als = str(out)
                     store.set_index(proj)
                     print(f"   📁 Project folder → {out.parent}")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"    ⚠️  Materialization failed: {e}")
 
     return count
 
