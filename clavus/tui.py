@@ -113,7 +113,7 @@ class HelpScreen(Screen):
             Static("  c    New cue        e    Edit         r    Reply"),
             Static("  a    Assign         x    Archive      ▶    Start"),
             Static("  R    Resolve        !    Conflict      d    Diff"),
-            Static("  T    Restore snap   i    Inject cues"),
+            Static("  T    Restore snap   e    Edit item     o    Open in Live"),
             Static("SNAPSHOTS & SYNC", classes="help-section"),
             Static("  p    Pull           P    Push          S    Snap + auto-push"),
             Static("NAVIGATION", classes="help-section"),
@@ -194,6 +194,8 @@ class ClavusApp(App):
         Binding("d", "diff", "Diff"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
+        Binding("o", "open_selected_or_head", "Open"),
+        Binding("e", "edit_item", "Edit"),
         Binding("tab", "focus_next_pane", "Pane"),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
@@ -339,6 +341,8 @@ class ClavusApp(App):
                 self._do_archive_cue()
             else:
                 self._focus_cues()
+        elif mode == "edit_snapshot":
+            self._do_edit_snapshot(text)
         elif mode == "command":
             self._do_command(text)
 
@@ -996,6 +1000,32 @@ class ClavusApp(App):
         self._log_event(f"assigned to {cue.assignee}")
         self._save()
 
+    def _do_edit_snapshot(self, text: str):
+        """Update the selected snapshot's message."""
+        if not self.snaps:
+            self._status("no snapshots to edit")
+            return
+        idx = self._get_history_idx()
+        snap = self.snaps[idx]
+        old_msg = snap.message
+        snap.message = text
+        # Persist to disk
+        try:
+            meta_dir = self.store.objects_dir / snap.hash[:2]
+            meta_path = meta_dir / f"{snap.hash}.meta"
+            if meta_path.exists():
+                import json
+                meta = json.loads(meta_path.read_text())
+                meta["message"] = text
+                meta_path.write_text(json.dumps(meta, indent=2, default=str))
+            self._load_snapshots_from_disk()
+            self._render()
+            self._status(f"snapshot renamed: '{text[:40]}'")
+            self._log_event(f"renamed snapshot {snap.hash[:12]}: {old_msg[:30]} → {text[:30]}")
+        except Exception as e:
+            self._status(f"edit failed: {e}")
+            self._log_event(f"snapshot edit failed: {e}")
+
     def action_reply(self):
         cue = self._get_cue()
         if not cue:
@@ -1115,6 +1145,34 @@ class ClavusApp(App):
         self._status(f"restoring to {snap.hash} ('{snap.message[:40]}')...")
         self._log_event(f"restoring to {snap.hash[:12]}...")
         self._run_restore(snap.hash)
+
+    def action_open_selected_or_head(self):
+        """Open in Ableton: selected snapshot if history focused, HEAD otherwise."""
+        target = self._focused_list_view()
+        if target and target.id == "hlv" and self.snaps:
+            # History pane focused — open the selected snapshot
+            idx = self._get_history_idx()
+            snap = self.snaps[idx]
+            self._status(f"opening snapshot {snap.hash[:12]} ('{snap.message[:40]}')...")
+            self._log_event(f"opening snapshot {snap.hash[:12]}")
+            self._run_open(snap.hash)
+        else:
+            # Open HEAD
+            self._run_open("")
+
+    def action_edit_item(self):
+        """Edit the selected item: cues if cue pane focused, snapshots if history pane."""
+        target = self._focused_list_view()
+        if target and target.id == "hlv" and self.snaps:
+            # History pane — edit snapshot message
+            idx = self._get_history_idx()
+            snap = self.snaps[idx]
+            self._show_input("edit_snapshot", f"Edit message ({snap.hash[:12]}):", prefill=snap.message)
+        elif target and target.id == "clv":
+            # Cue pane — edit selected cue
+            self.action_edit()
+        else:
+            self._status("select an item to edit")
 
     def action_diff(self):
         """Show what changed in the selected snapshot vs its parent."""
@@ -1992,7 +2050,7 @@ class ClavusApp(App):
             else:
                 clv = self.query_one("#clv", ListView)
                 if clv.has_focus:
-                    hint = "c cue  r reply  a assign  S snap  p pull  ? help"
+                    hint = "c cue  r reply  e edit  a assign  o open  S snap  p pull  T history  ? help"
         except NoMatches:
             pass
         try:
