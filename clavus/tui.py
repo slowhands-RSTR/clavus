@@ -1495,8 +1495,12 @@ class ClavusApp(App):
                 self._load_cues_from_disk()
                 self._load_snapshots_from_disk()
                 self._last_snap_time = time.time()
-                self._render_cues()
-                self._render_history()
+                # Only re-render if enough time passed since last render
+                # (prevents rapid clear-rebuild flicker on Windows)
+                if time.time() - getattr(self, '_last_auto_render', 0) > 2:
+                    self._last_auto_render = time.time()
+                    self._render_cues()
+                    self._render_history()
                 self._update_header()
                 self._update_footer()
         except Exception:
@@ -2218,7 +2222,7 @@ class ClavusApp(App):
 
     def _render_cues(self):
         lv = self.query_one("#clv", ListView)
-        lv.clear()
+        lv.remove_children()  # avoid clear() which collapses grid on Windows
 
         if not self.cues:
             lv.append(ListItem(Label(f"  [{C['dim']}]no cues yet — c to place one at the playhead[/]")))
@@ -2261,7 +2265,7 @@ class ClavusApp(App):
 
     def _render_history(self):
         lv = self.query_one("#hlv", ListView)
-        lv.clear()
+        lv.remove_children()  # avoid clear() which collapses grid on Windows
         if not self.snaps:
             lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet — S to capture[/]")))
             lv.refresh()
