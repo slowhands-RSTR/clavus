@@ -662,6 +662,10 @@ class ClavusApp(App):
         als_dir = proj_dir / f"{self.project} Project"
         out = als_dir / f"{self.project}.als"
         out.parent.mkdir(parents=True, exist_ok=True)
+        # Create Ableton project folder scaffolding so Ableton doesn't
+        # warn about "outside project" on first save
+        (als_dir / "Samples").mkdir(exist_ok=True)
+        (als_dir / "Backup").mkdir(exist_ok=True)
         out.write_bytes(raw)
 
         # Update root_als so future snapshots find the right file
@@ -1415,8 +1419,9 @@ class ClavusApp(App):
             for cue in self.cues:
                 self._cue_store._save_cue(cue)
             self._status("saved")
-        except Exception:
-            self._status("save failed")
+        except Exception as e:
+            self._status(f"save failed: {e}")
+            self._log_event(f"save failed: {e}")
 
     def _probe_reachability(self):
         """Periodic health check — updates dot color based on relay reachability.
