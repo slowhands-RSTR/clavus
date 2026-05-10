@@ -110,12 +110,12 @@ class HelpScreen(Screen):
         yield Container(
             Static("CLAVUS — KEY BINDINGS", classes="help-title"),
             Static("CUES & COLLABORATION", classes="help-section"),
-            Static("  c    New cue        r    Reply        e    Edit"),
-            Static("  a    Assign         x    Archive       S    Quick snap"),
+            Static("  c    New cue        e    Edit         r    Reply"),
+            Static("  a    Assign         x    Archive      ▶    Start"),
             Static("  R    Resolve        !    Conflict      d    Diff"),
             Static("  T    Restore snap   i    Inject cues"),
             Static("SNAPSHOTS & SYNC", classes="help-section"),
-            Static("  p    Pull           P    Push          :snapshot <msg>"),
+            Static("  p    Pull           P    Push          S    Snap + auto-push"),
             Static("NAVIGATION", classes="help-section"),
             Static("  j/↓  Down           k/↑  Up           Tab  Switch pane"),
             Static("  Esc  Cancel/Dismiss ?/h  Help         :    Command mode"),
@@ -944,6 +944,7 @@ class ClavusApp(App):
             now = time.time()
             if now - getattr(self, '_last_auto_push', 0) > 5:
                 self._last_auto_push = now
+                self._status(f"📸 {snap_hash[:10]} — 'auto-pushing to relay...'")
                 self._log_event(f"auto-push: {snap_hash[:8]}")
                 asyncio.create_task(self._do_push())
         # Reload snapshots from disk and refresh UI
@@ -1821,6 +1822,7 @@ class ClavusApp(App):
                     self._sync_status = ""
                     self._update_header()
                     await asyncio.sleep(0)
+                    self._status(f"● {self._peer_name} unreachable")
                     self._log_event(f"● {self._peer_name} unreachable — pull failed")
                     last_error = result["error"]
                     continue  # try next remote, don't bail
@@ -1839,6 +1841,7 @@ class ClavusApp(App):
                 self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
                 self._sync_status = ""
                 self._update_header()
+                self._status(f"❌ pull failed: {last_error[:60]}")
                 self._log_event(f"pull failed: {last_error} — check relay")
                 return
             self._last_sync = f"\u2b07 {time.strftime('%H:%M')}"
@@ -1895,8 +1898,10 @@ class ClavusApp(App):
                     await asyncio.sleep(0)
                     err = result['error']
                     if 'pull first' in err.lower() or 'conflict' in err.lower():
-                        self._log_event(f"\u26a0\ufe0f {err} — press p to pull, then P to push")
+                        self._status(f"⚠️ conflict — press p to pull, then P to push")
+                        self._log_event(f"⚠️ {err} — press p to pull, then P to push")
                     else:
+                        self._status(f"❌ push failed: {err[:60]}")
                         self._log_event(f"push error: {err}")
                     return
                 cues_n = result.get("cues", 0)
