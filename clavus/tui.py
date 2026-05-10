@@ -1501,8 +1501,8 @@ class ClavusApp(App):
                     self._last_auto_render = time.time()
                     self._render_cues()
                     self._render_history()
-                self._update_header()
-                self._update_footer()
+                    self._update_header()
+                    self._update_footer()
         except Exception:
             pass  # auto-refresh is best-effort
 
@@ -1600,6 +1600,7 @@ class ClavusApp(App):
         self._log_event(f"_load_cues: {len(active_cues)} active cue(s) + {self._archived_count} archived from {cue_store.cues_dir}")
         self.cues = self._sort_cues(active_cues)
         self.idx = min(self.idx, len(self.cues) - 1) if self.cues else 0
+        self._cue_fingerprint = None  # invalidate render cache
 
     def _load_snapshots_from_disk(self):
         """Load snapshot history for the current project from BlobStore."""
@@ -1634,6 +1635,7 @@ class ClavusApp(App):
         ]
         if self.snaps:
             self._last_snap_time = self.snaps[0].timestamp
+        self._snap_fingerprint = None  # invalidate render cache
         self._render_history()
 
     def _ensure_initial_snapshot(self):
@@ -2222,7 +2224,13 @@ class ClavusApp(App):
 
     def _render_cues(self):
         lv = self.query_one("#clv", ListView)
-        lv.remove_children()  # avoid clear() which collapses grid on Windows
+        # Fingerprint: skip entire rebuild if content hasn't changed
+        # (remove_children causes reflow jitter on Windows even when identical)
+        fp = (len(self.cues), tuple((c.id, c.status, c.text[:60], len(c.replies)) for c in self.cues))
+        if fp == getattr(self, '_cue_fingerprint', None):
+            return
+        self._cue_fingerprint = fp
+        lv.remove_children()
 
         if not self.cues:
             lv.append(ListItem(Label(f"  [{C['dim']}]no cues yet — c to place one at the playhead[/]")))
@@ -2265,7 +2273,12 @@ class ClavusApp(App):
 
     def _render_history(self):
         lv = self.query_one("#hlv", ListView)
-        lv.remove_children()  # avoid clear() which collapses grid on Windows
+        # Fingerprint: skip rebuild if snapshots haven't changed
+        fp = tuple((s.hash, s.message) for s in self.snaps[:10])
+        if fp == getattr(self, '_snap_fingerprint', None):
+            return
+        self._snap_fingerprint = fp
+        lv.remove_children()
         if not self.snaps:
             lv.append(ListItem(Label(f"  [{C['dim']}]no snapshots yet — S to capture[/]")))
             lv.refresh()
