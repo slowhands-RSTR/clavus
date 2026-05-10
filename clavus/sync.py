@@ -239,6 +239,7 @@ def push_snapshot_blobs(
         sample_hashes_list: list[str] = []
         current = proj.head
         seen: set[str] = set()
+        blob_seen: set[str] = set()  # dedup blobs across walk, not share with snap hashes
 
         while current:
             if current in seen:
@@ -249,17 +250,20 @@ def push_snapshot_blobs(
                 break
 
             # Content blob hash = snapshot's content_hash (parsed JSON)
-            if snap.content_hash and snap.content_hash not in seen:
+            if snap.content_hash and snap.content_hash not in blob_seen:
                 content_hashes.append(snap.content_hash)
+                blob_seen.add(snap.content_hash)
 
             # .als backup blob hash (raw .als = snapshot identity now)
-            if snap.als_hash and snap.als_hash not in seen:
+            if snap.als_hash and snap.als_hash not in blob_seen:
                 als_hashes.append(snap.als_hash)
+                blob_seen.add(snap.als_hash)
 
             # Audio sample blob hashes
             for sh in (snap.sample_hashes or []):
-                if sh not in seen:
+                if sh not in blob_seen:
                     sample_hashes_list.append(sh)
+                    blob_seen.add(sh)
 
             if snap.parent == current:
                 break
