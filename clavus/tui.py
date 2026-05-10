@@ -660,7 +660,11 @@ class ClavusApp(App):
         # Write into the proper structure and update root_als to match.
         from pathlib import Path
         base = Path(proj.root_als).parent  # e.g. Projects/On Your Feet/
-        als_dir = base / f"{self.project} Project"
+        # If root_als already points into a Project subfolder, don't double-nest
+        if base.name.endswith(" Project"):
+            als_dir = base
+        else:
+            als_dir = base / f"{self.project} Project"
         out = als_dir / f"{self.project}.als"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(raw)

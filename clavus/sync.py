@@ -577,6 +577,7 @@ def pull_snapshot_blobs(
                     project_name = proj.name.replace(" ", " ")
                     # Use Ableton project subfolder convention (matching TUI _run_open)
                     base_dir = get_projects_dir() / project_name
+                    # Don't double-nest if project dir already ends with " Project"
                     als_dir = base_dir / f"{project_name} Project"
                     out = als_dir / f"{project_name}.als"
                     out.parent.mkdir(parents=True, exist_ok=True)
