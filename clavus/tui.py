@@ -2102,6 +2102,7 @@ class ClavusApp(App):
                 return
 
             parts = [f"[bold]{self.project}[/]"]
+            self._update_welcome()  # hide welcome, show cues + history
 
             # Cues — always show, even 0
             n = len(self.cues)
