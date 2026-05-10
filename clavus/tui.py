@@ -181,7 +181,6 @@ class ClavusApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "reply", "Reply"),
-        Binding("e", "edit", "Edit"),
         Binding("c", "cue_new", "New cue"),
         Binding("S", "snapshot", "Snapshot"),
         Binding("R", "resolve", "Resolve"),
@@ -284,9 +283,11 @@ class ClavusApp(App):
 
     def _show_input(self, mode: str, prompt: str, prefill: str = ""):
         if self._input_mode:
+            self._log_event(f"input blocked: already in {self._input_mode} mode")
             return  # already showing input
-        if time.time() - self._input_debounce < 0.3:
-            return  # within 300ms of dismiss, ignore double-tap
+        if time.time() - self._input_debounce < 0.15:
+            self._log_event(f"input blocked: debounce ({mode})")
+            return  # within 150ms of dismiss, ignore double-tap
         self._input_mode = mode
         footer = self.query_one("#footer")
         inp = self.query_one("#footer-input", Input)
@@ -416,7 +417,7 @@ class ClavusApp(App):
             self._run_restore_store(arg)
         elif cmd == "snapshot":
             if arg:
-                self._run_snapshot(arg)
+                asyncio.create_task(self._run_snapshot(arg))
             else:
                 self._show_input("command", "snapshot <message>: ", prefill="")
         elif cmd == "stem":
@@ -1252,10 +1253,12 @@ class ClavusApp(App):
 
         self.push_screen(DiffScreen())
 
-    def action_snapshot(self):
+    async def action_snapshot(self):
         """Quick-snapshot — instant capture with auto-timestamp. No prompt."""
+        if self._input_mode:
+            return  # don't snapshot while typing an input
         ts = time.strftime("%H:%M")
-        self._run_snapshot(f"snap {ts}")
+        await self._run_snapshot(f"snap {ts}")
 
     def action_help(self):
         """Show full key bindings and commands overlay."""
@@ -1308,7 +1311,7 @@ class ClavusApp(App):
                          f"archive @{cue.position} '{cue.text[:30]}'? (y/N) ▼",
                          prefill="")
 
-    async def _do_archive_cue(self):
+    def _do_archive_cue(self):
         """Actually archive the cue (after confirmation)."""
         cue = self._get_cue()
         if not cue:
@@ -1341,7 +1344,7 @@ class ClavusApp(App):
                          f"delete @{cue.position} '{cue.text[:30]}' — PERMANENT? (y/N) ▼",
                          prefill="")
 
-    async def _do_delete_cue(self):
+    def _do_delete_cue(self):
         """Actually delete the cue (after confirmation)."""
         cue = self._get_cue()
         if not cue:
@@ -2046,7 +2049,7 @@ class ClavusApp(App):
         try:
             hlv = self.query_one("#hlv", ListView)
             if hlv.has_focus:
-                hint = "S snap  T restore  d diff  ? help"
+                hint = "S snap  T restore  e edit  o open  d diff  ? help"
             else:
                 clv = self.query_one("#clv", ListView)
                 if clv.has_focus:
