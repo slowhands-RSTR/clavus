@@ -29,20 +29,20 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | T1 | `c` new cue → appears in list → Ableton marker injection | ✅ 5/10 | ✅ 5/11 | |
 | T2 | `C` snapshot → history updates | ✅ 5/10 | 🔲 | `C` binding removed — use `S` |
 | T3 | `S` snapshot + auto-push | ✅ 5/10 | ✅ 5/11 | |
-| T4 | `e` edit cue text → persists | ✅ 5/10 | 🔲 | |
-| T5 | `e` edit snapshot message → persists after reload | ✅ 5/10 | 🔲 | |
+| T4 | `e` edit cue text → persists | ✅ 5/10 | ✅ 5/11 | |
+| T5 | `e` edit snapshot message → persists after reload | ✅ 5/10 | ✅ 5/11 | |
 | T6 | `!` resolve cue conflict (ConflictScreen modal) | 🔲 | 🔲 | |
 | T7 | `!` resolve snapshot message conflict (SnapConflictScreen) | 🔲 | 🔲 | |
-| T8 | `o` open HEAD in Ableton | ✅ 5/10 | 🔲 | Fixed missing Path import |
-| T9 | `o` from history pane → open selected snapshot | ✅ 5/10 | 🔲 | |
+| T8 | `o` open HEAD in Ableton | ✅ 5/10 | ✅ 5/11 | |
+| T9 | `o` from history pane → open selected snapshot | ✅ 5/10 | ✅ 5/11 | |
 | T10 | `T` restore to snapshot | ✅ 5/10 | 🔲 | Destructive edits reverted! |
-| T11 | `d` diff selected snapshot | ✅ 5/10 | 🔲 | Fixed 10-char hash → full_hash |
+| T11 | `d` diff selected snapshot | ✅ 5/10 | ✅ 5/11 | |
 | T12 | `p` pull → auto-snapshot → history updates | ✅ 5/10 | ✅ 5/11 | |
 | T13 | `P` push → relay receives | ✅ 5/10 | ✅ 5/11 | |
-| T14 | `Tab` switch cues ↔ history pane | ✅ 5/10 | 🔲 | |
+| T14 | `Tab` switch cues ↔ history pane | ✅ 5/10 | ✅ 5/11 | |
 | T15 | `j`/`k` navigation, scrolling | ✅ 5/10 | ✅ 5/11 | |
-| T16 | `?` help screen (all bindings visible) | ✅ 5/10 | 🔲 | Scrollable, all bindings |
-| T17 | `:` command mode → `:snapshot msg`, `:pull`, `:push` | ✅ 5/10 | 🔲 | |
+| T16 | `?` help screen (all bindings visible) | ✅ 5/10 | ✅ 5/11 | |
+| T17 | `:` command mode → `:snapshot msg`, `:pull`, `:push` | ✅ 5/10 | ✅ 5/11 | |
 | T18 | `:project <name>` switch projects → cues/history reload | ✅ 5/10 | ✅ 5/11 | |
 | T19 | `:init <path>` from TUI → project loads | ✅ 5/10 | 🔲 | |
 | ~~T20~~ | ~~`:browse`~~ | ~~removed~~ | ~~removed~~ | Scrapped — Finder paste + `:init` is faster |
