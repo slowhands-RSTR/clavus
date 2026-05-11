@@ -294,7 +294,8 @@ def _parse_track_common(track_elem: ET.Element, track: Track) -> None:
     """Parse properties common to all track types."""
     track.name = _parse_track_name(track_elem)
     track.color = _parse_color(_get_value_attr(track_elem, "Color", "16777215"))
-    track.is_frozen = _get_value_attr(track_elem, "IsFrozen", "false").lower() == "true"
+    track.is_frozen = (_get_value_attr(track_elem, "Freeze", "false").lower() == "true"
+                        or _get_value_attr(track_elem, "IsFrozen", "false").lower() == "true")
     track.is_muted = _get_value_attr(track_elem, "Mute", "false").lower() == "true"
     track.is_solo = _get_value_attr(track_elem, "Solo", "false").lower() == "true"
 
