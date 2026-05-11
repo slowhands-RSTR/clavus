@@ -393,7 +393,8 @@ class ClavusApp(App):
             self._save_config()
             self._status(f"name set to: {self.author}")
         elif cmd == "init" and arg:
-            self._run_init_project(arg)
+            import asyncio
+            asyncio.create_task(self._run_init_project(arg))
         elif cmd == "browse":
             self._show_input("browse", "browse: ", prefill=arg or "~")
         elif cmd == "inject":
