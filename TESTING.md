@@ -60,15 +60,15 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | L3 | `clavus tui` opens dashboard | ✅ 5/10 | 🔲 | ⧩ logo restored |
 | L4 | `clavus share` starts relay | 🔲 | 🔲 | |
 | L5 | `clavus join <url>` adds remote + pulls | 🔲 | 🔲 | |
-| L6 | `clavus find --tailscale` discovers peers | 🔲 | 🔲 | |
-| L7 | `clavus remote add/list/remove` | 🔲 | 🔲 | |
-| L8 | `clavus push` / `clavus pull` | 🔲 | 🔲 | |
+| L6 | `clavus find` discovers peers | ✅ 5/11 | 🔲 | No servers (expected), clean message |
+| L7 | `clavus remote add/list/remove` | ✅ 5/11 | 🔲 | List/add works |
+| L8 | `clavus push` / `clavus pull` | ✅ 5/11 | 🔲 | Cannot reach (expected), clean error |
 | L9 | `clavus snapshot "msg"` | 🔲 | 🔲 | |
 | L10 | `clavus backup` → `clavus backups` → `clavus restore-store` | 🔲 | 🔲 | |
-| L11 | `clavus repair` fixes corrupted index | 🔲 | 🔲 | |
-| L12 | `clavus doctor` health check | ✅ 5/10 | 🔲 | 2 projects, 54 blobs, healthy |
+| L11 | `clavus repair` fixes corrupted index | ✅ 5/11 | 🔲 | Healthy — 2 projects |
+| L12 | `clavus doctor` health check | ✅ 5/11 | 🔲 | 2 projects, 73 blobs, healthy |
 | L13 | `clavus stem import/push/pull/list` | 🔲 | 🔲 | |
-| L14 | `clavus open` launches Ableton with HEAD | 🔲 | 🔲 | |
+| L14 | `clavus open` launches Ableton with HEAD | ✅ 5/11 | 🔲 | 13 tracks, 23 samples, launched |
 | L15 | `clavus restore <hash>` restores snapshot | 🔲 | 🔲 | |
 
 ## Edge Cases & Error Handling
