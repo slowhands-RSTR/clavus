@@ -510,15 +510,6 @@ class ClavusApp(App):
         elif cmd == "freeze":
             self._toggle_freeze()
         elif cmd == "pull-all" or (cmd == "pull" and arg == "all"):
-            # Immediate file write to prove command was received
-            import os, time
-            log_path = os.path.join(os.path.expanduser("~/.clavus"), "tui.log")
-            try:
-                os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                with open(log_path, "a") as lf:
-                    lf.write(f"[{time.strftime('%H:%M:%S')}] _do_command: pull-all received\n")
-            except Exception:
-                pass
             self._run_pull_all()
         elif cmd == "branch":
             self._run_branch(arg)
@@ -1691,34 +1682,22 @@ class ClavusApp(App):
         asyncio.create_task(self._run_pull_all_async())
 
     async def _run_pull_all_async(self):
-        import asyncio, time, logging, os
+        import asyncio, time
         from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
         from clavus.store import ClavusProject
         
-        # File logging for debugging
-        log_dir = os.path.expanduser("~/.clavus")
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, "tui.log")
-        
-        def log(msg):
-            ts = time.strftime("%H:%M:%S")
-            line = f"[{ts}] {msg}\n"
-            with open(log_path, "a") as f:
-                f.write(line)
-        
         self._busy = True
-        log("pull-all: STARTING")
         self._log_event("pull-all: running...")
         msgs: list[str] = []
         try:
             remotes = load_remotes(self.store)
             if not self._peer_name:
-                log("ERROR: no remote configured")
+        
                 self._show_sticky("❌ no remote — use :remotes to pick one")
                 return
             remote = next((r for r in remotes if r.name == self._peer_name), None)
             if not remote:
-                log(f"ERROR: remote {self._peer_name} not found in remotes list")
+        
                 self._show_sticky(f"❌ remote '{self._peer_name}' not found")
                 return
             
@@ -1727,7 +1706,7 @@ class ClavusApp(App):
             r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
             if r is None or r.status_code != 200:
                 client.close()
-                log(f"ERROR: cannot reach {remote.name}: {err or (r.status_code if r else 'no response')}")
+        
                 self._show_sticky(f"❌ cannot reach {remote.name}: {err or (r.status_code if r else 'no response')}")
                 return
             
@@ -1735,7 +1714,7 @@ class ClavusApp(App):
             client.close()
             self._log_event(f"pull-all: found {len(projects)} on relay")
             if not projects:
-                log("WARNING: no projects on relay")
+        
                 self._show_sticky("⚠️ no projects on relay")
                 return
             
@@ -1793,7 +1772,7 @@ class ClavusApp(App):
             self._toast_timer = self.set_timer(30.0, lambda: self._restore_footer())
             self._log_event(f"pull-all: {summary}")
         except Exception as e:
-            log(f"EXCEPTION: {e}")
+    
             self._show_sticky(f"❌ pull-all error: {e}")
             self._log_event(f"pull-all error: {e}")
         finally:
