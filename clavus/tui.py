@@ -507,7 +507,7 @@ class ClavusApp(App):
         # Show as a temporary log entry so it's visible above the footer
         try:
             lv = self.query_one("#clv", ListView)
-            lv.mount(Label(msg, classes="project-list"), before=0)
+            lv.mount(ListItem(Label(msg, classes="project-list")), before=0)
             self._status("")
             self.set_timer(3.0, lambda: self._clear_project_list())
         except NoMatches:
@@ -518,8 +518,12 @@ class ClavusApp(App):
         try:
             lv = self.query_one("#clv", ListView)
             for c in list(lv.children):
-                if hasattr(c, "classes") and "project-list" in c.classes:
+                # Check if this ListItem contains a project-list label
+                try:
+                    inner = c.query_one(".project-list")
                     c.remove()
+                except NoMatches:
+                    pass
         except NoMatches:
             pass
 
