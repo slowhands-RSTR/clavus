@@ -54,6 +54,7 @@ class Snapshot:
     content_hash: Optional[str] = None  # SHA256 of serialized project JSON (for diff)
     sample_hashes: list[str] = field(default_factory=list)  # SHA256 of referenced audio samples
     sample_paths: dict[str, str] = field(default_factory=dict)  # hash → relative path from project root
+    conflict_message: Optional[str] = None  # Remote message that conflicts with local
 
     def short_hash(self, length: int = 8) -> str:
         return self.hash[:length]

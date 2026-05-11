@@ -68,6 +68,7 @@ class Snap:
     message: str = ""
     timestamp: float = 0.0
     track_count: int = 0
+    conflict_message: str | None = None  # Remote message in conflict with local
 
     @classmethod
     def from_dict(cls, d: dict) -> "Snap":
@@ -77,6 +78,7 @@ class Snap:
             message=d.get("message", ""),
             timestamp=d.get("timestamp", 0.0),
             track_count=d.get("track_count", 0),
+            conflict_message=d.get("conflict_message", None),
         )
 
 # ─── Help Screen ───────────────────────────────────────────────────────
@@ -1074,7 +1076,20 @@ class ClavusApp(App):
         self._save()
 
     def action_resolve_conflict(self):
-        """Resolve a sync conflict on the selected cue — keep local or remote version."""
+        """Resolve a sync conflict — cues if cue pane focused, snapshots if history pane."""
+        target = self._focused_list_view()
+
+        # Snapshot message conflict (history pane)
+        if target and target.id == "hlv" and self.snaps:
+            idx = self._get_history_idx()
+            snap = self.snaps[idx]
+            if not snap.conflict_message:
+                self._status("no conflict to resolve")
+                return
+            self._resolve_snapshot_conflict(snap)
+            return
+
+        # Cue conflict (cue pane)
         cue = self._get_cue()
         if not cue or not cue.conflict:
             self._status("no conflict to resolve")
@@ -1143,6 +1158,73 @@ class ClavusApp(App):
                 self_.dismiss()
 
         self.push_screen(ConflictScreen(self, cue))
+
+    def _resolve_snapshot_conflict(self, snap: Snap):
+        """Open a conflict resolution modal for snapshot message conflicts."""
+        from textual.screen import Screen
+        from textual.widgets import Static, Button, Footer
+        from textual.binding import Binding as ScrBinding
+        from textual.containers import Horizontal, Vertical
+
+        class SnapConflictScreen(Screen):
+            BINDINGS = [
+                ScrBinding("escape", "dismiss", "Close"),
+                ScrBinding("q", "dismiss", "Close"),
+            ]
+
+            def __init__(self_, parent, snap_):
+                super().__init__()
+                self_._parent = parent
+                self_._snap = snap_
+
+            def compose(self_):
+                yield Static(
+                    f"[bold {C['yellow']}]⚠ Snapshot Message Conflict[/]\n"
+                    f"  Snapshot: {self_._snap.hash[:12]}\n\n"
+                    f"[{C['green']}]Yours (local):[/]\n"
+                    f"  [{C['fg']}]{self_._snap.message[:80]}[/]\n\n"
+                    f"[{C['accent']}]Theirs (remote):[/]\n"
+                    f"  [{C['fg']}]{self_._snap.conflict_message[:80]}[/]\n",
+                    id="conflict-info"
+                )
+                with Horizontal(classes="conflict-actions"):
+                    yield Button("Keep Mine", id="keep-mine", variant="primary")
+                    yield Button("Keep Theirs", id="keep-theirs", variant="warning")
+                yield Footer()
+
+            def on_button_pressed(self_, event: Button.Pressed):
+                if event.button.id == "keep-mine":
+                    self_._parent._clear_snap_conflict(self_._snap, keep_mine=True)
+                    self_._parent._status("kept local message")
+                elif event.button.id == "keep-theirs":
+                    self_._parent._clear_snap_conflict(self_._snap, keep_mine=False)
+                    self_._parent._status("kept remote message")
+                self_.dismiss()
+
+            def action_dismiss(self_):
+                self_.dismiss()
+
+        self.push_screen(SnapConflictScreen(self, snap))
+
+    def _clear_snap_conflict(self, snap: Snap, keep_mine: bool):
+        """Persist conflict resolution for a snapshot message."""
+        try:
+            full = snap.full_hash or snap.hash
+            meta_dir = self.store.objects_dir / full[:2]
+            meta_path = meta_dir / f"{full}.meta"
+            if meta_path.exists():
+                meta = json.loads(meta_path.read_text())
+            else:
+                meta = {}
+            if not keep_mine:
+                meta["message"] = snap.conflict_message
+            meta["conflict_message"] = None
+            meta_path.write_text(json.dumps(meta, indent=2, default=str))
+            self._load_snapshots_from_disk()
+            self._render()
+        except Exception as e:
+            self._status(f"resolve failed: {e}")
+            self._log_event(f"snap conflict resolve failed: {e}")
 
     def action_inject_cues(self):
         """Inject unresolved cues as Ableton markers."""
@@ -1705,6 +1787,7 @@ class ClavusApp(App):
                 message=s.message,
                 timestamp=s.timestamp,
                 track_count=s.track_count,
+                conflict_message=getattr(s, 'conflict_message', None),
             )
             for s in history
         ]
@@ -2340,7 +2423,7 @@ class ClavusApp(App):
     def _render_history(self):
         lv = self.query_one("#hlv", ListView)
         # Fingerprint: skip rebuild if snapshots haven't changed
-        fp = tuple((s.hash, s.message) for s in self.snaps[:10])
+        fp = tuple((s.hash, s.message, s.conflict_message) for s in self.snaps[:10])
         if fp == getattr(self, '_snap_fingerprint', None):
             return
         self._snap_fingerprint = fp
@@ -2352,8 +2435,9 @@ class ClavusApp(App):
         for s in self.snaps[:10]:
             ago = self._time_ago(s.timestamp)
             safe_msg = s.message[:50].replace("[", "\\[").replace("]", "\\]")
+            conflict_mark = f" [{C['yellow']}]⚠[/]" if s.conflict_message else ""
             lv.append(ListItem(Label(
-                f"[{C['fg']}]{safe_msg}[/]  [{C['dim']}]{s.hash[:8]}  {ago}[/]"
+                f"[{C['fg']}]{safe_msg}[/]{conflict_mark}  [{C['dim']}]{s.hash[:8]}  {ago}[/]"
             )))
         lv.refresh()
 

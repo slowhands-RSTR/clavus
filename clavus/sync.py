@@ -827,9 +827,19 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
 
         # Import snapshots
         snapshots_data = data.get("snapshots", [])
+        snap_conflicts = 0
         if snapshots_data:
             print(f"  📸 Importing {len(snapshots_data)} snapshot(s)...")
         for s in snapshots_data:
+            remote_msg = s.get("message", "")
+            # Check for message conflict before overwriting
+            meta_dir = store.objects_dir / s.get("full_hash", s["hash"])[:2]
+            meta_dir.mkdir(parents=True, exist_ok=True)
+            meta_path = meta_dir / f"{s.get('full_hash', s['hash'])}.meta"
+            local_msg = ""
+            if meta_path.exists():
+                local_meta = json.loads(meta_path.read_text())
+                local_msg = local_meta.get("message", "")
             snap = Snapshot(
                 hash=s.get("full_hash", s["hash"]),
                 timestamp=s.get("timestamp", 0.0),
@@ -844,10 +854,11 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
                 sample_hashes=s.get("sample_hashes", []),
                 sample_paths=s.get("sample_paths", {}),
             )
-            # Store snapshot metadata (always update — fields may change)
-            meta_dir = store.objects_dir / snap.hash[:2]
-            meta_dir.mkdir(parents=True, exist_ok=True)
-            meta_path = meta_dir / f"{snap.hash}.meta"
+            # Message conflict detection — same pattern as cue conflicts
+            if local_msg and remote_msg and local_msg != remote_msg:
+                snap.message = local_msg            # keep local
+                snap.conflict_message = remote_msg  # store remote as conflict
+                snap_conflicts += 1
             from dataclasses import asdict
             meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
 
@@ -859,8 +870,12 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
                 spath.write_text(f"{fname}\n{rel}")
 
         result["snapshots"] = len(snapshots_data)
+        result["snap_conflicts"] = snap_conflicts
         if result["snapshots"]:
-            print(f"  ✅ Imported {result['snapshots']} snapshot(s)")
+            msg = f"  ✅ Imported {result['snapshots']} snapshot(s)"
+            if snap_conflicts:
+                msg += f" — ⚠ {snap_conflicts} message conflict(s)"
+            print(msg)
 
         # Update HEAD to the newest pulled snapshot
         relay_head = None
