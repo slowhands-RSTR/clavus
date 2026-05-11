@@ -2488,9 +2488,26 @@ class ClavusApp(App):
         self._footer_toast(f"[{C['dim']}]{safe}[/]", 3.0)
 
     def _show_sticky(self, msg: str):
-        """Sticky footer message — 30s, readable."""
+        """Sticky footer message — persists until next user action triggers a toast.
+        
+        Does NOT use set_timer (broken in @work workers). The message stays until
+        the next _status/_footer_toast call naturally replaces it with a real timer.
+        """
         safe = msg.replace("[", "\\\\[").replace("]", "\\\\]")
-        self._footer_toast(f"[{C['dim']}]{safe}[/]", 30.0)
+        w = self._footer_stats
+        if w is not None:
+            w.update(f"[{C['dim']}]{safe}[/]")
+            w.refresh()
+        # Cancel any pending timer
+        if hasattr(self, '_toast_timer') and self._toast_timer is not None:
+            try:
+                self._toast_timer.stop()
+            except AttributeError:
+                pass
+        # Sentinels block _update_footer() without a timer that can fire — 
+        # next _footer_toast() call replaces it with a real timer. Won't permanently stick.
+        self._toast_timer = object()
+        self._toast_set_at = time.time()
 
     def _log_event(self, event: str):
         """Timestamped footer toast — auto-clears after 8s."""
@@ -2569,12 +2586,16 @@ class ClavusApp(App):
         """Footer: project state — cues, snapshots. Sync activity lives in header."""
         # Don't clobber active toasts — _restore_footer will handle it when ready
         if hasattr(self, '_toast_timer') and self._toast_timer is not None:
-            # Safety net: if toast stuck > 60s (set_timer failed silently), force-clear
-            toast_age = time.time() - getattr(self, '_toast_set_at', 0)
-            if toast_age > 60:
-                self._toast_timer = None
+            # Only auto-clear real timers stuck > 60s (set_timer bug in workers)
+            # Sentinels (object()) intentionally block — cleared by next _footer_toast call
+            if not isinstance(self._toast_timer, object().__class__):
+                toast_age = time.time() - getattr(self, '_toast_set_at', 0)
+                if toast_age > 60:
+                    self._toast_timer = None
+                else:
+                    return
             else:
-                return
+                return  # sentinel: intentional block, don't clear
         try:
             status = self.query_one("#footer-status", Static)
             if not self.project:
