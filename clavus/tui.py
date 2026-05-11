@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from textual import work
@@ -194,7 +195,6 @@ class ClavusApp(App):
         Binding("a", "assign", "Assign"),
         Binding("x", "archive", "Archive"),
         Binding("!", "resolve_conflict", "Conflict"),
-        Binding("C", "snapshot", "Snapshot", show=False),
         Binding("d", "diff", "Diff"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
@@ -254,7 +254,7 @@ class ClavusApp(App):
 
     def compose(self):
         with Container(id="main"):
-            yield Static("clavus", id="header-title")
+            yield Static("⧩ clavus", id="header-title")
             yield Container(
                 Container(ListView(id="clv"), id="cues-list"),
                 Container(
@@ -594,6 +594,10 @@ class ClavusApp(App):
             if proc.returncode != 0 and err:
                 self._log_event(f"error: {err}")
             self._status("inject complete" if proc.returncode == 0 else "inject failed")
+            # Auto-snapshot so injected markers survive future :open
+            if proc.returncode == 0 and out and "no changes" not in out:
+                self._log_event("auto-snapshot to save injected markers...")
+                asyncio.create_task(self._run_snapshot_for_inject())
         except Exception as e:
             self._status(f"inject error: {e}")
 
@@ -874,6 +878,27 @@ class ClavusApp(App):
         except Exception as e:
             self._status(f"branch failed: {e}")
 
+    async def _run_snapshot_for_inject(self):
+        """Take a snapshot after inject to save markers to blob store."""
+        import asyncio, sys
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "clavus", "snapshot",
+                "injected markers",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = stdout.decode().strip()
+            if proc.returncode == 0:
+                self._log_event("● markers saved to snapshot")
+                self._load_snapshots_from_disk()
+                self._render()
+            else:
+                self._log_event(f"snapshot after inject failed: {out[:80]}")
+        except Exception as e:
+            self._log_event(f"snapshot after inject error: {e}")
+
     def _run_backup(self):
         """Backup the entire Clavus store."""
         import subprocess, sys
@@ -933,10 +958,10 @@ class ClavusApp(App):
             for line in logs:
                 self._log_event(line)
             if snap_hash:
-                self._sync_status = "📸 snap ✓"
-                status_text = "📸 snap ✓"
+                self._sync_status = "● snap ✓"
+                status_text = "● snap ✓"
                 asyncio.create_task(self._delayed_clear_snapshot_status(status_text))
-                self._log_event(f"📸 {snap_hash[:10]} — '{message}'")
+                self._log_event(f"● {snap_hash[:10]} — '{message}'")
             else:
                 # Surface the actual reason — show in header AND footer with longer timeout
                 reason = "no changes or error"
@@ -950,19 +975,19 @@ class ClavusApp(App):
                     elif ".als file not found" in line:
                         reason = ".als missing — open & save in Ableton first"
                         break
-                self._sync_status = f"📸 skipped: {reason}"
-                self._log_event(f"📸 skipped: {reason}")
+                self._sync_status = f"● skipped: {reason}"
+                self._log_event(f"● skipped: {reason}")
                 asyncio.create_task(self._delayed_clear_snapshot_status(self._sync_status))
         except Exception as e:
-            self._sync_status = "📸 error"
+            self._sync_status = "● error"
             self._log_event(f"snapshot error: {e}")
-            asyncio.create_task(self._delayed_clear_snapshot_status("📸 error"))
+            asyncio.create_task(self._delayed_clear_snapshot_status("● error"))
         # Auto-push snapshot to relay if connected (debounced to avoid flooding)
         if snap_hash and self._peer_reachable:
             now = time.time()
             if now - getattr(self, '_last_auto_push', 0) > 5:
                 self._last_auto_push = now
-                self._status(f"📸 {snap_hash[:10]} — 'auto-pushing to relay...'")
+                self._status(f"● {snap_hash[:10]} — 'auto-pushing to relay...'")
                 self._log_event(f"auto-push: {snap_hash[:8]}")
                 asyncio.create_task(self._do_push())
         # Reload snapshots from disk and refresh UI
@@ -1292,7 +1317,7 @@ class ClavusApp(App):
             return
 
         parent_project = self.store.load_project(current_snap.parent)
-        current_project = self.store.load_project(snap.hash)
+        current_project = self.store.load_project(snap.full_hash or snap.hash)
         if not parent_project or not current_project:
             self._status("could not load project data")
             return
@@ -1411,7 +1436,7 @@ class ClavusApp(App):
             return
         self._show_input("confirm_archive",
                          f"archive @{cue.position} '{cue.text[:30]}'? (y/N) ▼",
-                         prefill="")
+                         prefill="n")
 
     def _do_archive_cue(self):
         """Actually archive the cue (after confirmation)."""
@@ -1444,7 +1469,7 @@ class ClavusApp(App):
             return
         self._show_input("confirm_delete",
                          f"delete @{cue.position} '{cue.text[:30]}' — PERMANENT? (y/N) ▼",
-                         prefill="")
+                         prefill="n")
 
     def _do_delete_cue(self):
         """Actually delete the cue (after confirmation)."""
@@ -1811,7 +1836,7 @@ class ClavusApp(App):
             from clavus.cli import create_snapshot
             snap_hash, logs = create_snapshot("initial", allow_frozen=True)
             if snap_hash:
-                self._log_event(f"📸 initial snapshot {snap_hash[:10]} — baseline saved")
+                self._log_event(f"● initial snapshot {snap_hash[:10]} — baseline saved")
                 self._load_snapshots_from_disk()
             else:
                 # Not an error — project might have no changes yet
@@ -1969,7 +1994,7 @@ class ClavusApp(App):
                                 self.store.update_ref("HEAD", snap.hash)
                                 proj_index.head = snap.hash
                                 self.store.set_index(proj_index)
-                                self._log_event(f"\U0001f4f8 auto-snapshot {snap.hash[:8]} (local changes saved)")
+                                self._log_event(f"● auto-snapshot {snap.hash[:8]} (local changes saved)")
             except Exception:
                 pass  # best-effort — don't block pull on snapshot failure
 
@@ -2232,7 +2257,7 @@ class ClavusApp(App):
             elif self._last_sync:
                 sync = f"  [{C['green']}]{self._last_sync}[/]"
             widget = self.query_one("#header-title", Static)
-            widget.update(f"[bold {C['accent']}]clavus[/]{proj}{peer}{sync}")
+            widget.update(f"[bold {C['accent']}]⧩ clavus[/]{proj}{peer}{sync}")
             widget.refresh()
             # Manage spinner based on sync activity (header-only, no footer cascade)
             if self._sync_status:
@@ -2281,7 +2306,7 @@ class ClavusApp(App):
             if self.snaps:
                 snap = self.snaps[0]
                 msg = snap.message[:30] if snap.message else ""
-                parts.append(f"📸 '{msg}'" if msg else "📸")
+                parts.append(f"● '{msg}'" if msg else "●")
 
             status.update("  ".join(parts))
         except NoMatches:
@@ -2335,7 +2360,7 @@ class ClavusApp(App):
             self._update_footer()
             return
         try:
-            self._update_footer()
+            self._update_header()
         except Exception:
             pass
 
@@ -2375,7 +2400,7 @@ class ClavusApp(App):
         lv = self.query_one("#clv", ListView)
         # Fingerprint: skip entire rebuild if content hasn't changed
         # (remove_children causes reflow jitter on Windows even when identical)
-        fp = (len(self.cues), tuple((c.id, c.status, c.text[:60], len(c.replies)) for c in self.cues))
+        fp = (len(self.cues), tuple((c.id, c.status, c.text[:60], len(c.replies), c.assignee, c.in_progress) for c in self.cues))
         if fp == getattr(self, '_cue_fingerprint', None):
             return
         self._cue_fingerprint = fp
@@ -2388,7 +2413,7 @@ class ClavusApp(App):
         for i, c in enumerate(self.cues):
             color = C["yellow"] if c.status == "pending" else (
                 C["green"] if c.status == "resolved" else C["muted"])
-            dot = "✓" if c.status == "resolved" else ""  # no marker for pending
+            dot = "✓" if c.status == "resolved" else "●"
             rc = f" [{C['dim']}]{len(c.replies)}r[/]" if c.replies else ""
             assignee_part = f"  👤 {c.assignee}" if c.assignee else ""
             in_prog = f" [{C['yellow']}]▶[/]" if c.in_progress else ""

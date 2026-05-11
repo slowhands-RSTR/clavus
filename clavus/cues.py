@@ -536,7 +536,7 @@ def render_cues_as_markers(cues: list[Cue], output_path: str,
         # Insert new markers
         inserted = 0
         for cue in unresolved:
-            marker_name = cue.text[:60].strip()
+            marker_name = f"● {cue.text[:60].strip()}"
             if marker_name in existing_names:
                 continue  # skip duplicates
             

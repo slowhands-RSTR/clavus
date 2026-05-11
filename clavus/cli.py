@@ -852,9 +852,12 @@ def create_snapshot(message: str, allow_frozen: bool = True) -> tuple[Optional[s
         frozen_count = raw.count(b'<Freeze Value=\"true\"')
     except Exception:
         pass
-    if frozen_count and not allow_frozen:
-        logs.append(f"  ⚠️  {frozen_count} frozen track(s) — pass allow_frozen=True to skip")
-        return None, logs
+    if frozen_count:
+        if not allow_frozen:
+            logs.append(f"  ⚠️  {frozen_count} frozen track(s) — pass allow_frozen=True to skip")
+            return None, logs
+        else:
+            logs.append(f"  ⚠️  {frozen_count} frozen track(s) — snapshots may not restore on other platforms")
 
     snap = store.save_snapshot(
         project, message=message, parent=proj.head, tags=[],
