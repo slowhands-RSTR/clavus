@@ -198,7 +198,6 @@ class ClavusApp(App):
         Binding("d", "diff", "Diff"),
         Binding("p", "pull", "Pull"),
         Binding("P", "push", "Push"),
-        Binding("F", "force_push", "Force Push", show=False),
         Binding("o", "open_selected_or_head", "Open"),
         Binding("e", "edit_item", "Edit"),
         Binding("tab", "focus_next_pane", "Pane"),
