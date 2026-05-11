@@ -1744,7 +1744,8 @@ def cmd_tui(args: argparse.Namespace) -> None:
         sys.exit(1)
     cfg = ClavusConfig.load()
     url = args.connect or cfg.default_server
-    run_tui(url=url)
+    debug = getattr(args, 'debug', False)
+    run_tui(url=url, debug=debug)
 
 
 def cmd_cue(args: argparse.Namespace) -> None:
@@ -3344,6 +3345,8 @@ def main():
     p_tui = subparsers.add_parser("tui", help="Launch the TUI dashboard")
     p_tui.add_argument("--connect", "-c", default="",
                        help="Clavus server URL (default: from config or http://localhost:7890)")
+    p_tui.add_argument("--debug", "-d", action="store_true",
+                       help="Enable diagnostic logging to ~/.clavus/debug.log")
 
     # Find (LAN discovery)
     p_find = subparsers.add_parser("find", help="Find Clavus servers on your LAN or Tailscale tailnet")

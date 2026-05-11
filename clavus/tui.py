@@ -211,12 +211,13 @@ class ClavusApp(App):
         Binding("escape", "cancel_input", "Cancel input", show=False),
     ]
 
-    def __init__(self, url: str = ""):
+    def __init__(self, url: str = "", debug: bool = False):
         super().__init__()
         from clavus.store import BlobStore
         from clavus.config import ClavusConfig
         self.store = BlobStore()
         self.server_url = url or "local"
+        self._debug = debug
         self.project: str = ""
         self.connected: bool = True  # Always connected — working from disk
         self.ws_connected: bool = False
@@ -458,6 +459,8 @@ class ClavusApp(App):
         # Imports needed by any branch — prevents UnboundLocalError
         import subprocess, sys, asyncio, time
         
+        self._debug_log(f"command: {text}")
+        
         parts = text.strip().split(maxsplit=1)
         if not parts:
             return
@@ -546,6 +549,7 @@ class ClavusApp(App):
         elif cmd in ("help", "h", "?"):
             self.push_screen(HelpScreen())
         else:
+            self._debug_log(f"dispatch: unknown cmd='{cmd}' arg='{arg}'")
             self._status(f"unknown: {cmd}")
 
     @work(exclusive=False)
@@ -2532,6 +2536,17 @@ class ClavusApp(App):
             f.write(f"[{ts}] {msg}\n")
         self._status(f"❌ error — see errors.log")
 
+    def _debug_log(self, msg: str):
+        """Write diagnostic message to debug log when --debug is active."""
+        if not self._debug:
+            return
+        from pathlib import Path
+        log_path = Path.home() / ".clavus" / "debug.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a") as f:
+            f.write(f"[{ts}] {msg}\n")
+
     def _clear_log_events(self):
         self._update_footer()
 
@@ -3027,13 +3042,14 @@ class JoinModal(ModalScreen[None]):
 
 # ─── Entry Point ────────────────────────────────────────────────────────────
 
-def run_tui(url: str = "") -> None:
-    ClavusApp(url=url).run()
+def run_tui(url: str = "", debug: bool = False) -> None:
+    ClavusApp(url=url, debug=debug).run()
 
 
 if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--connect", "-c", default="")
+    p.add_argument("--debug", "-d", action="store_true")
     a = p.parse_args()
-    run_tui(a.connect)
+    run_tui(a.connect, debug=a.debug)
