@@ -455,6 +455,9 @@ class ClavusApp(App):
         self._show_input("command", ":", prefill="")
 
     def _do_command(self, text: str):
+        # Imports needed by any branch — prevents UnboundLocalError
+        import subprocess, sys, asyncio, time
+        
         parts = text.strip().split(maxsplit=1)
         if not parts:
             return
@@ -473,7 +476,6 @@ class ClavusApp(App):
             self._save_config()
             self._status(f"name set to: {self.author}")
         elif cmd == "init" and arg:
-            import asyncio
             asyncio.create_task(self._run_init_project(arg))
         elif cmd == "inject":
             self._run_inject()
@@ -498,7 +500,6 @@ class ClavusApp(App):
         elif cmd in ("pull", "push") and arg != "all":
             # :pull or :pull <project> — mirrors CLI behavior
             if arg:
-                import subprocess, sys
                 subprocess.run([sys.executable, "-m", "clavus", cmd, arg])
                 down = "\u2b07"; up = "\u2b06"
                 self._last_sync = f"{down if cmd == 'pull' else up} {time.strftime('%H:%M')}"
@@ -1682,7 +1683,6 @@ class ClavusApp(App):
         asyncio.create_task(self._run_pull_all_async())
 
     async def _run_pull_all_async(self):
-        import asyncio, time
         from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
         from clavus.store import ClavusProject
         
