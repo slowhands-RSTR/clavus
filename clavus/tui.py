@@ -509,7 +509,7 @@ class ClavusApp(App):
             self.action_force_push()
         elif cmd == "freeze":
             self._toggle_freeze()
-        elif cmd == "pull-all":
+        elif cmd == "pull-all" or (cmd == "pull" and arg == "all"):
             # Immediate file write to prove command was received
             import os, time
             log_path = os.path.join(os.path.expanduser("~/.clavus"), "tui.log")
