@@ -47,7 +47,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | T19 | `:init <path>` from TUI → project loads | ✅ 5/10 | ✅ 5/11 | |
 | ~~T20~~ | ~~`:browse`~~ | ~~removed~~ | ~~removed~~ | Scrapped — Finder paste + `:init` is faster |
 | T21 | Header dot: green ● (connected), yellow ○ (remote, no data), dim ○ (no remote) | ✅ 5/10 | ✅ 5/11 | |
-| T22 | Freeze detection warning on `S` | ✅ 5/10 | 🔲 | Soft warning added: ⚠️ N frozen tracks |
+| T22 | Freeze detection warning on `S` | ✅ 5/10 | ✅ 5/11 | :freeze toggle — warn (default) or block |
 | T23 | Long cue text / snapshot message → no truncation crash | ✅ 5/10 | ✅ 5/11 | |
 | T24 | TUI survives corrupt meta file (orphaned 10-char hash) | 🔲 | 🔲 | |
 | T25 | `:projects` picker — j/k navigate, enter select, esc cancel | ✅ 5/11 | ✅ 5/11 | |
