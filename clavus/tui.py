@@ -2493,11 +2493,14 @@ class ClavusApp(App):
     def _show_sticky(self, msg: str):
         """Persistent error message — written directly to footer widget, no timers.
         
-        Bypasses the entire toast/timer system. Direct DOM write + refresh.
-        _update_footer also reads _sticky_error as backup on subsequent renders.
+        Bypasses the entire toast/timer system. Forces a refresh first to ensure
+        CSS changes (input-mode removal) have been applied and the widget is visible.
         """
         safe = msg.replace("[", "\\\\[").replace("]", "\\\\]")
         self._sticky_error = msg
+        # Force CSS application — on Windows, remove_class("input-mode") may not
+        # have taken effect yet, leaving #footer-status as display:none
+        self.refresh()
         try:
             status = self.query_one("#footer-status", Static)
             status.update(f"[{C['dim']}]{safe}[/]")
