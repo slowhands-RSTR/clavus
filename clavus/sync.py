@@ -156,12 +156,14 @@ class SyncClient:
         return r is not None and r.status_code == 200
 
     def push_snapshots(self, project: str, snapshots: list[dict],
-                        expected_parent: str | None = None) -> tuple[bool, str | None]:
+                        expected_parent: str | None = None,
+                        force: bool = False) -> tuple[bool, str | None, str | None]:
         """Push snapshot metadata to remote.
 
         Args:
             expected_parent: Hash the peer expects to be HEAD on the relay.
                              If set and doesn't match, relay returns 409 Conflict.
+            force: Skip optimistic lock and force HEAD update on relay.
 
         Returns:
             (success, conflict_message, relay_head) — conflict_message set on 409,
@@ -170,6 +172,8 @@ class SyncClient:
         body: dict = {"snapshots": snapshots}
         if expected_parent:
             body["expected_parent"] = expected_parent
+        if force:
+            body["force"] = True
 
         r, _ = self._retry(
             lambda: self.client.post(
@@ -704,7 +708,8 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote, force:
         snap_data = _snapshots_to_dicts(store, proj)
         print(f"  📸 Pushing {len(snap_data)} snapshot(s)...")
         ok, conflict, relay_head = client.push_snapshots(proj.name, snap_data,
-                                              expected_parent=None if force else remote.last_head)
+                                              expected_parent=None if force else remote.last_head,
+                                              force=force)
         if snap_data:
             result["snapshots"] = len(snap_data) if ok else 0
         if conflict:
