@@ -429,7 +429,7 @@ class ClavusApp(App):
             self._run_restore_store(arg)
         elif cmd == "snapshot":
             if arg:
-                asyncio.create_task(self._run_snapshot(arg))
+                self._run_snapshot(arg)
             else:
                 self._show_input("command", "snapshot <message>: ", prefill="")
         elif cmd == "stem":
@@ -1265,12 +1265,12 @@ class ClavusApp(App):
 
         self.push_screen(DiffScreen())
 
-    async def action_snapshot(self):
+    def action_snapshot(self):
         """Quick-snapshot — instant capture with auto-timestamp. No prompt."""
         if self._input_mode:
             return  # don't snapshot while typing an input
         ts = time.strftime("%H:%M")
-        await self._run_snapshot(f"snap {ts}")
+        self._run_snapshot(f"snap {ts}")
 
     def action_help(self):
         """Show full key bindings and commands overlay."""
