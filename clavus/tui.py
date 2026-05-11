@@ -1692,13 +1692,11 @@ class ClavusApp(App):
         try:
             remotes = load_remotes(self.store)
             if not self._peer_name:
-        
-                self._show_sticky("❌ no remote — use :remotes to pick one")
+                self._worker_error("pull-all: no remote configured — use :remotes to pick one")
                 return
             remote = next((r for r in remotes if r.name == self._peer_name), None)
             if not remote:
-        
-                self._show_sticky(f"❌ remote '{self._peer_name}' not found")
+                self._worker_error(f"pull-all: remote '{self._peer_name}' not found in remotes list")
                 return
             
             self._status(f"⬇ probing {remote.name} for projects...")
@@ -1706,16 +1704,14 @@ class ClavusApp(App):
             r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
             if r is None or r.status_code != 200:
                 client.close()
-        
-                self._show_sticky(f"❌ cannot reach {remote.name}: {err or (r.status_code if r else 'no response')}")
+                self._worker_error(f"pull-all: cannot reach {remote.name} — {err or (r.status_code if r else 'no response')}")
                 return
             
             projects = r.json().get("projects", [])
             client.close()
             self._log_event(f"pull-all: found {len(projects)} on relay")
             if not projects:
-        
-                self._show_sticky("⚠️ no projects on relay")
+                self._worker_error("pull-all: no projects on relay")
                 return
             
             for i, pdata in enumerate(projects):
@@ -1772,8 +1768,7 @@ class ClavusApp(App):
             self._toast_timer = self.set_timer(30.0, lambda: self._restore_footer())
             self._log_event(f"pull-all: {summary}")
         except Exception as e:
-    
-            self._show_sticky(f"❌ pull-all error: {e}")
+            self._worker_error(f"pull-all error: {e}")
             self._log_event(f"pull-all error: {e}")
         finally:
             self._busy = False
@@ -2519,8 +2514,23 @@ class ClavusApp(App):
     def _log_event(self, event: str):
         """Timestamped footer toast — auto-clears after 8s."""
         ts = time.strftime("%H:%M:%S")
-        safe = event.replace("[", "\\[").replace("]", "\\]")
+        safe = event.replace("[", "\\\\[").replace("]", "\\\\]")
         self._footer_toast(f"[{C['dim']}]{ts}[/] [{C['accent']}⟩[/] {safe}", 8.0)
+
+    def _worker_error(self, msg: str):
+        """Log an error from a @work worker to disk AND show a brief toast.
+        
+        Workers can't reliably use set_timer for sticky display (known Textual bug).
+        This writes to ~/.clavus/errors.log so the error is always recoverable,
+        and shows a short toast pointing to the log file.
+        """
+        from pathlib import Path
+        log_path = Path.home() / ".clavus" / "errors.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a") as f:
+            f.write(f"[{ts}] {msg}\n")
+        self._status(f"❌ error — see errors.log")
 
     def _clear_log_events(self):
         self._update_footer()
