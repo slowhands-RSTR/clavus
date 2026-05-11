@@ -508,6 +508,8 @@ class ClavusApp(App):
             self.action_force_push()
         elif cmd == "freeze":
             self._toggle_freeze()
+        elif cmd == "pull-all":
+            self._run_pull_all()
         elif cmd == "branch":
             self._run_branch(arg)
         elif cmd == "backup":
@@ -1667,6 +1669,73 @@ class ClavusApp(App):
         self._status("\u23f3 pulling...")
         try:
             await self._do_pull()
+        finally:
+            self._busy = False
+            self._update_header()
+
+    @work
+    async def _run_pull_all(self):
+        """Pull ALL projects from the active remote."""
+        import asyncio, time
+        from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
+        from clavus.store import ClavusProject
+        
+        self._busy = True
+        self._status("\u23f3 pull-all...")
+        try:
+            remotes = load_remotes(self.store)
+            if not self._peer_name:
+                self._status("\u274c no remote selected — use :remotes")
+                return
+            remote = next((r for r in remotes if r.name == self._peer_name), None)
+            if not remote:
+                self._status(f"\u274c remote '{self._peer_name}' not found")
+                return
+            
+            client = SyncClient(remote.url)
+            r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
+            client.close()
+            if r is None or r.status_code != 200:
+                self._status(f"\u274c cannot reach {remote.name}")
+                return
+            
+            projects = r.json().get("projects", [])
+            if not projects:
+                self._status("\u26a0 no projects on relay")
+                return
+            
+            self._status(f"\u2b07 pull-all: {len(projects)} projects...")
+            pulled = 0
+            for pdata in projects:
+                pname = pdata["name"]
+                proj_data = self.store.get_index(pname)
+                if not proj_data:
+                    proj_data = ClavusProject(
+                        name=pname, root_als="", head=None,
+                        created_at=time.time(),
+                        description=f"Pulled from {remote.name}",
+                    )
+                    self.store.set_index(proj_data)
+                
+                result = pull_from_remote(self.store, proj_data, remote)
+                blob_count = pull_snapshot_blobs(self.store, proj_data, remote)
+                parts = []
+                if result.get("cues"): parts.append(f"{result['cues']}c")
+                if result.get("snapshots"): parts.append(f"{result['snapshots']}s")
+                if blob_count: parts.append(f"{blob_count}b")
+                summary = " ".join(parts) if parts else "up to date"
+                self._log_event(f"\u2b07 {pname}: {summary}")
+                pulled += 1
+                self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {pname}  {summary}"
+                self._update_header()
+                await asyncio.sleep(0)
+            
+            self._status(f"\u2b07 pulled {pulled} project(s) from {remote.name}")
+            self._log_event(f"\u2b07 pull-all: {pulled} project(s)")
+            self.refresh()
+        except Exception as e:
+            self._status(f"\u274c pull-all error: {e}")
+            self._log_event(f"pull-all error: {e}")
         finally:
             self._busy = False
             self._update_header()
