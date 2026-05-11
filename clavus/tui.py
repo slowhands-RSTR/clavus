@@ -23,7 +23,7 @@ from typing import Optional
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen, ModalScreen
 from textual.widgets import Static, Input, ListView, ListItem, Label, Button
 from textual.css.query import NoMatches
@@ -85,12 +85,10 @@ class HelpScreen(Screen):
     CSS = f"""
     HelpScreen {{ background: {C['bg']}e0; align: center middle; }}
     #help-box {{ 
-        width: 68; max-height: 95%; overflow-y: auto;
+        width: 68; max-height: 95%;
         background: {C['surface']}; border: thick {C['accent']};
         padding: 0 1;
-        scrollbar-color: #1a9e9e #0f1a20;
     }}
-    #help-box > .scrollbar--grabber {{ background: #1a9e9e; }}
     #help-box Static {{ width: 100%; }}
     #help-box .help-title {{ color: {C['accent']}; text-style: bold; }}
     #help-box .help-key {{ color: {C['accent']}; }}
@@ -104,29 +102,31 @@ class HelpScreen(Screen):
         Binding("q", "dismiss", "Close"),
         Binding("enter", "dismiss", "Close"),
         Binding("h", "dismiss", "Close"),
+        Binding("j", "scroll_down", show=False),
+        Binding("k", "scroll_up", show=False),
+        Binding("down", "scroll_down", show=False),
+        Binding("up", "scroll_up", show=False),
     ]
 
     def compose(self):
-        yield Container(
-            Static("CLAVUS — KEY BINDINGS", classes="help-title"),
-            Static("CUES & COLLABORATION", classes="help-section"),
-            Static("  c    New cue        e    Edit         r    Reply"),
-            Static("  a    Assign         x    Archive      ▶    Start"),
-            Static("  R    Resolve        !    Conflict      d    Diff"),
-            Static("  T    Restore snap   e    Edit item     o    Open in Live"),
-            Static("SNAPSHOTS & SYNC", classes="help-section"),
-            Static("  p    Pull           P    Push          S    Snap + auto-push"),
-            Static("NAVIGATION", classes="help-section"),
-            Static("  j/↓  Down           k/↑  Up           Tab  Switch pane"),
-            Static("  Esc  Cancel/Dismiss ?/h  Help         :    Command mode"),
-            Static("COMMANDS (:)", classes="help-section"),
-            Static("  :snapshot <msg>  Create snapshot     :project <name>  Switch project"),
-            Static("  :open [path]     Open in Ableton     :pull / :push    Manual sync"),
-            Static("  :stem push/pull  Stem file sync      :init <path>     Init project"),
-            Static("  :remote rename <name>               :remote add <name> <url>"),
-            Static("[dim]Esc / q / Enter / h — close[/]", classes="help-dim"),
-            id="help-box",
-        )
+        with VerticalScroll(id="help-box"):
+            yield Static("CLAVUS — KEY BINDINGS", classes="help-title")
+            yield Static("CUES & COLLABORATION", classes="help-section")
+            yield Static("  c    New cue        e    Edit         r    Reply")
+            yield Static("  a    Assign         x    Archive      ▶    Start")
+            yield Static("  R    Resolve        !    Conflict      d    Diff")
+            yield Static("  T    Restore snap   e    Edit item     o    Open in Live")
+            yield Static("SNAPSHOTS & SYNC", classes="help-section")
+            yield Static("  p    Pull           P    Push          S    Snap + auto-push")
+            yield Static("NAVIGATION", classes="help-section")
+            yield Static("  j/↓  Down           k/↑  Up           Tab  Switch pane")
+            yield Static("  Esc  Cancel/Dismiss ?/h  Help         :    Command mode")
+            yield Static("COMMANDS (:)", classes="help-section")
+            yield Static("  :snapshot <msg>  Create snapshot     :project <name>  Switch project")
+            yield Static("  :open [path]     Open in Ableton     :pull / :push    Manual sync")
+            yield Static("  :stem push/pull  Stem file sync      :init <path>     Init project")
+            yield Static("  :remote rename <name>               :remote add <name> <url>")
+            yield Static("[dim]Esc / q / Enter / h — close[/]", classes="help-dim")
 
     def action_dismiss(self):
         self.app.pop_screen()
