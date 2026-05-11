@@ -134,3 +134,23 @@ bd15b96 fix: replace :pull-all sentinel with real timer + safety net for stuck t
 caa97e9 fix: per-project last_remote_head — stop cross-project push conflicts
 02e2180 fix: :pull-all never ran — coroutine not scheduled (missing asyncio.create_task)
 ```
+
+---
+
+## Resolution (FIXED ✅)
+
+**Actual root cause:** Parsing bug in `_do_command()`. `:pull all` was parsed as `cmd="pull"`, `arg="all"`. The `if arg:` branch ran `subprocess.run([sys.executable, "-m", "clavus", "pull", "all"])` — but `time` wasn't imported in that branch scope, causing `UnboundLocalError`. The crash happened before `_run_pull_all()` was ever reached.
+
+**Fix:** Two-line change:
+```python
+# Line 498: exclude "all" from the CLI subprocess branch
+elif cmd in ("pull", "push") and arg != "all":
+
+# Line 512: explicit route for two-word "pull all" input
+elif cmd == "pull-all" or (cmd == "pull" and arg == "all"):
+    self._run_pull_all()
+```
+
+**Lesson:** The crash wasn't in any of the code we were debugging (_show_sticky, _update_footer, @work decorator, CSS timing). It was a parsing bug in a completely different branch that happened to match `:pull all`. All 6 attempted fixes were attacking symptoms of a bug they couldn't see.
+
+All 10 projects confirmed pulling correctly on Windows after the fix.

@@ -54,7 +54,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | T26 | `:remotes` picker — per-project remote scoping | ✅ 5/11 | ✅ 5/11 | Push/pull uses selected remote only |
 | T27 | `:inject` → cues land as Ableton markers → auto-snapshot | ✅ 5/11 | ✅ 5/11 | |
 | T28 | `:push!` force push — skips lock, overwrites relay HEAD | ✅ 5/11 | ✅ 5/11 | Fixed 5/11 eve: was async without @work — never executed |
-| T29 | `:pull-all` — pull all projects from active remote | ✅ 5/11 Mac | ❌ 5/11 Win | Runs but error invisible (CSS display:none race). Works from Mac Python script. |
+| T29 | `:pull-all` — pull all projects from active remote | ✅ 5/11 Mac | ✅ 5/11 Win | Fixed: parsing bug — "pull all" hit subprocess branch instead of _run_pull_all |
 
 ## CLI
 
