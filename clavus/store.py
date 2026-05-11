@@ -317,8 +317,11 @@ class BlobStore:
         meta_path = self.objects_dir / hash_str[:2] / f"{hash_str}.meta"
         if not meta_path.exists():
             return None
-        data = json.loads(meta_path.read_text())
-        return Snapshot(**data)
+        try:
+            data = json.loads(meta_path.read_text())
+            return Snapshot(**data)
+        except (TypeError, json.JSONDecodeError):
+            return None  # corrupted or partial meta file
 
     def load_project(self, hash_str: str) -> Optional[Project]:
         """Deserialize a Project from a snapshot hash.
