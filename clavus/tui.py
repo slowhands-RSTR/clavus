@@ -1681,35 +1681,38 @@ class ClavusApp(App):
         from clavus.store import ClavusProject
         
         self._busy = True
-        self._status("\u23f3 pull-all...")
+        msgs: list[str] = []
         try:
             remotes = load_remotes(self.store)
             if not self._peer_name:
-                self._status("\u274c no remote selected — use :remotes")
+                self._status("❌ no remote — use :remotes")
                 return
             remote = next((r for r in remotes if r.name == self._peer_name), None)
             if not remote:
-                self._status(f"\u274c remote '{self._peer_name}' not found")
+                self._status(f"❌ remote '{self._peer_name}' not found")
                 return
             
+            self._status(f"⬇ probing {remote.name} for projects...")
             client = SyncClient(remote.url)
             r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
             if r is None or r.status_code != 200:
                 client.close()
-                self._status(f"\u274c cannot reach {remote.name}")
+                self._status(f"❌ cannot reach {remote.name}: {err or r.status_code if r else 'no response'}")
                 return
             
             projects = r.json().get("projects", [])
             client.close()
-            self._log_event(f"pull-all: relay has {len(projects)} project(s): {[p['name'] for p in projects]}")
+            self._log_event(f"pull-all: found {len(projects)} on relay")
             if not projects:
-                self._status("\u26a0 no projects on relay")
+                self._status("⚠️ no projects on relay")
                 return
             
-            self._status(f"\u2b07 pull-all: {len(projects)} projects...")
-            pulled = 0
-            for pdata in projects:
+            for i, pdata in enumerate(projects):
                 pname = pdata["name"]
+                self._status(f"⬇ [{i+1}/{len(projects)}] {pname}...")
+                self._log_event(f"pull-all: [{i+1}/{len(projects)}] {pname}")
+                await asyncio.sleep(0.05)
+                
                 proj_data = self.store.get_index(pname)
                 if not proj_data:
                     proj_data = ClavusProject(
@@ -1719,27 +1722,35 @@ class ClavusApp(App):
                     )
                     self.store.set_index(proj_data)
                 
-                result = pull_from_remote(self.store, proj_data, remote)
-                blob_count = pull_snapshot_blobs(self.store, proj_data, remote)
-                parts = []
-                if result.get("error"):
-                    parts.append(f"err: {result['error'][:30]}")
-                    self._log_event(f"⬇ {pname}: {result['error']}")
-                if result.get("cues"): parts.append(f"{result['cues']}c")
-                if result.get("snapshots"): parts.append(f"{result['snapshots']}s")
-                if blob_count: parts.append(f"{blob_count}b")
-                summary = " ".join(parts) if parts else "up to date"
-                self._log_event(f"⬇ {pname}: {summary}")
-                pulled += 1
-                self._sync_status = f"⬇ {time.strftime('%H:%M')} {pname}  {summary}"
-                self._update_header()
-                await asyncio.sleep(0.5)  # let user see each project's result
+                try:
+                    result = pull_from_remote(self.store, proj_data, remote)
+                    err = result.get("error", "")
+                    c = result.get("cues", 0)
+                    s = result.get("snapshots", 0)
+                    if err:
+                        msgs.append(f"{pname}: ❌ {err[:40]}")
+                        self._log_event(f"pull-all: {pname} FAILED — {err}")
+                    elif c or s:
+                        blob_count = pull_snapshot_blobs(self.store, proj_data, remote)
+                        msgs.append(f"{pname}: {c}c {s}s" + (f" {blob_count}b" if blob_count else ""))
+                        self._log_event(f"pull-all: {pname} OK — {c}c {s}s")
+                    else:
+                        msgs.append(f"{pname}: up to date")
+                        self._log_event(f"pull-all: {pname} up to date")
+                except Exception as e2:
+                    msgs.append(f"{pname}: ❌ {str(e2)[:40]}")
+                    self._log_event(f"pull-all: {pname} EXCEPTION — {e2}")
+                
+                await asyncio.sleep(0.3)
             
-            self._status(f"\u2b07 pulled {pulled} project(s) from {remote.name}")
-            self._log_event(f"\u2b07 pull-all: {pulled} project(s)")
-            self.refresh()
+            # Show summary that sticks
+            summary = f"⬇ pull-all done: " + " · ".join(msgs[:5])
+            if len(msgs) > 5:
+                summary += f" · +{len(msgs)-5} more"
+            self._status(summary)
+            self._log_event(f"pull-all: {summary}")
         except Exception as e:
-            self._status(f"\u274c pull-all error: {e}")
+            self._status(f"❌ pull-all error: {e}")
             self._log_event(f"pull-all error: {e}")
         finally:
             self._busy = False
