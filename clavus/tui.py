@@ -2491,12 +2491,19 @@ class ClavusApp(App):
         self._footer_toast(f"[{C['dim']}]{safe}[/]", 3.0)
 
     def _show_sticky(self, msg: str):
-        """Persistent error message — cleared by any subsequent _status() call.
+        """Persistent error message — written directly to footer widget, no timers.
         
-        Avoids the toast/timer system entirely (set_timer unreliable in workers).
-        _update_footer() checks _sticky_error and displays it directly.
+        Bypasses the entire toast/timer system. Direct DOM write + refresh.
+        _update_footer also reads _sticky_error as backup on subsequent renders.
         """
+        safe = msg.replace("[", "\\\\[").replace("]", "\\\\]")
         self._sticky_error = msg
+        try:
+            status = self.query_one("#footer-status", Static)
+            status.update(f"[{C['dim']}]{safe}[/]")
+            status.refresh()
+        except NoMatches:
+            pass
 
     def _log_event(self, event: str):
         """Timestamped footer toast — auto-clears after 8s."""
@@ -2573,6 +2580,15 @@ class ClavusApp(App):
 
     def _update_footer(self):
         """Footer: project state — cues, snapshots. Sync activity lives in header."""
+        # Sticky error takes ABSOLUTE priority — check before toast guard
+        if self._sticky_error:
+            try:
+                status = self.query_one("#footer-status", Static)
+                status.update(f"[{C['dim']}]{self._sticky_error}[/]")
+            except NoMatches:
+                pass
+            return
+        
         # Don't clobber active toasts — _restore_footer will handle it when ready
         if hasattr(self, '_toast_timer') and self._toast_timer is not None:
             if not isinstance(self._toast_timer, object().__class__):
@@ -2583,15 +2599,6 @@ class ClavusApp(App):
                     return
             else:
                 return
-        
-        # Sticky error takes priority over normal footer
-        if self._sticky_error:
-            try:
-                status = self.query_one("#footer-status", Static)
-                status.update(f"[{C['dim']}]{self._sticky_error}[/]")
-            except NoMatches:
-                pass
-            return
         try:
             status = self.query_one("#footer-status", Static)
             if not self.project:
