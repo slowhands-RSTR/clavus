@@ -574,6 +574,7 @@ class ClavusApp(App):
         self.idx = 0  # reset cursor before loading
         self._load_cues_from_disk()
         self._load_snapshots_from_disk()
+        self._ensure_initial_snapshot()  # baseline if project has .als but no snapshots
         self._update_header()
         self._render()
         self._update_footer()
@@ -754,7 +755,7 @@ class ClavusApp(App):
             self._status("no project selected")
             return
         proj = self.store.get_index(self.project)
-        if not proj or not proj.root_als:
+        if not proj:
             self._status("project not found in store")
             return
 
@@ -1726,8 +1727,12 @@ class ClavusApp(App):
                 
                 proj_data = self.store.get_index(pname)
                 if not proj_data:
+                    from clavus.helpers import get_projects_dir
+                    proj_dir = get_projects_dir() / pname
+                    als_dir = proj_dir / f"{pname} Project"
+                    default_als = str(als_dir / f"{pname}.als")
                     proj_data = ClavusProject(
-                        name=pname, root_als="", head=None,
+                        name=pname, root_als=default_als, head=None,
                         created_at=time.time(),
                         description=f"Pulled from {remote.name}",
                     )
@@ -2155,9 +2160,13 @@ class ClavusApp(App):
                                 if r2 is None or r2.status_code != 200:
                                     continue
                                 info = r2.json().get("project", {})
+                                from clavus.helpers import get_projects_dir
+                                proj_dir = get_projects_dir() / pname
+                                als_dir = proj_dir / f"{pname} Project"
+                                default_als = info.get("root_als") or str(als_dir / f"{pname}.als")
                                 new_proj = ClavusProject(
                                     name=pname,
-                                    root_als=info.get("root_als", f"~/{pname}/{pname}.als"),
+                                    root_als=default_als,
                                     created_at=time.time(),
                                 )
                                 self.store.set_index(new_proj)
