@@ -63,7 +63,8 @@ class Cue:
 
 @dataclass
 class Snap:
-    hash: str = ""
+    hash: str = ""       # truncated (10 chars) — for display
+    full_hash: str = ""  # full SHA256 — for file lookups
     message: str = ""
     timestamp: float = 0.0
     track_count: int = 0
@@ -72,6 +73,7 @@ class Snap:
     def from_dict(cls, d: dict) -> "Snap":
         return cls(
             hash=d.get("hash", d.get("full_hash", ""))[:10],
+            full_hash=d.get("hash", d.get("full_hash", "")),
             message=d.get("message", ""),
             timestamp=d.get("timestamp", 0.0),
             track_count=d.get("track_count", 0),
@@ -131,68 +133,6 @@ class HelpScreen(Screen):
     def action_dismiss(self):
         self.app.pop_screen()
 
-
-class EditSnapshotScreen(Screen):
-    """Full-screen modal to edit a snapshot's message."""
-
-    CSS = f"""
-    EditSnapshotScreen {{ background: {C['bg']}e0; align: center middle; }}
-    #edit-box {{
-        width: 60; max-height: 30;
-        background: {C['surface']}; border: thick {C['accent']};
-        padding: 1 2;
-    }}
-    #edit-box Static {{ width: 100%; }}
-    #edit-box .edit-title {{ color: {C['accent']}; text-style: bold; }}
-    #edit-box .edit-prompt {{ color: {C['fg']}; padding-top: 1; }}
-    #edit-box Input {{
-        width: 100%; margin: 1 0;
-        background: {C['bg']}; border: solid {C['accent']};
-        color: {C['fg']}; padding: 0 1;
-    }}
-    #edit-box .edit-hint {{ color: {C['muted']}; }}
-    """
-
-    BINDINGS = [
-        Binding("escape", "dismiss", "Cancel"),
-    ]
-
-    def __init__(self, snap_hash: str, old_msg: str):
-        super().__init__()
-        self.snap_hash = snap_hash
-        self.old_msg = old_msg
-
-    def compose(self):
-        with Vertical(id="edit-box"):
-            yield Static("✏ EDIT SNAPSHOT MESSAGE", classes="edit-title")
-            yield Static(f"Snapshot: {self.snap_hash[:12]}", classes="edit-prompt")
-            yield Static("Enter new message (or blank to keep current):", classes="edit-prompt")
-            yield Input(value=self.old_msg, id="edit-msg", placeholder="snapshot message...")
-            with Horizontal(classes="edit-actions"):
-                yield Button("Save (Enter)", id="save-edit", variant="primary")
-                yield Button("Cancel (Esc)", id="cancel-edit", variant="default")
-            yield Static("[dim]Enter — save   Esc — cancel[/]", classes="edit-hint")
-
-    def on_button_pressed(self, event: Button.Pressed):
-        if event.button.id == "save-edit":
-            self._save_and_dismiss()
-        elif event.button.id == "cancel-edit":
-            self.app.pop_screen()
-
-    def on_input_submitted(self, event: Input.Submitted):
-        event.stop()
-        self._save_and_dismiss()
-
-    def _save_and_dismiss(self):
-        inp = self.query_one("#edit-msg", Input)
-        new_msg = inp.value.strip()
-        app = self.app
-        if hasattr(app, '_do_edit_snapshot_from_modal'):
-            app._do_edit_snapshot_from_modal(self.snap_hash, new_msg)
-        self.app.pop_screen()
-
-    def action_dismiss(self):
-        self.app.pop_screen()
 
 # ─── App ────────────────────────────────────────────────────────────────────
 
@@ -417,6 +357,8 @@ class ClavusApp(App):
                 self._do_archive_cue()
             else:
                 self._focus_cues()
+        elif mode == "edit_snapshot":
+            self._do_edit_snapshot(text)
         elif mode == "command":
             self._do_command(text)
 
@@ -1079,17 +1021,16 @@ class ClavusApp(App):
 
     def _do_edit_snapshot(self, text: str):
         """Update the selected snapshot's message."""
-        self._log_event(f"DEBUG _do_edit_snapshot called with text='{text[:30]}' snaps={len(self.snaps)}")
         if not self.snaps:
             self._status("no snapshots to edit")
             return
         idx = self._get_history_idx()
         snap = self.snaps[idx]
         old_msg = snap.message
-        # Persist to disk — _load_snapshots_from_disk will pick it up
+        full = snap.full_hash or snap.hash  # full_hash is the real SHA256
         try:
-            meta_dir = self.store.objects_dir / snap.hash[:2]
-            meta_path = meta_dir / f"{snap.hash}.meta"
+            meta_dir = self.store.objects_dir / full[:2]
+            meta_path = meta_dir / f"{full}.meta"
             if meta_path.exists():
                 meta = json.loads(meta_path.read_text())
             else:
@@ -1100,27 +1041,7 @@ class ClavusApp(App):
             self._load_snapshots_from_disk()
             self._render()
             self._status(f"snapshot renamed: '{text[:40]}'")
-            self._log_event(f"renamed snapshot {snap.hash[:12]}: {old_msg[:30]} → {text[:30]}")
-        except Exception as e:
-            self._status(f"edit failed: {e}")
-            self._log_event(f"snapshot edit failed: {e}")
-
-    def _do_edit_snapshot_from_modal(self, snap_hash: str, text: str):
-        """Save edited snapshot message (called from EditSnapshotScreen modal)."""
-        try:
-            meta_dir = self.store.objects_dir / snap_hash[:2]
-            meta_path = meta_dir / f"{snap_hash}.meta"
-            if meta_path.exists():
-                meta = json.loads(meta_path.read_text())
-            else:
-                meta = {}
-            meta["message"] = text
-            meta_dir.mkdir(parents=True, exist_ok=True)
-            meta_path.write_text(json.dumps(meta, indent=2, default=str))
-            self._load_snapshots_from_disk()
-            self._render()
-            self._status(f"snapshot renamed: '{text[:40]}'")
-            self._log_event(f"renamed snapshot {snap_hash[:12]}: → {text[:30]}")
+            self._log_event(f"renamed snapshot {full[:12]}: {old_msg[:30]} → {text[:30]}")
         except Exception as e:
             self._status(f"edit failed: {e}")
             self._log_event(f"snapshot edit failed: {e}")
@@ -1264,10 +1185,10 @@ class ClavusApp(App):
         target = self._focused_list_view()
         self._log_event(f"DEBUG action_edit_item: target={target.id if target else None} snaps={len(self.snaps)}")
         if target and target.id == "hlv" and self.snaps:
-            # History pane — edit snapshot message via full-screen modal
+            # History pane — edit snapshot message via footer input
             idx = self._get_history_idx()
             snap = self.snaps[idx]
-            self.push_screen(EditSnapshotScreen(snap.hash, snap.message))
+            self._show_input("edit_snapshot", f"Edit message ({snap.hash[:12]}):", prefill=snap.message)
         elif target and target.id == "clv":
             # Cue pane — edit selected cue
             self.action_edit()
@@ -1283,7 +1204,7 @@ class ClavusApp(App):
         snap = self.snaps[idx]
 
         # Load the snapshot and its parent
-        current_snap = self.store.load_snapshot(snap.hash)
+        current_snap = self.store.load_snapshot(snap.full_hash or snap.hash)
         if not current_snap or not current_snap.parent:
             self._status("no parent snapshot to diff against")
             return
@@ -1780,6 +1701,7 @@ class ClavusApp(App):
         self.snaps = [
             Snap(
                 hash=s.hash[:10],
+                full_hash=s.hash,
                 message=s.message,
                 timestamp=s.timestamp,
                 track_count=s.track_count,
