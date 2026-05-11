@@ -209,7 +209,6 @@ class ClavusApp(App):
         Binding("?", "help", "Help", show=False),
         Binding("h", "help", "Help", show=False),
         Binding("escape", "cancel_input", "Cancel input", show=False),
-        Binding("enter", "select_item", "Select", show=False),
     ]
 
     def __init__(self, url: str = ""):
@@ -229,6 +228,8 @@ class ClavusApp(App):
         self._pending_cue_text: str = ""
         self._project_picker_active: bool = False
         self._project_list: list = []  # project objects for picker
+        self._remote_picker_active: bool = False
+        self._remote_list: list = []  # Remote objects for picker
         self._relay_proc = None
         self._busy: bool = False
         self._last_sync: str = ""     # "⬆ ✓ 12:34" or "⬇ ✓ 12:34" — last completed sync
@@ -350,8 +351,6 @@ class ClavusApp(App):
             self._run_switch_project(text)
         elif mode == "assign":
             self._do_assign(text)
-        elif mode == "browse":
-            self._run_browse(text)
         elif mode == "confirm_delete":
             if text.lower() in ("y", "yes"):
                 self._do_delete_cue()
@@ -373,23 +372,80 @@ class ClavusApp(App):
             self._focus_cues()
         elif self._project_picker_active:
             self._cancel_project_picker()
+        elif self._remote_picker_active:
+            self._cancel_remote_picker()
 
-    def action_select_item(self):
-        """Enter key — switch to highlighted project in picker mode."""
-        if not self._project_picker_active:
-            return
-        lv = self.query_one("#clv", ListView)
-        if lv.index is not None and lv.index < len(self._project_list):
-            proj = self._project_list[lv.index]
-            self._cancel_project_picker()
-            self._run_switch_project(proj.name)
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Enter key in ListView — switch to project/remote if picker active."""
+        if self._project_picker_active:
+            event.stop()
+            if event.index is not None and event.index < len(self._project_list):
+                proj = self._project_list[event.index]
+                self._cancel_project_picker()
+                self._run_switch_project(proj.name)
+        elif self._remote_picker_active:
+            event.stop()
+            if event.index is not None and event.index < len(self._remote_list):
+                remote = self._remote_list[event.index]
+                self._cancel_remote_picker()
+                self._peer_name = remote.name
+                # Save to project so it persists across sessions
+                proj_index = self.store.get_index(self.project)
+                if proj_index:
+                    proj_index.active_remote = remote.name
+                    self.store.set_index(proj_index)
+                self._probe_reachability()
+                self._update_header()
+                self._render()
 
     def _cancel_project_picker(self):
         """Exit project picker, restore normal cues list."""
         self._project_picker_active = False
         self._project_list = []
+        try:
+            lv = self.query_one("#clv", ListView)
+            lv.remove_children()
+            lv.index = 0
+        except NoMatches:
+            pass
+        self._cue_fingerprint = None  # force full rebuild
         self._update_footer()
         self._render()  # rebuild cues list
+
+    # ─── Remote picker ─────────────────────────────────────────────────
+
+    @work(exclusive=False)
+    async def _run_list_remotes(self):
+        from clavus.sync import load_remotes
+        remotes = load_remotes(self.store)
+        if not remotes:
+            self._status("no remotes configured  —  use :join http://... or :remote add")
+            return
+        self._remote_list = remotes
+        self._remote_picker_active = True
+        lv = self.query_one("#clv", ListView)
+        lv.clear()
+        for r in remotes:
+            active = " ◀" if r.name == self._peer_name else ""
+            reachable = "●" if self._peer_reachable and r.name == self._peer_name else "○"
+            line = f"  {reachable} {r.name}  @ {r.url}{active}"
+            lv.append(ListItem(Label(line, classes="project-picker-item")))
+        self._footer_toast(f"[{C['accent']}]pick a remote → enter   [{C['dim']}]esc to cancel[/]", 10.0)
+        self._update_footer_hint()
+
+    def _cancel_remote_picker(self):
+        """Exit remote picker, restore normal cues list."""
+        self._remote_picker_active = False
+        self._remote_list = []
+        try:
+            lv = self.query_one("#clv", ListView)
+            lv.remove_children()
+            lv.index = 0
+        except NoMatches:
+            pass
+        self._cue_fingerprint = None
+        self._update_footer()
+        self._render()
 
     # ─── Command mode ──────────────────────────────────────────────────
 
@@ -409,8 +465,7 @@ class ClavusApp(App):
         if cmd == "project" and arg:
             self._run_switch_project(arg)
         elif cmd == "projects":
-            import asyncio
-            asyncio.create_task(self._run_list_projects())
+            self._run_list_projects()
         elif cmd == "name" and arg:
             self.author = arg
             self._save_config()
@@ -418,8 +473,6 @@ class ClavusApp(App):
         elif cmd == "init" and arg:
             import asyncio
             asyncio.create_task(self._run_init_project(arg))
-        elif cmd == "browse":
-            self._show_input("browse", "browse: ", prefill=arg or "~")
         elif cmd == "inject":
             self._run_inject()
         elif cmd == "restore":
@@ -438,6 +491,8 @@ class ClavusApp(App):
             self._run_config()
         elif cmd == "remote":
             self._run_remote(arg)
+        elif cmd == "remotes":
+            self._run_list_remotes()
         elif cmd in ("pull", "push"):
             # :pull or :pull <project> — mirrors CLI behavior
             if arg:
@@ -498,6 +553,11 @@ class ClavusApp(App):
             self.store.index_path.write_text(json.dumps(index, indent=2, default=str))
         self.project = name
         self._log_event(f"switched to project '{name}'")
+        # Load active remote from project config
+        self._peer_name = getattr(proj, 'active_remote', '') or ''
+        self._peer_reachable = False
+        if self._peer_name:
+            self._probe_reachability()
         self._load_cues_from_disk()
         self._load_snapshots_from_disk()
         self.idx = 0
@@ -552,9 +612,25 @@ class ClavusApp(App):
     async def _run_init_project(self, path: str):
         """Import a project from a filesystem path — blocking I/O offloaded to thread."""
         import asyncio
-        # Defensive: strip quotes that may have leaked through
-        if path and len(path) >= 2 and path[0] in ('"', "'") and path[0] == path[-1]:
-            path = path[1:-1]
+        # Clean up pasted paths from Finder/Explorer:
+        #   "~/some/path"  → strip quotes + expand tilde
+        #   ~'/some/path'  → Finder prefill + quotes
+        #   /absolute/path → use as-is
+        path = path.strip()
+        # Strip any quoting (Finder wraps paths with spaces in single quotes)
+        for q in ("'", '"'):
+            if path.startswith(q) and path.endswith(q):
+                path = path[1:-1]
+                break
+            # Handle ~'quoted/path' (tilde from prefill + Finder quotes)
+            if path.startswith("~" + q) and path.endswith(q):
+                path = path[1:-1]  # strip both ~ and quotes
+                break
+        # Expand tilde
+        if path.startswith("~/"):
+            path = os.path.expanduser(path)
+        elif path == "~":
+            path = os.path.expanduser("~")
         self._sync_status = "importing project..."
         self._update_header()
         self._status(f"importing {path}...")
@@ -567,7 +643,8 @@ class ClavusApp(App):
             if name is None:
                 self._sync_status = ""
                 self._update_header()
-                self._status("init failed — see log")
+                err = logs[-1].replace("❌ ", "") if logs else "unknown error"
+                self._status(f"init failed: {err}")
                 return
             self._sync_status = ""
             self._update_header()
@@ -579,33 +656,6 @@ class ClavusApp(App):
             self._sync_status = ""
             self._update_header()
             self._log_event(f"init error: {e}")
-
-    @work(exclusive=False)
-    async def _run_browse(self, directory: str):
-        """Browse a directory for .als files locally (no server needed)."""
-        from pathlib import Path
-        # Normalize relative paths
-        if directory and "/" not in directory and "\\" not in directory and directory not in ("..", ".", ""):
-            if hasattr(self, "_last_browse_dir") and self._last_browse_dir:
-                directory = os.path.join(self._last_browse_dir, directory)
-        self._last_browse_dir = directory
-        d = Path(directory or os.path.expanduser("~")).expanduser().resolve()
-        if not d.exists():
-            self._status(f"directory not found: {d}")
-            return
-        subdirs = sorted([x.name for x in d.iterdir() if x.is_dir() and not x.name.startswith(".")])
-        als_files = sorted([x.name for x in d.glob("*.als")])
-        lines = [f"📁 {d}"]
-        if subdirs:
-            lines.append(f"  dirs: {' '.join(subdirs[:8])}{'...' if len(subdirs)>8 else ''}")
-        if als_files:
-            lines.append(f"  🔵 als: {' '.join(als_files)}")
-        self._status(" | ".join(lines))
-        if als_files:
-            hint = f" — :init {d}/<name> to import"
-        else:
-            hint = ""
-        self._show_input("browse", "browse (enter subdir, .. up, or :init): ", prefill="")
 
     @work(exclusive=False)
     async def _run_inject(self):
@@ -889,11 +939,10 @@ class ClavusApp(App):
             elif proc.returncode != 0:
                 self._status(f"remote failed (exit {proc.returncode})")
             else:
-                # On success, reload remote name so header updates immediately
+                # On success, reload active remote so header updates immediately
                 if parts[0] in ("rename", "add", "remove") and proc.returncode == 0:
-                    from clavus.sync import load_remotes
-                    remotes = load_remotes(self.store)
-                    self._peer_name = remotes[0].name if remotes else ""
+                    proj = self.store.get_index(self.project) if self.project else None
+                    self._peer_name = getattr(proj, 'active_remote', '') or ''
                     self._update_header()
                 self._status("remote list" if not action else f"remote {action}")
         except Exception as e:
@@ -1659,10 +1708,13 @@ class ClavusApp(App):
         try:
             from clavus.sync import load_remotes
             remotes = load_remotes(self.store)
-            if not remotes:
+            if not remotes or not self._peer_name:
+                return
+            remote = next((r for r in remotes if r.name == self._peer_name), None)
+            if not remote:
                 return
             import urllib.request
-            url = remotes[0].url.rstrip("/") + "/api/ping"
+            url = remote.url.rstrip("/") + "/api/ping"
             req = urllib.request.Request(url)
             r = urllib.request.urlopen(req, timeout=2)
             was_reachable = self._peer_reachable
@@ -1671,7 +1723,7 @@ class ClavusApp(App):
                 self._update_header()
             # Auto-refresh: check if new data arrived from a collaborator push
             if self._peer_reachable and self.project:
-                self._auto_refresh_if_changed(remotes[0])
+                self._auto_refresh_if_changed(remote)
         except Exception:
             if self._peer_reachable:
                 self._peer_reachable = False
@@ -1771,21 +1823,23 @@ class ClavusApp(App):
 
         self.project = match.name
         self._status(f"loaded: {self.project}")
-        # Detect peer name from remotes
-        from clavus.sync import load_remotes
-        remotes = load_remotes(self.store)
-        self._peer_name = remotes[0].name if remotes else ""
+        # Load active remote from project config
+        self._peer_name = getattr(match, 'active_remote', '') or ''
         self._peer_reachable = False
         # Quick health probe — use urllib (fast, no httpx overhead)
-        if self._peer_name and remotes:
+        if self._peer_name:
             try:
-                import urllib.request
-                url = remotes[0].url.rstrip("/") + "/api/ping"
-                req = urllib.request.Request(url)
-                r = urllib.request.urlopen(req, timeout=2)
-                if r.status == 200:
-                    self._peer_reachable = True
-                    self._log_event(f"\u25cf {self._peer_name} reachable")
+                from clavus.sync import load_remotes
+                remotes = load_remotes(self.store)
+                remote = next((r for r in remotes if r.name == self._peer_name), None)
+                if remote:
+                    import urllib.request
+                    url = remote.url.rstrip("/") + "/api/ping"
+                    req = urllib.request.Request(url)
+                    r = urllib.request.urlopen(req, timeout=2)
+                    if r.status == 200:
+                        self._peer_reachable = True
+                        self._log_event(f"\u25cf {self._peer_name} reachable")
             except Exception:
                 pass
         self._update_footer()
@@ -2011,6 +2065,21 @@ class ClavusApp(App):
                 return
 
             # ── Normal pull for existing project ──
+            # Find the active remote for this project
+            if not self._peer_name:
+                self._sync_status = ""
+                self._update_header()
+                await asyncio.sleep(0)
+                self._status("\u274c no remote selected — use :remotes to pick one")
+                return
+            remote = next((r for r in remotes if r.name == self._peer_name), None)
+            if not remote:
+                self._sync_status = ""
+                self._update_header()
+                await asyncio.sleep(0)
+                self._status(f"\u274c remote '{self._peer_name}' not found — use :remotes")
+                return
+
             # Auto-snapshot local work before overwriting with remote changes.
             # This ensures the user can always go back to what they had.
             try:
@@ -2035,46 +2104,34 @@ class ClavusApp(App):
             except Exception:
                 pass  # best-effort — don't block pull on snapshot failure
 
-            any_ok = False
-            last_error = ""
-            for remote in remotes:
-                self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}..."
-                self._update_header()
-                await asyncio.sleep(0)
-                result = pull_from_remote(self.store, proj_index, remote)
-                if result.get("error"):
-                    self._peer_reachable = False
-                    self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
-                    self._sync_status = ""
-                    self._update_header()
-                    await asyncio.sleep(0)
-                    self._status(f"● {self._peer_name} unreachable")
-                    self._log_event(f"● {self._peer_name} unreachable — pull failed")
-                    last_error = result["error"]
-                    continue  # try next remote, don't bail
-                any_ok = True
-                cues_n = result.get("cues", 0)
-                snaps_n = result.get("snapshots", 0)
-                conflicts_n = result.get("conflicts", 0)
-                blobs = pull_snapshot_blobs(self.store, proj_index, remote)
-                self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
-                if conflicts_n:
-                    self._sync_status += f"  \u26a0{conflicts_n}"
-                self._update_header()
-                await asyncio.sleep(0)
-                self._peer_reachable = True
-            if not any_ok:
+            self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}..."
+            self._update_header()
+            await asyncio.sleep(0)
+            result = pull_from_remote(self.store, proj_index, remote)
+            if result.get("error"):
+                self._peer_reachable = False
                 self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
                 self._sync_status = ""
                 self._update_header()
-                self._status(f"❌ pull failed: {last_error[:60]}")
-                self._log_event(f"pull failed: {last_error} — check relay")
+                await asyncio.sleep(0)
+                self._status(f"● {remote.name} unreachable")
+                self._log_event(f"● {remote.name} unreachable — pull failed")
                 return
+            cues_n = result.get("cues", 0)
+            snaps_n = result.get("snapshots", 0)
+            conflicts_n = result.get("conflicts", 0)
+            blobs = pull_snapshot_blobs(self.store, proj_index, remote)
+            self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+            if conflicts_n:
+                self._sync_status += f"  \u26a0{conflicts_n}"
+            self._update_header()
+            await asyncio.sleep(0)
+            self._peer_reachable = True
             self._last_sync = f"\u2b07 {time.strftime('%H:%M')}"
             self._update_header()
             asyncio.create_task(self._delayed_clear_sync())
             await asyncio.sleep(0)
-            self._log_event(f"\u2b07 pulled: {len(self.cues)} cues, {len(self.snaps)} snapshots")
+            self._log_event(f"\u2b07 pulled from {remote.name}: {len(self.cues)} cues, {len(self.snaps)} snapshots")
             # Refresh from disk
             if self.project:
                 self._load_cues_from_disk()
@@ -2088,7 +2145,7 @@ class ClavusApp(App):
             self._status(f"\u274c pull error: {e}")
 
     async def _do_push(self):
-        """Push cues + snapshots + blobs to remotes — direct function calls, no subprocess."""
+        """Push cues + snapshots + blobs to the project's active remote."""
         import asyncio
         import time
         from clavus.sync import load_remotes, push_to_remote, push_snapshot_blobs
@@ -2101,48 +2158,51 @@ class ClavusApp(App):
                 self._status("\u274c no project")
                 return
             remotes = load_remotes(self.store)
-            if not remotes:
+            if not self._peer_name:
                 self._sync_status = ""
                 self._update_header()
                 await asyncio.sleep(0)
-                self._status("\u274c no remotes configured")
+                self._status("\u274c no remote selected — use :remotes to pick one")
                 return
-            self._sync_status = f"\u2b06 {time.strftime('%H:%M')} pushing..."
+            remote = next((r for r in remotes if r.name == self._peer_name), None)
+            if not remote:
+                self._sync_status = ""
+                self._update_header()
+                await asyncio.sleep(0)
+                self._status(f"\u274c remote '{self._peer_name}' not found — use :remotes")
+                return
+            self._sync_status = f"\u2b06 {time.strftime('%H:%M')} {remote.name}..."
             self._update_header()
             await asyncio.sleep(0)
-            self._status("\u2b06 pushing...")
-            for remote in remotes:
-                self._sync_status = f"\u2b06 {time.strftime('%H:%M')} {remote.name}..."
+            self._status(f"\u2b06 pushing to {remote.name}...")
+            result = push_to_remote(self.store, proj_index, remote)
+            if result.get("error"):
+                self._peer_reachable = False
+                self._last_sync = f"\u2b06 \u2717 {time.strftime('%H:%M')}"
+                self._sync_status = ""
                 self._update_header()
                 await asyncio.sleep(0)
-                result = push_to_remote(self.store, proj_index, remote)
-                if result.get("error"):
-                    self._peer_reachable = False
-                    self._last_sync = f"\u2b06 \u2717 {time.strftime('%H:%M')}"
-                    self._sync_status = ""
-                    self._update_header()
-                    await asyncio.sleep(0)
-                    err = result['error']
-                    if 'pull first' in err.lower() or 'conflict' in err.lower():
-                        self._status(f"⚠️ conflict — press p to pull, then P to push")
-                        self._log_event(f"⚠️ {err} — press p to pull, then P to push")
-                    else:
-                        self._status(f"❌ push failed: {err[:60]}")
-                        self._log_event(f"push error: {err}")
-                    return
-                cues_n = result.get("cues", 0)
-                snaps_n = result.get("snapshots", 0)
-                blobs = push_snapshot_blobs(self.store, proj_index, remote)
-                self._sync_status = f"\u2b06 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
-                self._update_header()
-                await asyncio.sleep(0)
-                self._peer_reachable = True
+                err = result['error']
+                if 'pull first' in err.lower() or 'conflict' in err.lower():
+                    self._status(f"⚠️ conflict — press p to pull, then P to push")
+                    self._log_event(f"⚠️ {err} — press p to pull, then P to push")
+                else:
+                    self._status(f"❌ push failed: {err[:60]}")
+                    self._log_event(f"push error: {err}")
+                return
+            cues_n = result.get("cues", 0)
+            snaps_n = result.get("snapshots", 0)
+            blobs = push_snapshot_blobs(self.store, proj_index, remote)
+            self._sync_status = f"\u2b06 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+            self._update_header()
+            await asyncio.sleep(0)
+            self._peer_reachable = True
             self._last_sync = f"\u2b06 {time.strftime('%H:%M')}"
             self._update_header()
             asyncio.create_task(self._delayed_clear_sync())
             await asyncio.sleep(0)
             self._status(f"⬆ pushed: {len(self.cues)} cues, {len(self.snaps)} snaps")
-            self._log_event(f"⬆ pushed: {len(self.cues)} cues, {len(self.snaps)} snapshots")
+            self._log_event(f"⬆ pushed to {remote.name}: {len(self.cues)} cues, {len(self.snaps)} snapshots")
             self.set_timer(0.05, self._update_header)
         except Exception as e:
             self._sync_status = ""
@@ -2212,8 +2272,11 @@ class ClavusApp(App):
     def _update_footer_hint(self):
         """Context-aware hint: shows relevant keys for the focused pane."""
         hint = "? help"
+        # Remote picker mode
+        if self._remote_picker_active:
+            hint = "enter select  esc cancel  j/k navigate  ? help"
         # Project picker mode
-        if self._project_picker_active:
+        elif self._project_picker_active:
             hint = "enter select  esc cancel  j/k navigate  ? help"
         else:
             try:
@@ -2438,6 +2501,8 @@ class ClavusApp(App):
         return f"{days}d ago"
 
     def _render(self):
+        if self._project_picker_active or self._remote_picker_active:
+            return  # picker owns the ListView
         try:
             self._render_cues()
             self._render_history()

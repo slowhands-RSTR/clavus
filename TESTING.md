@@ -45,7 +45,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | T17 | `:` command mode → `:snapshot msg`, `:pull`, `:push` | ✅ 5/10 | 🔲 | |
 | T18 | `:project <name>` switch projects → cues/history reload | ✅ 5/10 | 🔲 | |
 | T19 | `:init <path>` from TUI → project loads | ✅ 5/10 | 🔲 | |
-| T20 | `:browse` navigation → `:init` from browser | 🔲 | 🔲 | |
+| ~~T20~~ | ~~`:browse`~~ | ~~removed~~ | ~~removed~~ | Scrapped — Finder paste + `:init` is faster |
 | T21 | Header dot: green ● (connected), yellow ○ (remote, no data), dim ○ (no remote) | ✅ 5/10 | 🔲 | |
 | T22 | Freeze detection warning on `S` | ✅ 5/10 | 🔲 | Soft warning added: ⚠️ N frozen tracks |
 | T23 | Long cue text / snapshot message → no truncation crash | ✅ 5/10 | 🔲 | Graceful cutoff |
@@ -59,7 +59,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | L2 | `clavus init <path>` → project created | ✅ 5/10 | 🔲 | |
 | L3 | `clavus tui` opens dashboard | ✅ 5/10 | 🔲 | ⧩ logo restored |
 | L4 | `clavus share` starts relay | ✅ 5/11 | 🔲 | Clean start, no port conflict, Tailscale URL |
-| L5 | `clavus join <url>` adds remote + pulls | 🔲 | 🔲 | |
+| L5 | `clavus join <url>` adds remote + pulls | ✅ 5/11 | 🔲 | 9 projects pulled with cues/snaps/samples |
 | L6 | `clavus find` discovers peers | ✅ 5/11 | 🔲 | No servers (expected), clean message |
 | L7 | `clavus remote add/list/remove` | ✅ 5/11 | 🔲 | List/add works |
 | L8 | `clavus push` / `clavus pull` | ✅ 5/11 | 🔲 | Cannot reach (expected), clean error |
@@ -105,6 +105,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | Date | Who | Platform | Tests run | Results |
 |------|-----|----------|-----------|---------|
 | 5/10/26 | Chris + Hermes | macOS | T1-T5, T8-T19, T21-T23, L2-L3, L12, P5 | 25+ ✅. Bugs fixed: assign/unassign fingerprint, missing Path import, 10-char hash → full_hash in diff, 📸→● emoji purge, ⧩ logo restored, inject→auto-snapshot, freeze soft warning, archive/delete prefill. Spinner animation fixed. |
+| 5/11/26 | Chris + Hermes | macOS | :projects picker, :remotes picker, L5 (join), E1 (no .als), L4 (share relay) | :projects j/k/enter switcher done. :remotes picker + per-project remote scoping. :browse scrapped — Finder paste + :init faster. :init now strips quotes/tilde/Finder paste. Push/pull uses single active remote per project. 7+ crashes fixed (debounce, fingerprint, stale index on pickers, sync_url compat). 43 total ✅. |
 
 ---
 

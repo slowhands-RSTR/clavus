@@ -69,7 +69,8 @@ class ClavusProject:
     head: Optional[str] = None  # Current snapshot hash
     description: str = ""  # Optional human-readable notes
     branch: str = "main"
-    sync_url: str = ""  # Remote sync address (for Phase 5+)
+    sync_url: str = ""  # Legacy — kept for backward compat with old indexes
+    active_remote: str = ""  # Selected remote for push/pull (by name)
 
 
 @dataclass
