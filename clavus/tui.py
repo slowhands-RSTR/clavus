@@ -509,7 +509,8 @@ class ClavusApp(App):
         elif cmd == "freeze":
             self._toggle_freeze()
         elif cmd == "pull-all":
-            self._run_pull_all()
+            import asyncio
+            asyncio.create_task(self._run_pull_all())
         elif cmd == "branch":
             self._run_branch(arg)
         elif cmd == "backup":
