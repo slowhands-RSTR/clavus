@@ -1674,25 +1674,42 @@ class ClavusApp(App):
             self._busy = False
             self._update_header()
 
-    @work(exclusive=False)
-    async def _run_pull_all(self):
-        """Pull ALL projects from the active remote."""
-        import asyncio, time
+    def _run_pull_all(self):
+        """Pull ALL projects from the active remote.
+        
+        Runs as async WITHOUT @work to avoid event loop timing issues on Windows.
+        """
+        asyncio.create_task(self._run_pull_all_async())
+
+    async def _run_pull_all_async(self):
+        import asyncio, time, logging, os
         from clavus.sync import load_remotes, pull_from_remote, pull_snapshot_blobs, SyncClient
         from clavus.store import ClavusProject
         
+        # File logging for debugging
+        log_dir = os.path.expanduser("~/.clavus")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "tui.log")
+        
+        def log(msg):
+            ts = time.strftime("%H:%M:%S")
+            line = f"[{ts}] {msg}\n"
+            with open(log_path, "a") as f:
+                f.write(line)
+        
         self._busy = True
-        # Hard debug — this MUST appear in footer
-        self._status("⬇ pull-all: starting...")
-        self._log_event("pull-all: START")
+        log("pull-all: STARTING")
+        self._log_event("pull-all: running...")
         msgs: list[str] = []
         try:
             remotes = load_remotes(self.store)
             if not self._peer_name:
+                log("ERROR: no remote configured")
                 self._show_sticky("❌ no remote — use :remotes to pick one")
                 return
             remote = next((r for r in remotes if r.name == self._peer_name), None)
             if not remote:
+                log(f"ERROR: remote {self._peer_name} not found in remotes list")
                 self._show_sticky(f"❌ remote '{self._peer_name}' not found")
                 return
             
@@ -1701,6 +1718,7 @@ class ClavusApp(App):
             r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
             if r is None or r.status_code != 200:
                 client.close()
+                log(f"ERROR: cannot reach {remote.name}: {err or (r.status_code if r else 'no response')}")
                 self._show_sticky(f"❌ cannot reach {remote.name}: {err or (r.status_code if r else 'no response')}")
                 return
             
@@ -1708,6 +1726,7 @@ class ClavusApp(App):
             client.close()
             self._log_event(f"pull-all: found {len(projects)} on relay")
             if not projects:
+                log("WARNING: no projects on relay")
                 self._show_sticky("⚠️ no projects on relay")
                 return
             
@@ -1765,6 +1784,7 @@ class ClavusApp(App):
             self._toast_timer = self.set_timer(30.0, lambda: self._restore_footer())
             self._log_event(f"pull-all: {summary}")
         except Exception as e:
+            log(f"EXCEPTION: {e}")
             self._show_sticky(f"❌ pull-all error: {e}")
             self._log_event(f"pull-all error: {e}")
         finally:
@@ -2491,22 +2511,22 @@ class ClavusApp(App):
         self._footer_toast(f"[{C['dim']}]{safe}[/]", 3.0)
 
     def _show_sticky(self, msg: str):
-        """Persistent error message — written directly to footer widget, no timers.
+        """Show a sticky error using Textual's notify system.
         
-        Bypasses the entire toast/timer system. Forces a refresh first to ensure
-        CSS changes (input-mode removal) have been applied and the widget is visible.
+        Bypasses the footer entirely — no CSS timing issues with input-mode.
         """
-        safe = msg.replace("[", "\\\\[").replace("]", "\\\\]")
-        self._sticky_error = msg
-        # Force CSS application — on Windows, remove_class("input-mode") may not
-        # have taken effect yet, leaving #footer-status as display:none
-        self.refresh()
+        self._sticky_error = msg  # keep for _update_footer compatibility
+        # File logging for debugging
+        import os
         try:
-            status = self.query_one("#footer-status", Static)
-            status.update(f"[{C['dim']}]{safe}[/]")
-            status.refresh()
-        except NoMatches:
+            log_dir = os.path.expanduser("~/.clavus")
+            os.makedirs(log_dir, exist_ok=True)
+            log_path = os.path.join(log_dir, "tui.log")
+            with open(log_path, "a") as lf:
+                lf.write(f"[{time.strftime('%H:%M:%S')}] _show_sticky: {msg}\n")
+        except Exception:
             pass
+        self.notify(msg, timeout=10.0, severity="warning")
 
     def _log_event(self, event: str):
         """Timestamped footer toast — auto-clears after 8s."""
@@ -2583,25 +2603,17 @@ class ClavusApp(App):
 
     def _update_footer(self):
         """Footer: project state — cues, snapshots. Sync activity lives in header."""
-        # Sticky error takes ABSOLUTE priority — check before toast guard
-        if self._sticky_error:
-            try:
-                status = self.query_one("#footer-status", Static)
-                status.update(f"[{C['dim']}]{self._sticky_error}[/]")
-            except NoMatches:
-                pass
-            return
-        
         # Don't clobber active toasts — _restore_footer will handle it when ready
         if hasattr(self, '_toast_timer') and self._toast_timer is not None:
-            if not isinstance(self._toast_timer, object().__class__):
-                toast_age = time.time() - getattr(self, '_toast_set_at', 0)
-                if toast_age > 60:
-                    self._toast_timer = None
-                else:
-                    return
-            else:
+            # Sticky error STILL takes priority even with active toast
+            if self._sticky_error:
+                try:
+                    status = self.query_one("#footer-status", Static)
+                    status.update(f"[{C['dim']}]{self._sticky_error}[/]")
+                except NoMatches:
+                    pass
                 return
+            return
         try:
             status = self.query_one("#footer-status", Static)
             if not self.project:
