@@ -31,7 +31,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | T3 | `S` snapshot + auto-push | ✅ 5/10 | ✅ 5/11 | |
 | T4 | `e` edit cue text → persists | ✅ 5/10 | ✅ 5/11 | |
 | T5 | `e` edit snapshot message → persists after reload | ✅ 5/10 | ✅ 5/11 | |
-| T6 | `!` resolve cue conflict (ConflictScreen modal) | 🔲 | 🔲 | |
+| T6 | `!` resolve cue conflict (ConflictScreen modal) | 🔲 | ✅ 5/11 | |
 | T7 | `!` resolve snapshot message conflict (SnapConflictScreen) | 🔲 | 🔲 | |
 | T8 | `o` open HEAD in Ableton | ✅ 5/10 | ✅ 5/11 | |
 | T9 | `o` from history pane → open selected snapshot | ✅ 5/10 | ✅ 5/11 | |
