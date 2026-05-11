@@ -846,12 +846,19 @@ def create_snapshot(message: str, allow_frozen: bool = True) -> tuple[Optional[s
                 return None, logs
 
     project = parse_als(als_path)
-    frozen_count = 0
-    try:
-        raw = als_path.read_bytes()
-        frozen_count = raw.count(b'<Freeze Value=\"true\"')
-    except Exception:
-        pass
+    # Detect frozen tracks: try parser's IsFrozen attribute first,
+    # then fall back to raw XML patterns (Ableton varies by version)
+    frozen_count = sum(1 for t in project.tracks if t.is_frozen) if project else 0
+    if not frozen_count:
+        try:
+            raw = als_path.read_bytes()
+            # Ableton encodes freeze state as <Freeze Value="true"/> or <Freeze>true</Freeze>
+            frozen_count = max(
+                raw.count(b'<Freeze Value=\"true\"'),
+                raw.count(b'<Freeze>true</Freeze>'),
+            )
+        except Exception:
+            pass
     if frozen_count:
         if not allow_frozen:
             logs.append(f"  ⚠️  {frozen_count} frozen track(s) — pass allow_frozen=True to skip")
@@ -916,12 +923,16 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
     project = parse_als(als_path)
 
     # Check for frozen tracks (cross-platform crash risk)
-    frozen_count = 0
-    try:
-        raw = als_path.read_bytes()
-        frozen_count = raw.count(b'<Freeze Value="true"')
-    except Exception:
-        pass
+    frozen_count = sum(1 for t in project.tracks if t.is_frozen) if project else 0
+    if not frozen_count:
+        try:
+            raw = als_path.read_bytes()
+            frozen_count = max(
+                raw.count(b'<Freeze Value=\"true\"'),
+                raw.count(b'<Freeze>true</Freeze>'),
+            )
+        except Exception:
+            pass
     if frozen_count:
         if args.allow_frozen:
             print(f"  ⚠️  {frozen_count} frozen track(s) — proceeding anyway (--allow-frozen)")
