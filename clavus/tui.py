@@ -568,7 +568,7 @@ class ClavusApp(App):
         msg = f"  switched to project [bold]{name}[/]  —  {len(self.cues)} cues, {len(self.snaps)} snapshots"
         try:
             lv = self.query_one("#clv", ListView)
-            lv.mount(Label(msg, classes="project-list"), before=0)
+            lv.mount(ListItem(Label(msg, classes="project-list")), before=0)
             self.set_timer(3.0, lambda: self._clear_project_list())
         except NoMatches:
             pass
