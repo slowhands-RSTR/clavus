@@ -71,6 +71,7 @@ class ClavusProject:
     branch: str = "main"
     sync_url: str = ""  # Legacy — kept for backward compat with old indexes
     active_remote: str = ""  # Selected remote for push/pull (by name)
+    last_remote_head: str = ""  # Relay HEAD last seen for THIS project (optimistic lock)
 
 
 @dataclass

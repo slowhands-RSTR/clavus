@@ -711,7 +711,7 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote, force:
         snap_data = _snapshots_to_dicts(store, proj)
         print(f"  📸 Pushing {len(snap_data)} snapshot(s)...")
         ok, conflict, relay_head = client.push_snapshots(proj.name, snap_data,
-                                              expected_parent=None if force else remote.last_head,
+                                              expected_parent=None if force else (proj.last_remote_head or remote.last_head),
                                               force=force)
         if snap_data:
             result["snapshots"] = len(snap_data) if ok else 0
@@ -720,6 +720,8 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote, force:
             # Auto-update last_head from relay's 409 response
             if relay_head:
                 remote.last_head = relay_head
+                proj.last_remote_head = relay_head
+                store.set_index(proj)
                 remotes = load_remotes(store)
                 for r in remotes:
                     if r.url.rstrip("/") == remote.url.rstrip("/"):
@@ -750,6 +752,8 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote, force:
 
         if ok:
             remote.last_head = proj.head
+            proj.last_remote_head = proj.head or ""
+            store.set_index(proj)
         remote.last_sync = time.time()
         # Save by reloading from disk and patching the matching remote
         remotes = load_remotes(store)
@@ -907,6 +911,8 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
 
         # last_head MUST track relay HEAD for optimistic lock, not local HEAD
         remote.last_head = relay_head if relay_head else proj.head
+        proj.last_remote_head = remote.last_head or ""
+        store.set_index(proj)
         remote.last_sync = time.time()
         # Save by reloading from disk and patching the matching remote
         remotes = load_remotes(store)
