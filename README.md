@@ -115,6 +115,7 @@ Rotating index backups run automatically before every write. Full daily backups 
 
 **v0.9 — First non-Ableton DAW**
 - Reaper adapter (`.rpp` — plain text, markers map directly to cue positions)
+- Max for Live integration (snapshot/push/pull from inside Ableton — no terminal switching)
 - DAW-agnostic project detection (no more hardcoded `.als` assumptions)
 - Linux end-to-end testing (Reaper + Bitwig both run natively)
 
