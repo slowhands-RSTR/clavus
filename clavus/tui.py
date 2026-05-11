@@ -495,7 +495,7 @@ class ClavusApp(App):
             self._run_remote(arg)
         elif cmd == "remotes":
             self._run_list_remotes()
-        elif cmd in ("pull", "push"):
+        elif cmd in ("pull", "push") and arg != "all":
             # :pull or :pull <project> — mirrors CLI behavior
             if arg:
                 import subprocess, sys
