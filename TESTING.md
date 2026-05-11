@@ -6,7 +6,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 
 | # | Test | Mac↔Win | Win↔Win | Mac↔Mac | Notes |
 |---|------|:---:|:---:|:---:|-------|
-| C1 | Push snapshots → peer pulls | 🔲 | 🔲 | 🔲 | |
+| C1 | Push snapshots → peer pulls | ✅ 5/11 | 🔲 | 🔲 | |
 | C2 | Peer pushes → you pull | 🔲 | 🔲 | 🔲 | |
 | C3 | Both edit same cue → push/pull → ⚠ appears | 🔲 | 🔲 | 🔲 | |
 | C4 | Resolve cue conflict with `!` → push → peer pulls resolved | 🔲 | 🔲 | 🔲 | |
@@ -113,6 +113,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | 5/11/26 | Chris + Hermes | macOS | :projects picker, :remotes picker, L5 (join), E1 (no .als), L4 (share relay) | :projects j/k/enter switcher done. :remotes picker + per-project remote scoping. :browse scrapped — Finder paste + :init faster. :init now strips quotes/tilde/Finder paste. Push/pull uses single active remote per project. 7+ crashes fixed (debounce, fingerprint, stale index on pickers, sync_url compat). 43 total ✅. |
 | 5/11/26 | Chris + Hermes | Windows | T1, T3, T12, T13, T15, T18, T25-T28, P1 | Windows TUI confirmed: c, S, p, P, j/k, :project, :projects, :remotes, :inject, :push! all working. Force push deadlock fixed — relay now updates HEAD on force push even when snapshots already exist. F binding removed, :push! is break-glass command-only. |
 | 5/11/26 eve | Chris + Hermes | Mac+Win | :pull-all, :push!, push conflict bugs | **:push! was never executing** — `async` without `@work`, same bug as :pull-all. Fixed. **Cross-project push conflicts** — `last_head` was per-remote global, switching projects caused 409. Fixed: `ClavusProject.last_remote_head`. **:pull-all error invisible on Windows** — 6 attempted fixes (30s timer, sentinel, _sticky_error, direct widget.write, forced refresh). Root cause appears to be CSS `display:none` still active when @work worker writes to #footer-status. Error text lands in hidden widget. Needs modal/log-file approach. 7 commits. |
+| 5/11/26 night | Chris + Hermes | Mac+Win | H1-H2 hardening, L1 pull regression, C1 collaboration | **Hardening branch tested.** --debug flag + errors.log confirmed working on macOS. **3 pull bugs found and fixed:** (1) Welcome screen showed on autoload — `_update_welcome()` ran before `_connect()`. (2) `o` command failed with "project not found" for pulled projects — `root_als=""` gate blocked it. (3) **Global HEAD ref blocked per-project heads** — `store.read_ref("HEAD")` compared against a single global ref, so only the newest-snapshotted project got its head set; 8/10 projects pulled empty. Fixed: `proj.head = relay_head` directly. Also: `_run_switch_project` now calls `_ensure_initial_snapshot()`, pulled projects get proper `root_als` path instead of `""`. 4 commits on hardening branch. |
 
 ---
 
