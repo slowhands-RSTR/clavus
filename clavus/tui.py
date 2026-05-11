@@ -509,8 +509,7 @@ class ClavusApp(App):
         elif cmd == "freeze":
             self._toggle_freeze()
         elif cmd == "pull-all":
-            import asyncio
-            asyncio.create_task(self._run_pull_all())
+            self._run_pull_all()
         elif cmd == "branch":
             self._run_branch(arg)
         elif cmd == "backup":
@@ -1674,7 +1673,7 @@ class ClavusApp(App):
             self._busy = False
             self._update_header()
 
-    @work
+    @work(exclusive=False)
     async def _run_pull_all(self):
         """Pull ALL projects from the active remote."""
         import asyncio, time
@@ -1682,6 +1681,9 @@ class ClavusApp(App):
         from clavus.store import ClavusProject
         
         self._busy = True
+        # Hard debug — this MUST appear in footer
+        self._status("⬇ pull-all: starting...")
+        self._log_event("pull-all: START")
         msgs: list[str] = []
         try:
             remotes = load_remotes(self.store)
