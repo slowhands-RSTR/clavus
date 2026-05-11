@@ -27,7 +27,7 @@ clavus tui
 ### Solo (no relay needed)
 Just you, your `.als`, and the TUI. Snapshots, cues, diffs, and restores all work locally. Great for version control and leaving yourself notes.
 
-### Collaborating (one person shares, everyone else joins)
+### Collaborating (one person hosts, everyone else joins)
 
 ```
 ┌─────────┐                    ┌───────────────┐                    ┌─────────┐
@@ -36,22 +36,78 @@ Just you, your `.als`, and the TUI. Snapshots, cues, diffs, and restores all wor
 └─────────┘                    └───────────────┘                    └─────────┘
 ```
 
-One person runs `clavus share` — that machine becomes the relay. It can be anyone's Mac, Windows, or Linux box. **Share blocks the terminal** (it runs until you stop it), so use a dedicated terminal or run it in the background. Both people push and pull through it. The relay is dumb — it just stores what's pushed. No cloud, no dedicated server.
+Clavus uses **Tailscale** for the private network between machines. The relay machine runs `clavus share` plus a `tailscale serve` proxy — everyone else joins via a MagicDNS URL.
 
-**The rhythm (relay host):**
-1. `clavus share` — starts the relay in a dedicated terminal, prints the URL
-2. Open a second terminal: `clavus tui` — your dashboard
-3. Press `C` to snapshot after changes in Ableton
-4. Press `P` to push
+**⚠️ Important: Tailscale doesn't automatically let shared users reach your machine.**
 
-**The rhythm (everyone else):**
-1. `clavus join http://<host-ip>:7890` then `clavus pull`
-2. `clavus tui` — open the dashboard
-3. Press `p` — pull the latest cues and snapshots
-4. Work in Ableton, save your project
-5. Press `C` — snapshot your changes with a message
-6. Press `P` — push to share your work
-7. Repeat 3-6
+When a collaborator is on a *different Tailscale account*, you must:
+1. **Share your node** from the [Tailscale admin console](https://login.tailscale.com/admin/machines) — click "Share" next to your machine, enter their email
+2. **They must accept** the invite (email + Tailscale app)
+3. **Use the MagicDNS URL, never the raw IP** — raw Tailscale IPs (like `100.x.x.x`) only work for machines on the *same* account. Shared users get blocked by Tailscale ACLs on raw TCP
+
+#### Setup (relay host — do this once)
+
+```bash
+# 1. Install Tailscale: https://tailscale.com/download
+#    Verify: tailscale ip -4
+
+# 2. Start the relay on port 7891 (so tailscale serve can use 7890)
+clavus share --port 7891 &
+
+# 3. Start the Tailscale HTTP proxy (magic step — raw IP won't work)
+tailscale serve --bg --http 7890 http://localhost:7891
+
+# 4. Verify
+tailscale serve status
+# → http://slow-hands-studio-1.tail46b8d9.ts.net:7890
+curl http://slow-hands-studio-1.tail46b8d9.ts.net:7890/api/ping
+# → {"status":"ok","app":"clavus-web","version":"0.2.0"}
+
+# 5. Share your node from the admin console
+#    https://login.tailscale.com/admin/machines → your machine → Share...
+```
+
+**After reboot,** re-run step 3 (`tailscale serve --bg ...`). The relay auto-starts with `clavus share`, but `tailscale serve` doesn't survive restarts.
+
+#### Setup (everyone else — do this once)
+
+```bash
+# 1. Install Tailscale, accept the node-share invite
+
+# 2. Clone + install Clavus (see Quick Start above)
+
+# 3. Join the relay — use the MagicDNS URL the host gave you
+clavus join http://<magicdns-url>:7890
+# Example: clavus join http://slow-hands-studio-1.tail46b8d9.ts.net:7890
+
+clavus pull
+clavus tui
+```
+
+**❌ Do NOT use** `http://100.127.1.109:7890` (raw IP) or `http://localhost:7890`. These only work for the host machine itself. Shared users **must use the MagicDNS URL**.
+
+#### Daily rhythm
+
+**Relay host:**
+1. `clavus share --port 7891 &` and `tailscale serve --bg --http 7890 http://localhost:7891` (if not already running)
+2. `clavus tui` in a second terminal
+3. Work in Ableton → `C` to snapshot → `P` to push
+
+**Everyone else:**
+1. `clavus tui` — open dashboard
+2. `p` — pull latest
+3. Work in Ableton → `C` to snapshot → `P` to push
+
+#### How Tailscale networking actually works
+
+| Connection | Same account? | Shared user? |
+|-----------|:---:|:---:|
+| Raw Tailscale IP (`100.x.x.x:7890`) | ✅ Works | ❌ **Blocked by ACLs** |
+| MagicDNS (`machine-name.tailxxxx.ts.net:7890`) via `tailscale serve --http` | ✅ Works | ✅ **Works (HTTP serve auto-allows)** |
+
+`tailscale serve --http` acts as a reverse proxy that handles ACLs for shared users. Without it, shared users can ping your machine but can't open TCP connections to your ports. This is by design — Tailscale defaults to deny for cross-account traffic.
+
+For full details: `references/tailscale-serve-relay.md` in the repo.
 
 ## Why It's Safe
 
@@ -73,41 +129,37 @@ Send this to anyone joining your project:
 # Python 3.10+
 winget install Python.Python.3.13      # Windows
 brew install python@3.13               # macOS
-
-# Git
-winget install Git.Git                 # Windows (macOS: pre-installed)
 ```
 
-**2. Install Tailscale** — creates a private network between machines
+**2. Install Tailscale**
 - Download from https://tailscale.com/download
-- After install: `tailscale ip -4` — save this, you'll need to share it
+- The host will share their machine with you — accept the invite
 
-**3. Install Clavus**
+**3. Install Clavus + join**
 ```bash
 git clone https://github.com/castle-queenside/clavus
 cd clavus
 pip install -e .            # macOS / Linux
 py -m pip install -e .      # Windows (if pip isn't on PATH)
 clavus setup
-```
 
-**4. Connect to the project** — the host gives you their Tailscale IP + port
+# Join the relay — use the MagicDNS URL the host gave you
+# ❌ Do NOT use the raw Tailscale IP (100.x.x.x) — that only works
+#    for same-account machines. Shared users MUST use the MagicDNS URL.
+clavus join http://<magicdns-url>:7890
+# Example: clavus join http://slow-hands-studio-1.tail46b8d9.ts.net:7890
 
-```bash
-clavus join http://<host-tailscale-ip>:7890
 clavus pull
 clavus tui
 ```
 
 Projects land at `~/Clavus/Projects/` (macOS) or `C:\Users\<you>\Clavus\Projects\` (Windows).
 
-**5. Each session:**
-```bash
-clavus tui     # open dashboard
-p              # pull latest
-C              # snapshot after changes
-P              # push
-```
+**4. Share your node back** (so the host can reach you)
+- https://login.tailscale.com/admin/machines → your machine → Share → host's email
+- This makes your project folders accessible for stem transfer
+
+See the **Collaborating** section above for full relay setup and daily workflow.
 
 ## Keybindings (TUI)
 
