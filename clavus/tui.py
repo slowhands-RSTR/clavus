@@ -931,8 +931,6 @@ class ClavusApp(App):
                 self._sync_status = "📸 snap ✓"
                 status_text = "📸 snap ✓"
                 asyncio.create_task(self._delayed_clear_snapshot_status(status_text))
-                # Write directly to footer + log for visibility
-                self._footer_direct(f"📸 {snap_hash[:10]} — '{message}'")
                 self._log_event(f"📸 {snap_hash[:10]} — '{message}'")
             else:
                 # Surface the actual reason — show in header AND footer with longer timeout
@@ -948,12 +946,10 @@ class ClavusApp(App):
                         reason = ".als missing — open & save in Ableton first"
                         break
                 self._sync_status = f"📸 skipped: {reason}"
-                self._footer_direct(f"📸 skipped: {reason}")
                 self._log_event(f"📸 skipped: {reason}")
                 asyncio.create_task(self._delayed_clear_snapshot_status(self._sync_status))
         except Exception as e:
             self._sync_status = "📸 error"
-            self._footer_direct(f"📸 error: {e}")
             self._log_event(f"snapshot error: {e}")
             asyncio.create_task(self._delayed_clear_snapshot_status("📸 error"))
         # Auto-push snapshot to relay if connected (debounced to avoid flooding)
@@ -2097,15 +2093,6 @@ class ClavusApp(App):
         if hasattr(self, "_toast_timer") and self._toast_timer is not None:
             self._toast_timer.stop()
         self._toast_timer = self.set_timer(duration, lambda: self._update_footer())
-
-    def _footer_direct(self, msg: str):
-        """Write directly to footer stats widget — no timer, no auto-restore.
-        Used when timer-based toasts fail inside @work workers."""
-        w = self._footer_stats
-        if w is not None:
-            safe = msg.replace("[", "\\[").replace("]", "\\]")
-            w.update(f"[{C['dim']}]{safe}[/]")
-            w.refresh()
 
     def _status(self, msg: str):
         """Short footer toast — auto-clears after 3s."""
