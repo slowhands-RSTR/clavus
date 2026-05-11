@@ -510,6 +510,15 @@ class ClavusApp(App):
         elif cmd == "freeze":
             self._toggle_freeze()
         elif cmd == "pull-all":
+            # Immediate file write to prove command was received
+            import os, time
+            log_path = os.path.join(os.path.expanduser("~/.clavus"), "tui.log")
+            try:
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, "a") as lf:
+                    lf.write(f"[{time.strftime('%H:%M:%S')}] _do_command: pull-all received\n")
+            except Exception:
+                pass
             self._run_pull_all()
         elif cmd == "branch":
             self._run_branch(arg)
