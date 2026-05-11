@@ -1694,12 +1694,14 @@ class ClavusApp(App):
             
             client = SyncClient(remote.url)
             r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
-            client.close()
             if r is None or r.status_code != 200:
+                client.close()
                 self._status(f"\u274c cannot reach {remote.name}")
                 return
             
             projects = r.json().get("projects", [])
+            client.close()
+            self._log_event(f"pull-all: relay has {len(projects)} project(s): {[p['name'] for p in projects]}")
             if not projects:
                 self._status("\u26a0 no projects on relay")
                 return
