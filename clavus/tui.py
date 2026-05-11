@@ -560,9 +560,9 @@ class ClavusApp(App):
         self._peer_reachable = False
         if self._peer_name:
             self._probe_reachability()
+        self.idx = 0  # reset cursor before loading
         self._load_cues_from_disk()
         self._load_snapshots_from_disk()
-        self.idx = 0
         self._update_header()
         self._render()
         self._update_footer()
@@ -1884,7 +1884,7 @@ class ClavusApp(App):
         active_cues = [c for c in all_cues if c.status != "archived"]
         self._log_event(f"_load_cues: {len(active_cues)} active cue(s) + {self._archived_count} archived from {cue_store.cues_dir}")
         self.cues = self._sort_cues(active_cues)
-        self.idx = min(self.idx, len(self.cues) - 1) if self.cues else 0
+        self.idx = min(self.idx or 0, len(self.cues) - 1) if self.cues else 0
         self._cue_fingerprint = None  # invalidate render cache
 
     def _load_snapshots_from_disk(self):
