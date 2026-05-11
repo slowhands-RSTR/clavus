@@ -239,6 +239,7 @@ class ClavusApp(App):
         self._spinner_timer = None     # Timer handle for spinner animation
         self._peer_name: str = ""     # remote name (e.g. "mac")
         self._peer_reachable: bool = False
+        self._allow_frozen: bool = True  # :freeze toggle
         self._archived_count: int = 0  # cues with status="archived" (hidden from list)
         _cfg = ClavusConfig.load()
         self.author = _cfg.author
@@ -505,6 +506,8 @@ class ClavusApp(App):
                 self.action_pull() if cmd == "pull" else self.action_push()
         elif cmd == "push!":
             self.action_force_push()
+        elif cmd == "freeze":
+            self._toggle_freeze()
         elif cmd == "branch":
             self._run_branch(arg)
         elif cmd == "backup":
@@ -1042,23 +1045,31 @@ class ClavusApp(App):
         snap_hash = None
         try:
             from clavus.cli import create_snapshot
-            snap_hash, logs = create_snapshot(message, allow_frozen=True)
+            snap_hash, logs = create_snapshot(message, allow_frozen=self._allow_frozen)
             for line in logs:
                 self._log_event(line)
             if snap_hash:
-                self._sync_status = "● snap ✓"
-                status_text = "● snap ✓"
+                frozen_warned = any("frozen" in line for line in logs)
+                if frozen_warned:
+                    self._sync_status = "● snap ✓ (⚠ frozen)"
+                    self._log_event(f"● {snap_hash[:10]} — '{message}' (⚠ frozen tracks)")
+                else:
+                    self._sync_status = "● snap ✓"
+                    self._log_event(f"● {snap_hash[:10]} — '{message}'")
+                status_text = self._sync_status
                 asyncio.create_task(self._delayed_clear_snapshot_status(status_text))
-                self._log_event(f"● {snap_hash[:10]} — '{message}'")
             else:
-                # Surface the actual reason — show in header AND footer with longer timeout
+                # Surface the actual reason
                 reason = "no changes or error"
                 for line in logs:
                     if "No changes" in line:
                         reason = "no changes — save project first"
                         break
+                    elif "frozen" in line and "pass allow_frozen" in line:
+                        reason = "frozen tracks — :freeze to allow"
+                        break
                     elif "frozen" in line:
-                        reason = "frozen tracks — unfreeze first"
+                        reason = "frozen tracks (warning only — saved anyway?)"
                         break
                     elif ".als file not found" in line:
                         reason = ".als missing — open & save in Ableton first"
@@ -1682,6 +1693,16 @@ class ClavusApp(App):
             self._busy = False
             self._update_header()
             self.refresh()
+
+    def _toggle_freeze(self):
+        """Toggle frozen-track snapshot behavior: warn vs block."""
+        self._allow_frozen = not self._allow_frozen
+        if self._allow_frozen:
+            self._status("● freeze: warn (snapshots allowed)")
+            self._log_event(":freeze → warn mode — frozen snapshots allowed with warning")
+        else:
+            self._status("● freeze: block (unfreeze first)")
+            self._log_event(":freeze → block mode — frozen snapshots rejected")
 
     @work(exclusive=True)
     async def action_stem_push(self):
