@@ -522,9 +522,9 @@ class ClavusApp(App):
         except NoMatches:
             pass
 
-    @work(exclusive=False)
     async def _run_init_project(self, path: str):
-        """Import a project from a filesystem path — background worker so UI stays alive."""
+        """Import a project from a filesystem path — blocking I/O offloaded to thread."""
+        import asyncio
         # Defensive: strip quotes that may have leaked through
         if path and len(path) >= 2 and path[0] in ('"', "'") and path[0] == path[-1]:
             path = path[1:-1]
@@ -533,7 +533,8 @@ class ClavusApp(App):
         self._status(f"importing {path}...")
         try:
             from clavus.cli import init_project
-            name, logs = init_project(path)
+            # Offload blocking file I/O to thread so spinner animates
+            name, logs = await asyncio.to_thread(init_project, path)
             for line in logs:
                 self._log_event(line)
             if name is None:
