@@ -247,6 +247,7 @@ class ClavusApp(App):
         self._cue_store = None  # Lazy init per project
         self._header_title: Optional[Static] = None
         self._footer_stats: Optional[Static] = None
+        self._sticky_error: str = ""  # persistent error shown in footer
 
     def _load_config(self) -> str:
         from clavus.config import ClavusConfig
@@ -1747,6 +1748,7 @@ class ClavusApp(App):
                 await asyncio.sleep(0.3)
             
             # Show summary with a long-duration toast (30s) — auto-clears naturally
+            self._sticky_error = ""  # clear any previous sticky
             summary = " · ".join(msgs[:5])
             if len(msgs) > 5:
                 summary += f" · +{len(msgs)-5} more"
@@ -2464,6 +2466,7 @@ class ClavusApp(App):
 
     def _footer_toast(self, msg: str, duration: float = 4.0):
         """Write to footer, auto-restore project info after duration seconds."""
+        self._sticky_error = ""  # clear any sticky error
         w = self._footer_stats
         if w is not None:
             w.update(msg)
@@ -2488,26 +2491,12 @@ class ClavusApp(App):
         self._footer_toast(f"[{C['dim']}]{safe}[/]", 3.0)
 
     def _show_sticky(self, msg: str):
-        """Sticky footer message — persists until next user action triggers a toast.
+        """Persistent error message — cleared by any subsequent _status() call.
         
-        Does NOT use set_timer (broken in @work workers). The message stays until
-        the next _status/_footer_toast call naturally replaces it with a real timer.
+        Avoids the toast/timer system entirely (set_timer unreliable in workers).
+        _update_footer() checks _sticky_error and displays it directly.
         """
-        safe = msg.replace("[", "\\\\[").replace("]", "\\\\]")
-        w = self._footer_stats
-        if w is not None:
-            w.update(f"[{C['dim']}]{safe}[/]")
-            w.refresh()
-        # Cancel any pending timer
-        if hasattr(self, '_toast_timer') and self._toast_timer is not None:
-            try:
-                self._toast_timer.stop()
-            except AttributeError:
-                pass
-        # Sentinels block _update_footer() without a timer that can fire — 
-        # next _footer_toast() call replaces it with a real timer. Won't permanently stick.
-        self._toast_timer = object()
-        self._toast_set_at = time.time()
+        self._sticky_error = msg
 
     def _log_event(self, event: str):
         """Timestamped footer toast — auto-clears after 8s."""
@@ -2586,8 +2575,6 @@ class ClavusApp(App):
         """Footer: project state — cues, snapshots. Sync activity lives in header."""
         # Don't clobber active toasts — _restore_footer will handle it when ready
         if hasattr(self, '_toast_timer') and self._toast_timer is not None:
-            # Only auto-clear real timers stuck > 60s (set_timer bug in workers)
-            # Sentinels (object()) intentionally block — cleared by next _footer_toast call
             if not isinstance(self._toast_timer, object().__class__):
                 toast_age = time.time() - getattr(self, '_toast_set_at', 0)
                 if toast_age > 60:
@@ -2595,7 +2582,16 @@ class ClavusApp(App):
                 else:
                     return
             else:
-                return  # sentinel: intentional block, don't clear
+                return
+        
+        # Sticky error takes priority over normal footer
+        if self._sticky_error:
+            try:
+                status = self.query_one("#footer-status", Static)
+                status.update(f"[{C['dim']}]{self._sticky_error}[/]")
+            except NoMatches:
+                pass
+            return
         try:
             status = self.query_one("#footer-status", Static)
             if not self.project:
