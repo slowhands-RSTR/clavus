@@ -1688,11 +1688,11 @@ class ClavusApp(App):
         try:
             remotes = load_remotes(self.store)
             if not self._peer_name:
-                self._status("❌ no remote — use :remotes")
+                self._show_sticky("❌ no remote — use :remotes to pick one")
                 return
             remote = next((r for r in remotes if r.name == self._peer_name), None)
             if not remote:
-                self._status(f"❌ remote '{self._peer_name}' not found")
+                self._show_sticky(f"❌ remote '{self._peer_name}' not found")
                 return
             
             self._status(f"⬇ probing {remote.name} for projects...")
@@ -1700,14 +1700,14 @@ class ClavusApp(App):
             r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
             if r is None or r.status_code != 200:
                 client.close()
-                self._status(f"❌ cannot reach {remote.name}: {err or r.status_code if r else 'no response'}")
+                self._show_sticky(f"❌ cannot reach {remote.name}: {err or (r.status_code if r else 'no response')}")
                 return
             
             projects = r.json().get("projects", [])
             client.close()
             self._log_event(f"pull-all: found {len(projects)} on relay")
             if not projects:
-                self._status("⚠️ no projects on relay")
+                self._show_sticky("⚠️ no projects on relay")
                 return
             
             for i, pdata in enumerate(projects):
@@ -1763,7 +1763,7 @@ class ClavusApp(App):
             self._toast_timer = self.set_timer(30.0, lambda: self._restore_footer())
             self._log_event(f"pull-all: {summary}")
         except Exception as e:
-            self._status(f"❌ pull-all error: {e}")
+            self._show_sticky(f"❌ pull-all error: {e}")
             self._log_event(f"pull-all error: {e}")
         finally:
             self._busy = False
@@ -1781,6 +1781,7 @@ class ClavusApp(App):
             self._update_header()
             self.refresh()
 
+    @work
     async def action_force_push(self):
         """Force push — skip optimistic lock, overwrite relay state."""
         self._busy = True
@@ -2483,8 +2484,13 @@ class ClavusApp(App):
 
     def _status(self, msg: str):
         """Short footer toast — auto-clears after 3s."""
-        safe = msg.replace("[", "\\[").replace("]", "\\]")
+        safe = msg.replace("[", "\\\\[").replace("]", "\\\\]")
         self._footer_toast(f"[{C['dim']}]{safe}[/]", 3.0)
+
+    def _show_sticky(self, msg: str):
+        """Sticky footer message — 30s, readable."""
+        safe = msg.replace("[", "\\\\[").replace("]", "\\\\]")
+        self._footer_toast(f"[{C['dim']}]{safe}[/]", 30.0)
 
     def _log_event(self, event: str):
         """Timestamped footer toast — auto-clears after 8s."""
