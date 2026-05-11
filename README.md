@@ -22,22 +22,40 @@ Just you, your project, and the TUI. Snapshots, cues, diffs, and restores all wo
 
 ### Collaborate
 
+Two ways to sync — pick what fits your workflow.
+
+#### Direct P2P (two people, same session)
+
 ```
-┌─────────┐                    ┌───────────────┐                    ┌─────────┐
-│   You   │ ◄── push/pull ───► │     Relay     │ ◄── push/pull ───► │  Peer   │
-│  (Mac)  │   via Tailscale    │(any machine)  │   via Tailscale    │  (Win)  │
-└─────────┘                    └───────────────┘                    └─────────┘
+┌──────────┐                      ┌──────────┐
+│   You    │ ◄── push/pull ─────► │   Peer   │
+│  share   │    via Tailscale     │  share   │
+└──────────┘                      └──────────┘
 ```
 
-One machine runs the relay. Everyone pushes and pulls through it. The relay is dumb — just stores what's pushed. No cloud, no dedicated server.
+Both machines run `clavus share`. Each discovers the other and pushes/pulls directly. No relay machine, nobody has to be "the host." Both need to be online at the same time.
 
-**⚠️ Cross-account collaborators (different Tailscale accounts) require three things:**
+```bash
+# Both people do this:
+clavus share &                                       # each runs their own relay
+clavus find --tailscale                              # discover each other
+clavus remote add <their-name> http://<their-url>    # add each other
+clavus tui                                           # work + C + P as usual
+```
 
-1. **Share your machine** from [admin.tailscale.com](https://login.tailscale.com/admin/machines) → your machine → Share → their email
-2. **They must accept** the invite
-3. **Use MagicDNS, not raw IP** — `100.x.x.x` only works same-account. Shared users get blocked on raw TCP
+**⚠️ Cross-account?** Share machines + use MagicDNS (see Tailscale note below).
 
-**Host setup (do once):**
+#### Shared relay (any number, async)
+
+```
+┌─────────┐              ┌──────────────┐              ┌─────────┐
+│   You   │ ◄── push ──► │    Relay     │ ◄── push ──► │  Peer   │
+└─────────┘              └──────────────┘              └─────────┘
+```
+
+One machine runs the relay. Everyone else joins. The relay stores everything — people can push and pull at different times. Good for 3+ people or when not everyone is online at once. No cloud, no dedicated server — the relay is just someone's machine.
+
+**Relay host (do once):**
 ```bash
 clavus share --port 7891 &                              # start relay
 tailscale serve --bg --http 7890 http://localhost:7891   # HTTP proxy for cross-account
@@ -52,7 +70,16 @@ clavus pull
 clavus tui
 ```
 
-**Daily:** `p` to pull, work in your DAW, `C` to snapshot, `P` to push.  
+**Daily (both modes):** `p` to pull, work in your DAW, `C` to snapshot, `P` to push.
+
+#### Tailscale note (cross-account)
+
+If you and your collaborator use different Tailscale accounts:
+
+1. **Share your machine** from [admin.tailscale.com](https://login.tailscale.com/admin/machines) → your machine → Share → their email
+2. **They must accept** the invite
+3. **Use MagicDNS, not raw IP** — `100.x.x.x` only works same-account. Shared users get blocked on raw TCP
+
 Full networking details: `references/tailscale-serve-relay.md`
 
 ## Features
