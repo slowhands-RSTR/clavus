@@ -61,20 +61,20 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | # | Test | macOS | Windows | Notes |
 |---|------|:---:|:---:|-------|
 | L1 | `clavus setup` wizard | ✅ 5/11 | ✅ 5/11 | |
-| L2 | `clavus init <path>` → project created | ✅ 5/10 | 🔲 | |
+| L2 | `clavus init <path>` → project created | ✅ 5/10 | ✅ 5/11 | |
 | L3 | `clavus tui` opens dashboard | ✅ 5/10 | ✅ 5/11 | ⧩ logo restored |
 | L4 | `clavus share` starts relay | ✅ 5/11 | ✅ 5/11 | Clean start, no port conflict, Tailscale URL |
-| L5 | `clavus join <url>` adds remote + pulls | ✅ 5/11 | 🔲 | 9 projects pulled with cues/snaps/samples |
-| L6 | `clavus find` discovers peers | ✅ 5/11 | 🔲 | No servers (expected), clean message |
-| L7 | `clavus remote add/list/remove` | ✅ 5/11 | 🔲 | List/add works |
+| L5 | `clavus join <url>` adds remote + pulls | ✅ 5/11 | ✅ 5/11 | 9 projects pulled with cues/snaps/samples |
+| L6 | `clavus find` discovers peers | ✅ 5/11 | ✅ 5/11 | No servers (expected), clean message |
+| L7 | `clavus remote add/list/remove` | ✅ 5/11 | ✅ 5/11 | List/add/remove works |
 | L8 | `clavus push` / `clavus pull` | ✅ 5/11 | ✅ 5/11 | |
-| L9 | `clavus snapshot "msg"` | ✅ 5/11 | 🔲 | No-change detection works |
-| L10 | `clavus backup` → `clavus backups` → `clavus restore-store` | ✅ 5/11 | 🔲 | 4 backups, 182MB latest |
+| L9 | `clavus snapshot "msg"` | ✅ 5/11 | ✅ 5/11 | No-change detection works |
+| L10 | `clavus backup` → `clavus backups` → `clavus restore-store` | ✅ 5/11 | ✅ 5/11 | 4 backups, 182MB latest |
 | L11 | `clavus repair` fixes corrupted index | ✅ 5/11 | ✅ 5/11 | |
 | L12 | `clavus doctor` health check | ✅ 5/11 | ✅ 5/11 | |
 | L13 | `clavus stem import/push/pull/list` | ✅ 5/11 | 🔲 | Import, list, push all ✅ |
 | L14 | `clavus open` launches Ableton with HEAD | ✅ 5/11 | ✅ 5/11 | |
-| L15 | `clavus restore <hash>` restores snapshot | ✅ 5/11 | 🔲 | Restore from hash + HEAD both ✅ |
+| L15 | `clavus restore <hash>` restores snapshot | ✅ 5/11 | ✅ 5/11 | Restore from hash + HEAD both ✅ |
 
 ## Edge Cases & Error Handling
 
