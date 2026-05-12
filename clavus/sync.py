@@ -285,27 +285,46 @@ def push_snapshot_blobs(
                 break
             current = snap.parent
 
-        # Check which content blobs the remote is missing
-        all_content_hashes = content_hashes
-        print(f"    Checking {len(all_content_hashes)} content blob(s)...")
+        # ── Check all blob types in ONE call (was 3 sequential calls) ──
+        all_hashes = content_hashes + als_hashes + sample_hashes_list
+        cat_map = {}  # hash → category for splitting results
+        for h in content_hashes:
+            cat_map[h] = "content"
+        for h in als_hashes:
+            cat_map[h] = "als"
+        for h in sample_hashes_list:
+            cat_map[h] = "sample"
+
+        total_blobs = len(all_hashes)
+        if total_blobs:
+            print(f"    Checking {total_blobs} blob(s) ({len(content_hashes)} content, {len(als_hashes)} .als, {len(sample_hashes_list)} audio)...")
+        else:
+            print(f"    No blobs to check")
+            return 0
+
+        missing_all = []
         try:
             r = client.client.post(
                 f"{remote.url}/api/sync/check-blobs",
-                json={"hashes": all_content_hashes},
+                json={"hashes": all_hashes},
                 timeout=30,
             )
             if r.status_code == 200:
-                missing = r.json().get("missing", [])
+                missing_all = r.json().get("missing", [])
             else:
-                missing = all_content_hashes
+                missing_all = all_hashes
         except Exception:
-            missing = all_content_hashes
+            missing_all = all_hashes
 
-        # Upload missing content blobs in batches
-        if missing:
-            print(f"    Uploading {len(missing)} content blob(s)...")
-            for i in range(0, len(missing), BATCH_SIZE):
-                batch = missing[i:i + BATCH_SIZE]
+        # Split missing back into categories
+        missing_content = [h for h in missing_all if cat_map.get(h) == "content"]
+        missing_als = [h for h in missing_all if cat_map.get(h) == "als"]
+        missing_samples = [h for h in missing_all if cat_map.get(h) == "sample"]
+
+        if missing_content:
+            print(f"    Uploading {len(missing_content)} content blob(s)...")
+            for i in range(0, len(missing_content), BATCH_SIZE):
+                batch = missing_content[i:i + BATCH_SIZE]
                 upload_batch = []
                 for h in batch:
                     data = store.get_object(h)
@@ -327,84 +346,49 @@ def push_snapshot_blobs(
                     except Exception:
                         pass
 
-        # Check which .als backup blobs are missing
-        if als_hashes:
-            print(f"    Checking {len(als_hashes)} .als backup(s)...")
-            try:
-                r = client.client.post(
-                    f"{remote.url}/api/sync/check-blobs",
-                    json={"hashes": als_hashes},
-                    timeout=30,
-                )
-                if r.status_code == 200:
-                    missing_als = r.json().get("missing", [])
-                else:
-                    missing_als = als_hashes
-            except Exception:
-                missing_als = als_hashes
+        if missing_als:
+            print(f"    Uploading {len(missing_als)} .als backup(s)...")
+            for i in range(0, len(missing_als), BATCH_SIZE):
+                batch = missing_als[i:i + BATCH_SIZE]
+                upload_batch = []
+                for h in batch:
+                    data = store.get_object(h)
+                    if data:
+                        upload_batch.append({
+                            "hash": h,
+                            "data": base64.b64encode(data).decode("ascii"),
+                        })
 
-            if missing_als:
-                print(f"    Uploading {len(missing_als)} .als backup(s)...")
-                for i in range(0, len(missing_als), BATCH_SIZE):
-                    batch = missing_als[i:i + BATCH_SIZE]
-                    upload_batch = []
-                    for h in batch:
-                        data = store.get_object(h)
-                        if data:
-                            upload_batch.append({
-                                "hash": h,
-                                "data": base64.b64encode(data).decode("ascii"),
-                            })
+                if upload_batch:
+                    try:
+                        r = client.client.post(
+                            f"{remote.url}/api/sync/push-als-blobs",
+                            json=upload_batch,
+                            timeout=120,
+                        )
+                        if r.status_code == 200:
+                            count += len(upload_batch)
+                    except Exception:
+                        pass
 
-                    if upload_batch:
-                        try:
-                            r = client.client.post(
-                                f"{remote.url}/api/sync/push-als-blobs",
-                                json=upload_batch,
-                                timeout=120,
-                            )
-                        except Exception as e:
-                            print(f"    ⚠️  .als upload failed ({len(upload_batch)} blob(s)): {e}")
-
-        # Check which sample blobs the remote is missing
-        if sample_hashes_list:
-            print(f"    Checking {len(sample_hashes_list)} audio sample(s)...")
-            try:
-                r = client.client.post(
-                    f"{remote.url}/api/sync/check-blobs",
-                    json={"hashes": sample_hashes_list},
-                    timeout=30,
-                )
-                if r.status_code == 200:
-                    missing_samples = r.json().get("missing", [])
-                else:
-                    missing_samples = sample_hashes_list
-            except Exception:
-                missing_samples = sample_hashes_list
-
-            if missing_samples:
-                print(f"    Uploading {len(missing_samples)} audio sample(s)...")
-                for i in range(0, len(missing_samples), BATCH_SIZE):
-                    batch = missing_samples[i:i + BATCH_SIZE]
-                    upload_batch = []
-                    for h in batch:
-                        data = store.get_object(h)
-                        if data:
-                            upload_batch.append({
-                                "hash": h,
-                                "data": base64.b64encode(data).decode("ascii"),
-                            })
-                    if upload_batch:
-                        try:
-                            r = client.client.post(
-                                f"{remote.url}/api/sync/push-blobs",
-                                json=upload_batch,
-                                timeout=120,
-                            )
-                            if r.status_code == 200:
-                                count += len(upload_batch)
-                        except Exception:
-                            pass
+        if missing_samples:
+            print(f"    Uploading {len(missing_samples)} audio sample(s)...")
+            from clavus.sync import push_stems_to_remote
+            from clavus.stems import StemStore
+            stem_store = StemStore(proj.name, store)
+            for sh in missing_samples:
+                data = store.get_object(sh)
+                if data:
+                    try:
+                        r = client.client.post(
+                            f"{remote.url}/api/sync/push-blobs",
+                            json=[{"hash": sh, "data": base64.b64encode(data).decode("ascii")}],
+                            timeout=120,
+                        )
+                        if r.status_code == 200:
+                            count += 1
+                    except Exception:
+                        pass
 
             # Also push sample filename metadata
             if missing_samples:
