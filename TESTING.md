@@ -16,11 +16,11 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | C8 | Peer pushes snap → you `T` restore → .als lands correctly | ✅ 5/11 | 🔲 | 🔲 | Restore works; Suite/Intro .als mismatch is Ableton-side |
 | C9 | Stem import → push → peer pulls → WAV appears | 🔲 | 🔲 | 🔲 | |
 | C10 | Stem push/pull dedup (same WAV doesn't transfer twice) | 🔲 | 🔲 | 🔲 | |
-| C11 | Push → peer edits → peer pushes → you pull (roundtrip) | 🔲 | 🔲 | 🔲 | Full cycle |
+| C11 | Push → peer edits → peer pushes → you pull (roundtrip) | ✅ 5/11 | 🔲 | 🔲 | Mac→Win relay push + Win local pull validated; full peer-edit cycle not yet |
 | C12 | Rapid push/edit/push (optimistic locking: 409 rejection) | 🔲 | 🔲 | 🔲 | |
 | C13 | Network drop mid-push → retry → clean state | 🔲 | 🔲 | 🔲 | |
 | C14 | Relay restart while clients connected → clients recover | 🔲 | 🔲 | 🔲 | |
-| C15 | Cross-account Tailscale (shared node, MagicDNS) | 🔲 | 🔲 | 🔲 | Steven session partially validated |
+| C15 | Cross-account Tailscale (shared node, MagicDNS) | ✅ 5/11 | 🔲 | 🔲 | MagicDNS share URL (chrispc.tail46b8d9.ts.net) → join → pull 10 projects ✅; Pull spinner hangs on dead remotes (Windows) |
 
 ## TUI
 

@@ -124,10 +124,19 @@ class SyncClient:
         return None, last_error or "unknown"
 
     def ping(self) -> bool:
+        """Health check with retries. Use fast_ping() for pre-flight checks."""
         r, _ = self._retry(
-            lambda: self.client.get(f"{self.base_url}/api/ping", timeout=10)
+            lambda: self.client.get(f"{self.base_url}/api/ping", timeout=5)
         )
         return r is not None and r.status_code == 200
+
+    def fast_ping(self, timeout: float = 3.0) -> bool:
+        """Single-shot health check — no retries. For parallel pre-flight."""
+        try:
+            r = self.client.get(f"{self.base_url}/api/ping", timeout=timeout)
+            return r.status_code == 200
+        except Exception:
+            return False
 
     def pull(self, project: str) -> Optional[dict]:
         r, err = self._retry(
@@ -701,7 +710,7 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote, force:
 
     try:
         print(f"  🔗 Connecting...")
-        if not client.ping():
+        if not client.fast_ping():
             result["error"] = f"Cannot reach {remote.url}"
             print(f"  ❌ Cannot reach {remote.url}")
             return result
@@ -781,7 +790,7 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
 
     try:
         print(f"  🔗 Connecting...")
-        if not client.ping():
+        if not client.fast_ping():
             result["error"] = f"Cannot reach {remote.url}"
             print(f"  ❌ Cannot reach {remote.url}")
             return result

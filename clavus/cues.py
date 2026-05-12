@@ -625,7 +625,13 @@ def add_cue_command(text: str, position: str, track: str = "",
         print("❌ No Clavus project found. Run 'clavus init' first.")
         return None
 
-    proj = projects[0]
+    # Use the active project (respects `clavus project <name>`), not projects[0]
+    from clavus.helpers import get_store_and_project
+    try:
+        _, proj = get_store_and_project(str(blobs.root))
+    except SystemExit:
+        proj = projects[0]
+
     cues = CueStore(proj.name, store=blobs)
     head = blobs.read_ref("HEAD")
 

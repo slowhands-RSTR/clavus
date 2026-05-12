@@ -2522,7 +2522,34 @@ def cmd_push(args: argparse.Namespace) -> None:
             print(f"❌ Remote '{args.remote}' not found.")
             return
 
-    for remote in remotes:
+    # ── Parallel pre-flight: ping all remotes at once, skip dead ones ──
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from clavus.sync import SyncClient
+
+    live_remotes = []
+    dead_remotes = []
+    with ThreadPoolExecutor(max_workers=len(remotes)) as executor:
+        future_to_remote = {
+            executor.submit(SyncClient(r.url).fast_ping): r
+            for r in remotes
+        }
+        for future in as_completed(future_to_remote):
+            remote = future_to_remote[future]
+            try:
+                if future.result():
+                    live_remotes.append(remote)
+                    print(f"  ✅ {remote.name} reachable")
+                else:
+                    dead_remotes.append(remote)
+                    print(f"  ⏭  Skipping '{remote.name}' — unreachable")
+            except Exception:
+                dead_remotes.append(remote)
+                print(f"  ⏭  Skipping '{remote.name}' — unreachable")
+
+    for remote in dead_remotes:
+        print(f"📤 Skipping '{remote.name}' ({remote.url}) — unreachable")
+
+    for remote in live_remotes:
         print(f"📤 Pushing to '{remote.name}' ({remote.url})...")
         result = push_to_remote(store, proj, remote)
         parts = []
@@ -2704,7 +2731,34 @@ def cmd_pull(args: argparse.Namespace) -> None:
             unique_remotes.append(r)
     remotes = unique_remotes
 
-    for remote in remotes:
+    # ── Parallel pre-flight: ping all remotes at once, skip dead ones ──
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from clavus.sync import SyncClient
+
+    live_remotes = []
+    dead_remotes = []
+    with ThreadPoolExecutor(max_workers=len(remotes)) as executor:
+        future_to_remote = {
+            executor.submit(SyncClient(r.url).fast_ping): r
+            for r in remotes
+        }
+        for future in as_completed(future_to_remote):
+            remote = future_to_remote[future]
+            try:
+                if future.result():
+                    live_remotes.append(remote)
+                    print(f"  ✅ {remote.name} reachable")
+                else:
+                    dead_remotes.append(remote)
+                    print(f"  ⏭  Skipping '{remote.name}' — unreachable")
+            except Exception:
+                dead_remotes.append(remote)
+                print(f"  ⏭  Skipping '{remote.name}' — unreachable")
+
+    for remote in dead_remotes:
+        print(f"📥 Skipping '{remote.name}' ({remote.url}) — unreachable")
+
+    for remote in live_remotes:
         from clavus.sync import pull_from_remote, pull_snapshot_blobs
 
         # Auto-snapshot local work before overwriting with remote changes
