@@ -47,6 +47,29 @@ def _parse_with_timeout(als_path: Path, timeout: float = 5.0):
 
 app = FastAPI(title="Clavus Web", version="0.2.0")
 
+# Module-level project filter (set via --project flag on relay/share start)
+_relay_allowed_projects: list[str] | None = None
+
+
+def set_allowed_projects(projects: list[str] | None) -> None:
+    """Scope the relay to only serve specific projects. None = all projects."""
+    global _relay_allowed_projects
+    _relay_allowed_projects = projects
+
+
+def _project_allowed(name: str) -> bool:
+    """Check if a project is within the relay's scope."""
+    if _relay_allowed_projects is None:
+        return True
+    return name in _relay_allowed_projects
+
+
+def _check_project_access(name: str) -> None:
+    """Raise 404 if project is not in the relay's allowed scope."""
+    if not _project_allowed(name):
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not available on this relay")
+
+
 # ─── WebSocket Manager ─────────────────────────────────────────────────
 
 class ConnectionManager:
@@ -177,9 +200,11 @@ async def ping():
 
 @app.get("/api/projects")
 async def list_projects():
-    """List all registered projects."""
+    """List all registered projects (filtered by --project scope if set)."""
     store = BlobStore()
     projects = store.list_projects()
+    if _relay_allowed_projects is not None:
+        projects = [p for p in projects if p.name in _relay_allowed_projects]
     return {"projects": [
         {
             "name": p.name,
@@ -993,6 +1018,7 @@ async def receive_stem_blob(stem_hash: str, request: Request):
 @app.get("/api/sync/pull")
 async def sync_pull(name: str = Query(..., description="Project name")):
     """Pull all cues and snapshot history for a project."""
+    _check_project_access(name)
     try:
         store, proj = _get_project(name)
     except HTTPException:
@@ -1066,6 +1092,7 @@ async def sync_push(body: SyncPushBody, name: str = Query(..., description="Proj
         )
         store.set_index(proj)
 
+    _check_project_access(name)
     cues_store = CueStore(proj.name, store=store)
     merged = 0
     skipped = 0
@@ -1118,6 +1145,7 @@ def _get_project_lock(name: str) -> threading.Lock:
 async def sync_push_snapshots(body: SyncPushSnapshotsBody,
                                name: str = Query(..., description="Project name")):
     """Push (import) snapshots from a remote peer."""
+    _check_project_access(name)
     lock = _get_project_lock(name)
     with lock:
         result = _sync_push_snapshots_impl(body, name)
@@ -1516,7 +1544,7 @@ def _get_tailscale_url(port: int = 7890) -> str:
 # ─── Web companion server (run_web_server) removed — use relay ──
 
 
-def run_relay_server(host: str = "0.0.0.0", port: int = 7890, share_code: str = "") -> None:
+def run_relay_server(host: str = "0.0.0.0", port: int = 7890, share_code: str = "", allowed_projects: list[str] | None = None) -> None:
     """Run the Clavus relay server — API + WebSocket for collaboration.
 
     Designed to run on a VPS, Raspberry Pi, laptop, or desktop.
@@ -1525,11 +1553,14 @@ def run_relay_server(host: str = "0.0.0.0", port: int = 7890, share_code: str = 
 
     If share_code is provided, it's exposed via /api/share for the
     clavus share/join discovery flow.
+    If allowed_projects is provided, only those projects are served.
     """
     if share_code:
         set_share_code(share_code)
     elif os.environ.get("CLAVUS_SHARE_CODE"):
         set_share_code(os.environ["CLAVUS_SHARE_CODE"])
+    if allowed_projects is not None:
+        set_allowed_projects(allowed_projects)
     tailscale_url = _get_tailscale_url(port)
 
     # Detect LAN IP

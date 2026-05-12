@@ -1266,8 +1266,11 @@ def cmd_relay(args: argparse.Namespace) -> None:
         
         if platform.system() == 'Windows':
             DETACHED = 0x00000008
+            relay_args = [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)]
+            if args.project:
+                relay_args.extend(['--project', args.project])
             proc = subprocess.Popen(
-                [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)],
+                relay_args,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=DETACHED,
             )
@@ -1282,7 +1285,10 @@ def cmd_relay(args: argparse.Namespace) -> None:
                 os.dup2(devnull, 1)
                 os.dup2(devnull, 2)
                 os.close(devnull)
-                os.execv(sys.executable, [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)])
+                relay_args = [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)]
+                if args.project:
+                    relay_args.extend(['--project', args.project])
+                os.execv(sys.executable, relay_args)
             # Parent: pid is the child
         
         pid_path.write_text(str(pid))
@@ -1318,7 +1324,8 @@ def cmd_relay(args: argparse.Namespace) -> None:
             print('No relay PID file found.')
         return
     
-    run_relay_server(host=host, port=port)
+    allowed_projects = [args.project] if getattr(args, 'project', None) else None
+    run_relay_server(host=host, port=port, allowed_projects=allowed_projects)
 
 
 def cmd_share(args: argparse.Namespace) -> None:
@@ -1423,6 +1430,10 @@ def cmd_share(args: argparse.Namespace) -> None:
         remotes.append(RemoteConfig(name="localhost", url=localhost_url))
         save_remotes(store, remotes)
 
+    if args.project:
+        print(f"  🔒 Scoped to project: {args.project}")
+        print()
+
     # Check for --bg / --background flag
     if getattr(args, 'background', False) or getattr(args, 'bg', False):
         import platform, sys, os, time, subprocess
@@ -1441,8 +1452,11 @@ def cmd_share(args: argparse.Namespace) -> None:
         
         if platform.system() == 'Windows':
             DETACHED = 0x00000008
+            relay_args = [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)]
+            if args.project:
+                relay_args.extend(['--project', args.project])
             proc = subprocess.Popen(
-                [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)],
+                relay_args,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=DETACHED,
             )
@@ -1457,7 +1471,10 @@ def cmd_share(args: argparse.Namespace) -> None:
                 os.dup2(devnull, 1)
                 os.dup2(devnull, 2)
                 os.close(devnull)
-                os.execv(sys.executable, [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)])
+                relay_args = [sys.executable, '-m', 'clavus', 'relay', '--port', str(port)]
+                if args.project:
+                    relay_args.extend(['--project', args.project])
+                os.execv(sys.executable, relay_args)
             # Parent: pid is the child
         
         pid_path.write_text(str(pid))
@@ -1493,7 +1510,8 @@ def cmd_share(args: argparse.Namespace) -> None:
             print('No relay PID file found.')
         return
     
-    run_relay_server(host=host, port=port)
+    allowed_projects = [args.project] if getattr(args, 'project', None) else None
+    run_relay_server(host=host, port=port, allowed_projects=allowed_projects)
 
 
 def cmd_join(args: argparse.Namespace) -> None:
@@ -3422,6 +3440,8 @@ def main():
                         help="Host to bind to (default: from config or 0.0.0.0)")
     p_relay.add_argument("--port", "-p", type=int, default=None,
                         help="Port to listen on (default: from config or 7890)")
+    p_relay.add_argument("--project", type=str, default=None,
+                        help="Only serve this project (hide others from collaborators)")
 
     # Share (relay + auto-discovery)
     p_share = subparsers.add_parser("share", help="Start a share session — relay + auto-discovery")
@@ -3436,6 +3456,8 @@ def main():
                         help="Alias for --background")
     p_share.add_argument("--kill", action="store_true",
                         help="Stop the background relay")
+    p_share.add_argument("--project", type=str, default=None,
+                        help="Only serve this project (hide others from collaborators)")
     # Join (discover and connect)
     p_join = subparsers.add_parser("join", help="Discover and connect to a Clavus share session")
     p_join.add_argument("code", nargs="?", default="",
