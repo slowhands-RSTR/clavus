@@ -1638,11 +1638,26 @@ class ClavusApp(App):
 
     @staticmethod
     def _tailscale_ip() -> str:
-        """Get Tailscale IP if available, empty string otherwise."""
+        """Get Tailscale MagicDNS hostname if available, empty string otherwise.
+
+        Prefers MagicDNS (works cross-account), falls back to raw IP.
+        """
         try:
-            import subprocess
-            r = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5)
-            return r.stdout.strip() if r.returncode == 0 else ""
+            import subprocess, json
+            r = subprocess.run(
+                ["tailscale", "status", "--json"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                dns = json.loads(r.stdout).get("Self", {}).get("DNSName", "")
+                if dns:
+                    return dns.rstrip(".")
+            # Fallback: raw IP
+            r2 = subprocess.run(
+                ["tailscale", "ip", "-4"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return r2.stdout.strip() if r2.returncode == 0 else ""
         except Exception:
             return ""
 

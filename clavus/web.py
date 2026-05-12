@@ -1477,11 +1477,28 @@ async def get_share_info():
 
 
 def _get_tailscale_url(port: int = 7890) -> str:
-    """Try to detect the Tailscale IP for sharing."""
-    import socket
+    """Try to detect the Tailscale MagicDNS hostname for sharing.
+
+    Prefers MagicDNS name (cross-account, works when node is shared).
+    Falls back to raw Tailscale IP (same-tailnet only).
+    """
+    import socket, subprocess, json
+
+    # Method 1: tailscale status --json → DNSName (best — cross-account)
     try:
-        # Method 1: use 'tailscale ip' command (most reliable)
-        import subprocess
+        r = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            dns = json.loads(r.stdout).get("Self", {}).get("DNSName", "")
+            if dns:
+                return f"http://{dns.rstrip('.')}:{port}"
+    except Exception:
+        pass
+
+    # Method 2: tailscale ip -4 (same-tailnet fallback)
+    try:
         r = subprocess.run(
             ["tailscale", "ip", "-4"],
             capture_output=True, text=True, timeout=5,
@@ -1490,55 +1507,6 @@ def _get_tailscale_url(port: int = 7890) -> str:
             ip = r.stdout.strip()
             if ip and ip.startswith("100."):
                 return f"http://{ip}:{port}"
-    except Exception:
-        pass
-
-    try:
-        # Method 2: check network interfaces for 100.x.y.z
-        import subprocess
-        r = subprocess.run(
-            ["ifconfig", "-l"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if r.returncode == 0:
-            for iface in r.stdout.strip().split():
-                r2 = subprocess.run(
-                    ["ifconfig", iface],
-                    capture_output=True, text=True, timeout=3,
-                )
-                for line in r2.stdout.splitlines():
-                    cleaned = line.strip()
-                    if "inet " in cleaned and "100." in cleaned:
-                        ip = cleaned.split()[1]
-                        return f"http://{ip}:{port}"
-    except Exception:
-        pass
-
-    try:
-        # Method 3: old approach via gethostbyname_ex
-        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
-            if ip.startswith("100."):
-                return f"http://{ip}:{port}"
-    except Exception:
-        pass
-
-    try:
-        # Method 4: check all interfaces via netifaces fallback
-        # Try to find any 100.x.x.x on any interface
-        # by listing all IPs on the system
-        import subprocess
-        r = subprocess.run(
-            ["ipconfig", "getifaddr", "en0"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if r.returncode == 0 and r.stdout.strip().startswith("100."):
-            return f"http://{r.stdout.strip()}:{port}"
-        r = subprocess.run(
-            ["ipconfig", "getifaddr", "en1"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if r.returncode == 0 and r.stdout.strip().startswith("100."):
-            return f"http://{r.stdout.strip()}:{port}"
     except Exception:
         pass
 

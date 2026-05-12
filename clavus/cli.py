@@ -1369,23 +1369,43 @@ def cmd_share(args: argparse.Namespace) -> None:
         sock.close()
 
     # Show the URL(s) collaborators should use
-    # Detect Tailscale IP dynamically
-    import subprocess
-    ts_ip = ""
+    # Detect Tailscale MagicDNS hostname (works cross-account when node is shared)
+    import subprocess, json
+    ts_url = ""
     try:
-        result = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5)
-        ts_ip = result.stdout.strip()
+        r = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            dns = json.loads(r.stdout).get("Self", {}).get("DNSName", "")
+            if dns:
+                ts_host = dns.rstrip(".")
+                ts_url = f"http://{ts_host}:{port}"
     except Exception:
         pass
-    tailscale_url = f"http://{ts_ip}:{port}" if ts_ip else ""
+
+    # Fallback: raw Tailscale IP (same-tailnet only)
+    if not ts_url:
+        try:
+            result = subprocess.run(
+                ["tailscale", "ip", "-4"],
+                capture_output=True, text=True, timeout=5,
+            )
+            ts_ip = result.stdout.strip()
+            if ts_ip:
+                ts_url = f"http://{ts_ip}:{port}"
+        except Exception:
+            pass
+
     lan_url = f"http://{socket.gethostbyname(socket.gethostname())}:{port}"
 
     print(f"  🎹 Clavus Share")
     print(f"  {'─' * 45}")
-    if tailscale_url:
+    if ts_url:
         print()
         print(f"  Collaborators connect:")
-        print(f"    clavus join {tailscale_url}")
+        print(f"    clavus join {ts_url}")
     print(f"  LAN:")
     print(f"    clavus join {lan_url}")
     print()
