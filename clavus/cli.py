@@ -1413,6 +1413,16 @@ def cmd_share(args: argparse.Namespace) -> None:
     print(f"  {'─' * 45}")
     print()
 
+    # ── Auto-configure localhost remote so you can pull your own relay ──
+    from clavus.store import BlobStore, Remote as RemoteConfig
+    from clavus.sync import load_remotes, save_remotes
+    store = BlobStore()
+    remotes = load_remotes(store)
+    localhost_url = f"http://localhost:{port}"
+    if not any(r.url.rstrip("/") == localhost_url for r in remotes):
+        remotes.append(RemoteConfig(name="localhost", url=localhost_url))
+        save_remotes(store, remotes)
+
     # Check for --bg / --background flag
     if getattr(args, 'background', False) or getattr(args, 'bg', False):
         import platform, sys, os, time, subprocess
@@ -2786,6 +2796,28 @@ def cmd_pull(args: argparse.Namespace) -> None:
             pass
 
         print(f"📥 Pulling from '{remote.name}' ({remote.url})...")
+
+        # Fast path: localhost → data's already on disk, just re-read
+        is_localhost = remote.url.startswith("http://localhost") or remote.url.startswith("http://127.0.0.1")
+        if is_localhost:
+            proj_idx = store.get_index(proj.name)
+            if proj_idx:
+                cues_store = CueStore(proj.name, store=store)
+                all_cues = cues_store.list_cues(CueFilter())
+                snap_count = 0
+                current = proj_idx.head
+                seen = set()
+                while current and current not in seen:
+                    seen.add(current)
+                    snap_count += 1
+                    snap = store.load_snapshot(current)
+                    if not snap or snap.parent == current:
+                        break
+                    current = snap.parent
+                print(f"  ✅ {len(all_cues)} cues, {snap_count} snapshots (local)")
+            else:
+                print(f"  ❌ project '{proj.name}' not in local store")
+            continue
         result = pull_from_remote(store, proj, remote, output_dir=args.output)
         parts = []
         if result["error"]:

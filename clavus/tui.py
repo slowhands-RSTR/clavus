@@ -2273,20 +2273,32 @@ class ClavusApp(App):
             self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}..."
             self._update_header()
             await asyncio.sleep(0)
-            result = pull_from_remote(self.store, proj_index, remote)
-            if result.get("error"):
-                self._peer_reachable = False
-                self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
-                self._sync_status = ""
-                self._update_header()
-                await asyncio.sleep(0)
-                self._status(f"● {remote.name} unreachable")
-                self._log_event(f"● {remote.name} unreachable — pull failed")
-                return
-            cues_n = result.get("cues", 0)
-            snaps_n = result.get("snapshots", 0)
-            conflicts_n = result.get("conflicts", 0)
-            blobs = pull_snapshot_blobs(self.store, proj_index, remote)
+
+            # Fast path: localhost → data's already on disk, just re-read
+            is_localhost = remote.url.startswith("http://localhost") or remote.url.startswith("http://127.0.0.1")
+            if is_localhost:
+                self._load_cues_from_disk()
+                self._load_snapshots_from_disk()
+                cues_n = len(self.cues)
+                snaps_n = len(self.snaps)
+                conflicts_n = sum(1 for c in self.cues if getattr(c, '_conflict', False))
+                # Still pull blobs from relay (they may need materialization)
+                blobs = pull_snapshot_blobs(self.store, proj_index, remote)
+            else:
+                result = pull_from_remote(self.store, proj_index, remote)
+                if result.get("error"):
+                    self._peer_reachable = False
+                    self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
+                    self._sync_status = ""
+                    self._update_header()
+                    await asyncio.sleep(0)
+                    self._status(f"● {remote.name} unreachable")
+                    self._log_event(f"● {remote.name} unreachable — pull failed")
+                    return
+                cues_n = result.get("cues", 0)
+                snaps_n = result.get("snapshots", 0)
+                conflicts_n = result.get("conflicts", 0)
+                blobs = pull_snapshot_blobs(self.store, proj_index, remote)
             self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
             if conflicts_n:
                 self._sync_status += f"  \u26a0{conflicts_n}"
