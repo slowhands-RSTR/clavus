@@ -3175,6 +3175,63 @@ def cmd_stem_import(args: argparse.Namespace) -> None:
     print(f"   Snapshot: {head[:12]}")
 
 
+def cmd_stem_import_folder(args: argparse.Namespace) -> None:
+    """Import all WAV files from a folder as stems. Derives track names from filenames."""
+    store, proj = get_store_and_project()
+    stem_store = StemStore(proj.name, store)
+    head = store.read_ref("HEAD")
+
+    if not head:
+        print("❌ No snapshot yet. Run 'clavus snapshot' first.")
+        return
+
+    folder = Path(args.folder).expanduser().resolve()
+    if not folder.is_dir():
+        print(f"❌ Not a directory: {folder}")
+        return
+
+    wavs = sorted(folder.glob("*.wav")) + sorted(folder.glob("*.WAV"))
+    if not wavs:
+        print(f"❌ No .wav files found in {folder}")
+        return
+
+    manifest = stem_store.get_manifest(head) or StemManifest(snapshot_hash=head)
+    imported = 0
+    skipped = 0
+    total_size = 0
+
+    print(f"\n  Importing {len(wavs)} stem(s) from {folder}/ ...\n")
+    for wav_path in wavs:
+        track_name = args.prefix + wav_path.stem if args.prefix else wav_path.stem
+        try:
+            entry = stem_store.store_stem_file(str(wav_path), track_name)
+        except Exception as e:
+            print(f"  ✗ {wav_path.name}: {e}")
+            skipped += 1
+            continue
+
+        # Replace existing stem for this track if present
+        manifest.stems = [s for s in manifest.stems if s.track_name != track_name]
+        manifest.stems.append(entry)
+        imported += 1
+        total_size += entry.size
+
+    if imported == 0:
+        print("  No stems imported.")
+        return
+
+    manifest.created_at = time.time()
+    stem_store.save_manifest(manifest)
+
+    total_mb = total_size / (1024 * 1024)
+    print(f"\n  ✅ Imported {imported} stem(s)")
+    if skipped:
+        print(f"  ⚠  Skipped {skipped}")
+    print(f"  Total: {total_mb:.1f} MB across {len(manifest.stems)} stems")
+    print(f"  Snapshot: {head[:12]}")
+    print(f"\n  Ready to push: clavus stem push")
+
+
 def cmd_stem_list(args: argparse.Namespace) -> None:
     """List stems for the current (or specified) snapshot."""
     store, proj = get_store_and_project()
@@ -3494,6 +3551,11 @@ def main():
     p_stem_import.add_argument("--track", "-t", required=True,
                                help="Track name (e.g., 'Kick', 'Bass', 'Vocal')")
 
+    p_stem_import_folder = stem_sub.add_parser("import-folder", help="Import all WAV files from a folder as stems")
+    p_stem_import_folder.add_argument("folder", help="Path to folder containing .wav files")
+    p_stem_import_folder.add_argument("--prefix", "-p", default="",
+                                     help="Optional prefix for track names (e.g. 'Drums -')")
+
     p_stem_list = stem_sub.add_parser("list", help="List stems for a snapshot")
     p_stem_list.add_argument("--snapshot", "-s", default="",
                              help="Snapshot hash (default: current HEAD)")
@@ -3578,6 +3640,7 @@ def main():
     elif args.command == "stem":
         stem_actions = {
             "import": cmd_stem_import,
+            "import-folder": cmd_stem_import_folder,
             "list": cmd_stem_list,
             "push": cmd_stem_push,
             "pull": cmd_stem_pull,
