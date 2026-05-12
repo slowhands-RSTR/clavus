@@ -60,10 +60,10 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 
 | # | Test | macOS | Windows | Notes |
 |---|------|:---:|:---:|-------|
-| L1 | `clavus setup` wizard | 🔲 | 🔲 | |
+| L1 | `clavus setup` wizard | ✅ 5/11 | ✅ 5/11 | |
 | L2 | `clavus init <path>` → project created | ✅ 5/10 | 🔲 | |
-| L3 | `clavus tui` opens dashboard | ✅ 5/10 | 🔲 | ⧩ logo restored |
-| L4 | `clavus share` starts relay | ✅ 5/11 | 🔲 | Clean start, no port conflict, Tailscale URL |
+| L3 | `clavus tui` opens dashboard | ✅ 5/10 | ✅ 5/11 | ⧩ logo restored |
+| L4 | `clavus share` starts relay | ✅ 5/11 | ✅ 5/11 | Clean start, no port conflict, Tailscale URL |
 | L5 | `clavus join <url>` adds remote + pulls | ✅ 5/11 | 🔲 | 9 projects pulled with cues/snaps/samples |
 | L6 | `clavus find` discovers peers | ✅ 5/11 | 🔲 | No servers (expected), clean message |
 | L7 | `clavus remote add/list/remove` | ✅ 5/11 | 🔲 | List/add works |
