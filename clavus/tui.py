@@ -2410,12 +2410,18 @@ class ClavusApp(App):
     def action_cursor_down(self):
         target = self._focused_list_view()
         if target:
-            target.action_cursor_down()
+            try:
+                target.action_cursor_down()
+            except IndexError:
+                pass  # Textual race: list mutated during rapid navigation
 
     def action_cursor_up(self):
         target = self._focused_list_view()
         if target:
-            target.action_cursor_up()
+            try:
+                target.action_cursor_up()
+            except IndexError:
+                pass  # Textual race: list mutated during rapid navigation
 
     def _focused_list_view(self) -> Optional[ListView]:
         """Return whichever ListView has focus: #clv (cues) or #hlv (history)."""
