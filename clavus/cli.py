@@ -1346,7 +1346,7 @@ def cmd_share(args: argparse.Namespace) -> None:
     port = args.port or cfg.port
 
     # Check if port is already in use — try to kill stale Clavus relay
-    import socket, platform, signal, subprocess as sp
+    import socket, platform, signal, subprocess as sp, time
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if sock.connect_ex(("127.0.0.1", port)) == 0:
         sock.close()
@@ -1376,18 +1376,23 @@ def cmd_share(args: argparse.Namespace) -> None:
                             except Exception:
                                 pass
                 if killed:
-                    import time; time.sleep(1)
+                    time.sleep(1)
         except Exception:
             pass
         
-        # Re-check — still in use?
-        sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if sock2.connect_ex(("127.0.0.1", port)) == 0:
+        # Re-check with retry — port may not release instantly on Windows
+        for attempt in range(6):
+            sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if sock2.connect_ex(("127.0.0.1", port)) != 0:
+                sock2.close()
+                break  # Port free
             sock2.close()
+            if attempt < 5:
+                time.sleep(0.5)
+        else:
             print(f"   ❌ Port {port} still in use. Stop the other relay first:")
             print(f"      clavus share --kill" if platform.system() != "Windows" else f"      taskkill /f /im python.exe")
             sys.exit(1)
-        sock2.close()
     else:
         sock.close()
 

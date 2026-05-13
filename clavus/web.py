@@ -1596,4 +1596,14 @@ def run_relay_server(host: str = "0.0.0.0", port: int = 7890, share_code: str = 
     print()
     print(f"  Press Ctrl+C to stop.")
     print()
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    try:
+        uvicorn.run(app, host=host, port=port, log_level="warning")
+    except SystemExit:
+        raise
+    except Exception as e:
+        err = str(e)
+        if "address already in use" in err.lower() or "10048" in err or "EADDRINUSE" in err:
+            print(f"\n   ❌ Port {port} is already in use.")
+            print(f"      Stop the other relay first: clavus share --kill")
+            sys.exit(1)
+        raise
