@@ -70,7 +70,7 @@ clavus pull
 clavus tui
 ```
 
-**Daily (both modes):** `p` to pull, work in your DAW, `C` to snapshot, `P` to push.
+**Daily (both modes):** `p` to pull, work in your DAW, `S` to snapshot, `P` to push.
 
 #### Tailscale note (cross-account)
 
@@ -99,7 +99,7 @@ Full networking details: `references/tailscale-serve-relay.md`
 | Key | Action |
 |-----|--------|
 | `c` | New cue |
-| `C` | Snapshot |
+| `S` | Snapshot |
 | `r` | Reply to cue |
 | `e` | Edit cue / snapshot message |
 | `a` | Assign cue |
