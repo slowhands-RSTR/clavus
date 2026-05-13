@@ -373,8 +373,7 @@ def push_snapshot_blobs(
 
         if missing_samples:
             print(f"    Uploading {len(missing_samples)} audio sample(s)...")
-            from clavus.sync import push_stems_to_remote
-            from clavus.stems import StemStore
+            from clavus.store import StemStore
             stem_store = StemStore(proj.name, store)
             for sh in missing_samples:
                 data = store.get_object(sh)
