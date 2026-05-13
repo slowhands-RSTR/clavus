@@ -1346,32 +1346,48 @@ def cmd_share(args: argparse.Namespace) -> None:
     port = args.port or cfg.port
 
     # Check if port is already in use — try to kill stale Clavus relay
-    import socket, platform, signal
+    import socket, platform, signal, subprocess as sp
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if sock.connect_ex(("127.0.0.1", port)) == 0:
         sock.close()
         print(f"   ⚠️  Port {port} in use — checking for stale Clavus relay...")
+        killed = False
         try:
             import httpx
             r = httpx.get(f"http://127.0.0.1:{port}/api/sync/pull", params={"name": "_"}, timeout=2)
             if r.status_code in (200, 404):
                 print(f"   🔄 Restarting stale Clavus relay on port {port}...")
-                import subprocess
                 if platform.system() == "Windows":
-                    subprocess.run(["taskkill", "/f", "/fi", f"WINDOWTITLE eq *clavus*relay*"], capture_output=True)
+                    # Find PID using port and kill it
+                    r2 = sp.run(["netstat", "-ano"], capture_output=True, text=True)
+                    for line in r2.stdout.split("\n"):
+                        if f":{port}" in line and "LISTENING" in line:
+                            pid = line.strip().split()[-1]
+                            sp.run(["taskkill", "/f", "/pid", pid], capture_output=True)
+                            killed = True
+                            break
                 else:
-                    result = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True)
+                    result = sp.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True)
                     for pid in result.stdout.strip().split("\n"):
                         if pid:
                             try:
                                 os.kill(int(pid), signal.SIGTERM)
+                                killed = True
                             except Exception:
                                 pass
-                import time
-                time.sleep(1)
+                if killed:
+                    import time; time.sleep(1)
         except Exception:
-            print(f"   ❌ Port {port} in use by another app. Use: clavus share --port <N>")
+            pass
+        
+        # Re-check — still in use?
+        sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if sock2.connect_ex(("127.0.0.1", port)) == 0:
+            sock2.close()
+            print(f"   ❌ Port {port} still in use. Stop the other relay first:")
+            print(f"      clavus share --kill" if platform.system() != "Windows" else f"      taskkill /f /im python.exe")
             sys.exit(1)
+        sock2.close()
     else:
         sock.close()
 
