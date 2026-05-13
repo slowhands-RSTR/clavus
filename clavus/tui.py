@@ -563,11 +563,18 @@ class ClavusApp(App):
         elif cmd == "p2p-connect":
             if arg:
                 self._status(f"P2P connecting to {arg}...")
-                _p = subprocess.run(
-                    [sys.executable, "-m", "clavus", "p2p", "--connect", arg],
-                    capture_output=True, text=True, timeout=60)
-                out = (_p.stdout or "") + (_p.stderr or "")
-                self._status(out.strip()[:120])
+                try:
+                    _p = subprocess.run(
+                        [sys.executable, "-m", "clavus", "p2p", "--connect", arg],
+                        capture_output=True, text=True, timeout=60)
+                    out = (_p.stdout or "") + (_p.stderr or "")
+                    self._log_event(f":p2p-connect {arg} → {out.strip()[:200]}")
+                    self._toast(out.strip()[:120] or "P2P sync complete", timeout=5.0)
+                    self._status("P2P done — see log")
+                except subprocess.TimeoutExpired:
+                    self._log_event(f":p2p-connect {arg} TIMEOUT")
+                    self._toast("P2P sync timed out after 60s", timeout=5.0, severity="error")
+                    self._status("❌ P2P timeout")
                 self._connect()
             else:
                 self._status("use :p2p-connect <peer-dns>")
