@@ -1186,9 +1186,11 @@ def _sync_push_snapshots_impl(body: SyncPushSnapshotsBody, name: str):
     imported = 0
 
     # ── Optimistic lock: reject if relay HEAD has moved since peer last synced ──
+    # Uses proj.head (per-project HEAD from index) not global refs/HEAD,
+    # so different projects don't false-conflict with each other.
     # Skip conflict check when force=True (admin override)
     if not body.force and body.expected_parent is not None:
-        current_head = store.read_ref("HEAD")
+        current_head = proj.head
         if current_head and current_head != body.expected_parent:
             who = "unknown"
             other = store.load_snapshot(current_head)
@@ -1235,7 +1237,7 @@ def _sync_push_snapshots_impl(body: SyncPushSnapshotsBody, name: str):
         meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
         imported += 1
 
-    # Update HEAD: always on force push, or when new snapshots landed
+    # Update HEAD for this project when new snapshots land
     if body.force or imported > 0:
         if body.snapshots:
             # Find the newest snapshot by timestamp (body order is not reliable)
@@ -1249,11 +1251,10 @@ def _sync_push_snapshots_impl(body: SyncPushSnapshotsBody, name: str):
         if new_head:
             if body.force:
                 # Force push: overwrite HEAD unconditionally
-                store.update_ref("HEAD", new_head)
                 proj.head = new_head
             else:
                 # Only update if the relay's HEAD is older (or unset)
-                current_head = store.read_ref("HEAD")
+                current_head = proj.head
                 current_time = 0
                 if current_head:
                     old_snap = store.load_snapshot(current_head)
