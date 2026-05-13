@@ -1553,7 +1553,10 @@ def cmd_join(args: argparse.Namespace) -> None:
     raw = args.code.rstrip("/")
     if not (raw.startswith("http://") or raw.startswith("https://")):
         # Bare hostname, IP, or MagicDNS — auto-wrap
-        raw = f"http://{raw}:7890"
+        if ":" in raw:
+            raw = f"http://{raw}"  # already has port
+        else:
+            raw = f"http://{raw}:7890"
 
     parsed = urlparse(raw)
     host = parsed.hostname or "localhost"
@@ -3190,7 +3193,7 @@ def cmd_stem_import_folder(args: argparse.Namespace) -> None:
         print(f"❌ Not a directory: {folder}")
         return
 
-    wavs = sorted(folder.glob("*.wav")) + sorted(folder.glob("*.WAV"))
+    wavs = sorted(set(folder.glob("*.wav")) | set(folder.glob("*.WAV")))
     if not wavs:
         print(f"❌ No .wav files found in {folder}")
         return

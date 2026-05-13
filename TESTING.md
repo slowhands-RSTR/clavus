@@ -96,7 +96,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | # | Test | Status | Notes |
 |---|------|:---:|-------|
 | P1 | Windows: TUI renders correctly (Windows Terminal) | ✅ 5/11 | |
-| P2 | Windows: `os.startfile()` opens .als in Ableton | 🔲 | |
+| P2 | Windows: `os.startfile()` opens .als in Ableton | ✅ 5/12 | |
 | P3 | Windows: OneDrive Files On-Demand → .als accessible | 🔲 | |
 | P4 | Windows: `py -m pip install -e .` works from fresh clone | 🔲 | |
 | P5 | macOS: `open` command launches Ableton | ✅ 5/10 | |
