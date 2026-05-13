@@ -17,9 +17,10 @@ import json
 import os
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 import httpx
 
@@ -249,9 +250,12 @@ class SyncClient:
 
 # ─── Snapshot Blob Sync ──────────────────────────────────────────────
 
+MAX_WORKERS = 8  # Parallel workers for blob upload/download
+
 
 def push_snapshot_blobs(
     store: BlobStore, proj: ClavusProject, remote: Remote,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> int:
     """Push snapshot content blobs + .als backup blobs to a remote.
 
@@ -265,6 +269,15 @@ def push_snapshot_blobs(
     client = SyncClient(remote.url)
     count = 0
     BATCH_SIZE = 25  # Blobs per upload batch
+    MAX_WORKERS = 8
+
+    # Thread-safe counters
+    counters = {"content": 0, "als": 0, "sample": 0}
+    count_lock = threading.Lock()
+
+    def _report(category: str):
+        if progress_callback:
+            progress_callback(category, counters[category], counters[category])
 
     try:
         # Collect all blob hashes we need to check
@@ -339,73 +352,76 @@ def push_snapshot_blobs(
         missing_als = [h for h in missing_all if cat_map.get(h) == "als"]
         missing_samples = [h for h in missing_all if cat_map.get(h) == "sample"]
 
-        if missing_content:
-            print(f"    Uploading {len(missing_content)} content blob(s)...")
-            for i in range(0, len(missing_content), BATCH_SIZE):
-                batch = missing_content[i:i + BATCH_SIZE]
-                upload_batch = []
-                for h in batch:
-                    data = store.get_object(h)
-                    if data:
-                        upload_batch.append({
-                            "hash": h,
-                            "data": base64.b64encode(data).decode("ascii"),
-                        })
+        # Upload helper — called in thread pool, one batch at a time
+        def _upload_batch(hashes_and_data: list[tuple[str, bytes, str]]) -> int:
+            """Upload a batch of blobs. Returns count uploaded."""
+            nonlocal count
+            if not hashes_and_data:
+                return 0
+            upload_batch = [
+                {"hash": h, "data": base64.b64encode(data).decode("ascii")}
+                for h, data, _ in hashes_and_data
+            ]
+            try:
+                r = client.client.post(
+                    f"{remote.url}/api/sync/push-blobs",
+                    json=upload_batch, timeout=120,
+                )
+                if r.status_code == 200:
+                    n = len(upload_batch)
+                    with count_lock:
+                        count += n
+                    # Report per-blob progress within this batch
+                    for cat in ("content", "als", "sample"):
+                        cats_in_batch = sum(1 for _, _, c in hashes_and_data if c == cat)
+                        if cats_in_batch:
+                            with count_lock:
+                                counters[cat] += sum(1 for _, _, c in hashes_and_data if c == cat)
+                            _report(cat)
+                    return n
+            except Exception:
+                pass
+            return 0
 
-                if upload_batch:
-                    try:
-                        r = client.client.post(
-                            f"{remote.url}/api/sync/push-blobs",
-                            json=upload_batch,
-                            timeout=120,
-                        )
-                        if r.status_code == 200:
-                            count += len(upload_batch)
-                    except Exception:
-                        pass
+        if missing_content:
+            print(f"    Uploading {len(missing_content)} content blob(s) with {MAX_WORKERS} workers...")
+            # Build full work list (hash, data, category)
+            content_work = []
+            for h in missing_content:
+                data = store.get_object(h)
+                if data:
+                    content_work.append((h, data, "content"))
+
+            # Batch and distribute across workers
+            batches = [content_work[i:i + BATCH_SIZE] for i in range(0, len(content_work), BATCH_SIZE)]
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+                ex.map(_upload_batch, batches)
 
         if missing_als:
-            print(f"    Uploading {len(missing_als)} .als backup(s)...")
-            for i in range(0, len(missing_als), BATCH_SIZE):
-                batch = missing_als[i:i + BATCH_SIZE]
-                upload_batch = []
-                for h in batch:
-                    data = store.get_object(h)
-                    if data:
-                        upload_batch.append({
-                            "hash": h,
-                            "data": base64.b64encode(data).decode("ascii"),
-                        })
+            print(f"    Uploading {len(missing_als)} .als backup(s) with {MAX_WORKERS} workers...")
+            als_work = []
+            for h in missing_als:
+                data = store.get_object(h)
+                if data:
+                    als_work.append((h, data, "als"))
 
-                if upload_batch:
-                    try:
-                        r = client.client.post(
-                            f"{remote.url}/api/sync/push-als-blobs",
-                            json=upload_batch,
-                            timeout=120,
-                        )
-                        if r.status_code == 200:
-                            count += len(upload_batch)
-                    except Exception:
-                        pass
+            batches = [als_work[i:i + BATCH_SIZE] for i in range(0, len(als_work), BATCH_SIZE)]
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+                ex.map(_upload_batch, batches)
 
         if missing_samples:
-            print(f"    Uploading {len(missing_samples)} audio sample(s)...")
+            print(f"    Uploading {len(missing_samples)} audio sample(s) with {MAX_WORKERS} workers...")
             from clavus.store import StemStore
             stem_store = StemStore(proj.name, store)
+            sample_work = []
             for sh in missing_samples:
                 data = store.get_object(sh)
                 if data:
-                    try:
-                        r = client.client.post(
-                            f"{remote.url}/api/sync/push-blobs",
-                            json=[{"hash": sh, "data": base64.b64encode(data).decode("ascii")}],
-                            timeout=120,
-                        )
-                        if r.status_code == 200:
-                            count += 1
-                    except Exception:
-                        pass
+                    sample_work.append((sh, data, "sample"))
+
+            batches = [sample_work[i:i + BATCH_SIZE] for i in range(0, len(sample_work), BATCH_SIZE)]
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+                ex.map(_upload_batch, batches)
 
             # Also push sample filename metadata
             if missing_samples:
@@ -435,22 +451,67 @@ def push_snapshot_blobs(
 
 def pull_snapshot_blobs(
     store: BlobStore, proj: ClavusProject, remote: Remote,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> tuple[int, list[str]]:
     """Pull missing snapshot content blobs + .als backups from a remote.
 
     Checks which blobs in our snapshot history are missing locally and
     fetches them from the remote. Returns (count, failed_hashes).
     failed_hashes lists hashes that were requested but could not be downloaded.
+
+    progress_callback(category, done, total) is called after each blob completes.
+    Categories: "content", "als", "sample".
     """
-    import base64
-    import httpx
-
-    # pull_from_remote already called by cmd_pull before us;
-    # we just handle blob downloading.
-
     client = SyncClient(remote.url)
     count = 0
     failed: list[str] = []
+
+    # Thread-safe downloaded tracker + lock
+    downloaded: set[str] = set()
+    dl_lock = threading.Lock()
+
+    # Progress counters per category
+    counters = {"content": 0, "als": 0, "sample": 0}
+    total_missing = 0
+
+    def _report(category: str, done: int):
+        if progress_callback:
+            progress_callback(category, done, counters[category])
+
+    def _mark_downloaded(h: str) -> bool:
+        with dl_lock:
+            if h in downloaded:
+                return False
+            downloaded.add(h)
+            return True
+
+    def _fetch_blob(h: str, category: str) -> tuple[str, bool]:
+        """Fetch a single blob. Returns (hash, success). Called in thread pool."""
+        with dl_lock:
+            in_downloaded = h in downloaded
+
+        if in_downloaded:
+            return (h, True)
+
+        try:
+            r = client.client.get(
+                f"{remote.url}/api/blobs/{h}",
+                timeout=120,
+            )
+            if r.status_code == 200:
+                # Thread-safe write to store
+                with dl_lock:
+                    store.put_object(r.content, h)
+                    downloaded.add(h)
+                    counters[category] += 1
+                _report(category, counters[category])
+                return (h, True)
+        except Exception:
+            pass
+
+        with dl_lock:
+            failed.append(h)
+        return (h, False)
 
     try:
         # Re-read project from store (pull may have updated it)
@@ -474,10 +535,8 @@ def pull_snapshot_blobs(
             if not snap:
                 break
 
-            # Content blob is stored under content_hash (parsed JSON)
             if snap.content_hash and not store.has_object(snap.content_hash):
                 missing_content.add(snap.content_hash)
-            # Raw .als blob = snapshot identity (also als_hash field for compat)
             if snap.als_hash and not store.has_object(snap.als_hash):
                 missing_als.add(snap.als_hash)
             for sh in (snap.sample_hashes or []):
@@ -507,66 +566,33 @@ def pull_snapshot_blobs(
         except Exception:
             pass
 
-        # Download missing content blobs from the relay
-        if missing_content:
-            print(f"    ⬇️  Downloading {len(missing_content)} content blob(s)...")
-        downloaded = set()
-        for h in list(missing_content):
-            if h in downloaded:
-                continue
-            try:
-                r = client.client.get(
-                    f"{remote.url}/api/blobs/{h}",
-                    timeout=120,
-                )
-                if r.status_code == 200:
-                    store.put_object(r.content, h)
-                    count += 1
-                    downloaded.add(h)
-                    continue
-            except Exception:
-                pass
-            print(f"    ⚠️  Could not fetch blob {h[:12]}")
-            failed.append(h)
+        # Build work items: (hash, category) tuples
+        content_work = [(h, "content") for h in missing_content if h not in downloaded]
+        als_work = [(h, "als") for h in missing_als if h not in downloaded]
+        sample_work = [(h, "sample") for h in missing_samples if h not in downloaded]
 
-        # Download missing .als backups
-        if missing_als:
-            print(f"    ⬇️  Downloading {len(missing_als)} .als backup(s)...")
-        for h in list(missing_als):
-            if h in downloaded:
-                continue
-            try:
-                r = client.client.get(
-                    f"{remote.url}/api/blobs/{h}",
-                    timeout=120,
-                )
-                if r.status_code == 200:
-                    store.put_object(r.content, h)
-                    count += 1
-                    downloaded.add(h)
-            except Exception as e:
-                print(f"    ⚠️  Could not fetch .als backup {h[:12]}: {e}")
-                failed.append(h)
+        all_work = content_work + als_work + sample_work
+        total_missing = len(all_work)
+        if not total_missing:
+            return (0, [])
 
-        # Download missing audio samples
-        if missing_samples:
-            print(f"    ⬇️  Downloading {len(missing_samples)} audio sample(s)...")
-        for h in list(missing_samples):
-            if h in downloaded:
-                continue
-            try:
-                r = client.client.get(
-                    f"{remote.url}/api/blobs/{h}",
-                    timeout=120,
-                )
-                if r.status_code == 200:
-                    store.put_object(r.content, h)
+        MAX_WORKERS = 8
+
+        # Report totals before starting
+        for cat, work in [("content", content_work), ("als", als_work), ("sample", sample_work)]:
+            if work:
+                counters[cat] = 0
+                _report(cat, 0)
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+            futures = {
+                ex.submit(_fetch_blob, h, cat): (h, cat)
+                for h, cat in all_work
+            }
+            for future in as_completed(futures):
+                h, success = future.result()
+                if success:
                     count += 1
-                    downloaded.add(h)
-            except Exception:
-                pass
-            print(f"    ⚠️  Could not fetch audio sample {h[:12]}")
-            failed.append(h)
 
         # Fetch sample filenames for downloaded samples
         if missing_samples:
@@ -1137,6 +1163,7 @@ class SyncDaemon:
 def push_stems_to_remote(
     store: BlobStore, proj: ClavusProject,
     remote: Remote, stem_store: StemStore, snapshot_hash: str,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> int:
     """Push stem blobs for a snapshot to a remote. Returns number of stems pushed."""
     manifest = stem_store.get_manifest(snapshot_hash)
@@ -1145,6 +1172,37 @@ def push_stems_to_remote(
 
     client = SyncClient(remote.url)
     count = 0
+    counters = {"stem": 0}
+    count_lock = threading.Lock()
+
+    def _report(done: int):
+        if progress_callback:
+            progress_callback("stem", done, counters["stem"])
+
+    def _upload_stem(stem_hash: str) -> tuple[str, bool]:
+        data = store.get_object(stem_hash)
+        if not data:
+            return (stem_hash, False)
+
+        entry = next((s for s in manifest.stems if s.hash == stem_hash), None)
+        track = entry.track_name if entry else "?"
+
+        try:
+            r = client.client.post(
+                f"{remote.url}/api/stems/blob/{stem_hash}",
+                content=data, timeout=120,
+            )
+            if r.status_code == 200:
+                print(f"    Uploaded {track} ({stem_hash[:12]}) — {len(data) / (1024*1024):.1f} MB")
+                with count_lock:
+                    counters["stem"] += 1
+                _report(counters["stem"])
+                return (stem_hash, True)
+            else:
+                print(f"    ⚠️  Upload failed for {stem_hash[:12]}: {r.status_code}")
+        except Exception:
+            pass
+        return (stem_hash, False)
 
     try:
         # Ask remote which hashes it's missing
@@ -1160,29 +1218,15 @@ def push_stems_to_remote(
 
         missing = r.json().get("missing", [])
         if not missing:
-            return 0  # All already present on remote — nothing transferred
+            return 0
 
-        # Upload each missing stem blob
-        for stem_hash in missing:
-            data = store.get_object(stem_hash)
-            if not data:
-                print(f"  ⚠️  Stem blob {stem_hash[:12]} not found locally, skipping")
-                continue
-
-            # Find the entry for reporting
-            entry = next((s for s in manifest.stems if s.hash == stem_hash), None)
-            track = entry.track_name if entry else "?"
-
-            r = client.client.post(
-                f"{remote.url}/api/stems/blob/{stem_hash}",
-                content=data,
-                timeout=120,
-            )
-            if r.status_code == 200:
-                print(f"    Uploaded {track} ({stem_hash[:12]}) — {len(data) / (1024*1024):.1f} MB")
-                count += 1
-            else:
-                print(f"    ⚠️  Upload failed for {stem_hash[:12]}: {r.status_code}")
+        print(f"  Pushing {len(missing)} stem(s) with {MAX_WORKERS} workers...")
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+            futures = [ex.submit(_upload_stem, sh) for sh in missing]
+            for future in as_completed(futures):
+                _, success = future.result()
+                if success:
+                    count += 1
 
         # Push the manifest too
         manifest_data = {
@@ -1208,6 +1252,7 @@ def push_stems_to_remote(
 
 def pull_stems_from_remote(
     store: BlobStore, proj: ClavusProject, remote: Remote,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> int:
     """Pull stem files from a remote for the current HEAD. Returns count downloaded."""
     head = store.read_ref("HEAD")
@@ -1217,6 +1262,32 @@ def pull_stems_from_remote(
     client = SyncClient(remote.url)
     stem_store = StemStore(proj.name, store)
     count = 0
+    counters = {"stem": 0}
+    count_lock = threading.Lock()
+
+    def _report(done: int):
+        if progress_callback:
+            progress_callback("stem", done, counters["stem"])
+
+    def _download_stem(entry: dict) -> tuple[str, bool]:
+        try:
+            r = client.client.get(
+                f"{remote.url}/api/stems/blob/{entry['hash']}",
+                timeout=120,
+            )
+            if r.status_code != 200:
+                print(f"  ⚠️  Download failed for {entry['hash'][:12]}: {r.status_code}")
+                return (entry["hash"], False)
+
+            store.put_object(r.content, entry["hash"])
+            size_mb = len(r.content) / (1024 * 1024)
+            print(f"    Downloaded {entry['track_name']} ({entry['hash'][:12]}) — {size_mb:.1f} MB")
+            with count_lock:
+                counters["stem"] += 1
+            _report(counters["stem"])
+            return (entry["hash"], True)
+        except Exception:
+            return (entry["hash"], False)
 
     try:
         # Get remote's manifest for this snapshot
@@ -1236,23 +1307,15 @@ def pull_stems_from_remote(
         needed = [s for s in stems if not stem_store.has_stem(s["hash"])]
 
         if not needed:
-            return len(stems)  # All already present
+            return len(stems)
 
-        # Download each missing stem
-        for entry in needed:
-            r = client.client.get(
-                f"{remote.url}/api/stems/blob/{entry['hash']}",
-                timeout=120,
-            )
-            if r.status_code != 200:
-                print(f"  ⚠️  Download failed for {entry['hash'][:12]}: {r.status_code}")
-                continue
-
-            # Store the blob
-            store.put_object(r.content, entry["hash"])
-            size_mb = len(r.content) / (1024 * 1024)
-            print(f"    Downloaded {entry['track_name']} ({entry['hash'][:12]}) — {size_mb:.1f} MB")
-            count += 1
+        print(f"  Pulling {len(needed)} stem(s) with {MAX_WORKERS} workers...")
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+            futures = [ex.submit(_download_stem, entry) for entry in needed]
+            for future in as_completed(futures):
+                _, success = future.result()
+                if success:
+                    count += 1
 
         # Also save the manifest locally
         local_manifest = stem_store.get_manifest(head)

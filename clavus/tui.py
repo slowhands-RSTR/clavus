@@ -238,6 +238,8 @@ class ClavusApp(App):
         self._last_sync: str = ""     # "⬆ ✓ 12:34" or "⬇ ✓ 12:34" — last completed sync
         self._last_snap_time: float = 0.0  # unix timestamp of last auto-snapshot
         self._sync_status: str = ""    # Live sync progress: "⬆ pushing...", "⬇ pulling..."
+        self._sync_progress: str = ""  # Per-category: "c:3/10 a:1/5 s:5/20"
+        self._sync_start_time: float = 0.0  # For ETA calculation
         self._spinner_idx: int = 0     # Braille spinner frame
         self._spinner_timer = None     # Timer handle for spinner animation
         self._peer_name: str = ""     # remote name (e.g. "mac")
@@ -1743,12 +1745,13 @@ class ClavusApp(App):
             
             self._status(f"⬇ probing {remote.name} for projects...")
             client = SyncClient(remote.url)
-            r, err = await asyncio.to_thread(client.request_with_retry, "GET", "/api/projects", timeout=10)
+            r, err = await asyncio.to_thread(
+                client.request_with_retry, "GET", "/api/projects", timeout=10)
             if r is None or r.status_code != 200:
                 client.close()
                 self._worker_error(f"pull-all: cannot reach {remote.name} — {err or (r.status_code if r else 'no response')}")
                 return
-            
+
             projects = r.json().get("projects", [])
             client.close()
             self._log_event(f"pull-all: found {len(projects)} on relay")
@@ -1761,6 +1764,17 @@ class ClavusApp(App):
                 self._status(f"⬇ [{i+1}/{len(projects)}] {pname}...")
                 self._log_event(f"pull-all: [{i+1}/{len(projects)}] {pname}")
                 await asyncio.sleep(0.05)
+
+                # Progress callback for per-project blob downloads
+                project_progress = {"done": 0}
+                def _on_blob_progress(category: str, done: int, total: int):
+                    project_progress["done"] = done
+                    self._sync_progress = f"{category}:{done}/{total}"
+                    self.call_later(0, self._update_header)
+
+                self._sync_start_time = time.time()
+                self._sync_progress = ""
+                self._update_header()
                 
                 proj_data = self.store.get_index(pname)
                 if not proj_data:
@@ -1784,7 +1798,8 @@ class ClavusApp(App):
                         msgs.append(f"{pname}: ❌ {err[:40]}")
                         self._log_event(f"pull-all: {pname} FAILED — {err}")
                     elif c or s:
-                        blob_count, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_data, remote)
+                        blob_count, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_data, remote, _on_blob_progress)
+                        self._sync_progress = ""
                         msgs.append(f"{pname}: {c}c {s}s" + (f" {blob_count}b" if blob_count else "") + (f" ⚠{len(failed)}" if failed else ""))
                         self._log_event(f"pull-all: {pname} OK — {c}c {s}s")
                     else:
@@ -2296,9 +2311,18 @@ class ClavusApp(App):
             except Exception:
                 pass  # best-effort — don't block pull on snapshot failure
 
-            self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}..."
+            self._sync_status = f"⬇ {time.strftime('%H:%M')} {remote.name}..."
             self._update_header()
             await asyncio.sleep(0)
+
+            # Progress callback — called from thread pool, schedules UI update on main thread
+            def _on_blob_progress(category: str, done: int, total: int):
+                self._sync_progress = f"{category}:{done}/{total}"
+                self.call_later(0, self._update_header)
+
+            self._sync_start_time = time.time()
+            self._sync_progress = ""
+            self._update_header()
 
             # Fast path: localhost → data's already on disk, just re-read
             is_localhost = remote.url.startswith("http://localhost") or remote.url.startswith("http://127.0.0.1")
@@ -2311,13 +2335,14 @@ class ClavusApp(App):
                 snaps_n = len(self.snaps)
                 conflicts_n = sum(1 for c in self.cues if getattr(c, '_conflict', False))
                 # Still pull blobs from relay (they may need materialization)
-                _, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote)
+                _, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote, _on_blob_progress)
             else:
                 result = await asyncio.to_thread(pull_from_remote, self.store, proj_index, remote)
                 if result.get("error"):
                     self._peer_reachable = False
                     self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
                     self._sync_status = ""
+                    self._sync_progress = ""
                     self._update_header()
                     await asyncio.sleep(0)
                     self._status(f"● {remote.name} unreachable")
@@ -2326,10 +2351,11 @@ class ClavusApp(App):
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
                 conflicts_n = result.get("conflicts", 0)
-                blobs, failed = pull_snapshot_blobs(self.store, proj_index, remote)
+                blobs, failed = pull_snapshot_blobs(self.store, proj_index, remote, _on_blob_progress)
             self._sync_status = f"⇊ {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "") + (f" ⚠{len(failed)}" if failed else "")
             if conflicts_n:
                 self._sync_status += f"  \u26a0{conflicts_n}"
+            self._sync_progress = ""  # Clear progress on completion
             self._update_header()
             await asyncio.sleep(0)
             self._peer_reachable = True
@@ -2352,8 +2378,9 @@ class ClavusApp(App):
                 self._render()
             self.set_timer(0.05, self._update_header)
         except Exception as e:
-            self._log_event(f"\u274c pull error: {e}")
-            self._status(f"\u274c pull error: {e}")
+            self._sync_progress = ""
+            self._log_event(f"❌ pull error: {e}")
+            self._status(f"❌ pull error: {e}")
 
     async def _do_push(self, force: bool = False):
         """Push cues + snapshots + blobs to the project's active remote."""
@@ -2405,10 +2432,20 @@ class ClavusApp(App):
                                 self._log_event(f"● auto-snapshot {snap.hash[:8]} (local changes saved)")
             except Exception:
                 pass  # best-effort — don't block push on snapshot failure
-            self._sync_status = f"\u2b06 {time.strftime('%H:%M')} {remote.name}..."
+            self._sync_status = f"⬆ {time.strftime('%H:%M')} {remote.name}..."
             self._update_header()
             await asyncio.sleep(0)
-            self._status(f"\u2b06 {'force-' if force else ''}pushing to {remote.name}...")
+            self._status(f"⬆ {'force-' if force else ''}pushing to {remote.name}...")
+
+            # Progress callback for blob ops
+            def _on_blob_progress(category: str, done: int, total: int):
+                self._sync_progress = f"{category}:{done}/{total}"
+                self.call_later(0, self._update_header)
+
+            self._sync_start_time = time.time()
+            self._sync_progress = ""
+            self._update_header()
+
             result = await asyncio.to_thread(push_to_remote, self.store, proj_index, remote, force=force)
             if result.get("error"):
                 self._peer_reachable = False
@@ -2426,8 +2463,9 @@ class ClavusApp(App):
                 return
             cues_n = result.get("cues", 0)
             snaps_n = result.get("snapshots", 0)
-            blobs = await asyncio.to_thread(push_snapshot_blobs, self.store, proj_index, remote)
-            self._sync_status = f"\u2b06 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+            blobs = await asyncio.to_thread(push_snapshot_blobs, self.store, proj_index, remote, _on_blob_progress)
+            self._sync_status = f"⬆ {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+            self._sync_progress = ""  # Clear progress on completion
             self._update_header()
             await asyncio.sleep(0)
             self._peer_reachable = True
@@ -2440,9 +2478,10 @@ class ClavusApp(App):
             self.set_timer(0.05, self._update_header)
         except Exception as e:
             self._sync_status = ""
+            self._sync_progress = ""
             self._update_header()
             await asyncio.sleep(0)
-            self._status(f"\u274c push error: {e}")
+            self._status(f"❌ push error: {e}")
 
     def _get_cue(self) -> Optional[Cue]:
         if 0 <= self.idx < len(self.cues):
@@ -2653,7 +2692,17 @@ class ClavusApp(App):
             sync = ""
             if self._sync_status:
                 s = self.BRAILLE[self._spinner_idx % len(self.BRAILLE)]
-                sync = f"  [{C['yellow']}]{s} {self._sync_status}[/]"
+                # Build progress string with ETA
+                if self._sync_progress:
+                    elapsed = time.time() - self._sync_start_time
+                    progress_parts = []
+                    for part in self._sync_progress.split(" "):
+                        if part:
+                            progress_parts.append(part)
+                    progress_str = " ".join(progress_parts)
+                    sync = f"  [{C['yellow']}]{s} {self._sync_status} {progress_str}[/]"
+                else:
+                    sync = f"  [{C['yellow']}]{s} {self._sync_status}[/]"
             elif self._last_sync:
                 sync = f"  [{C['green']}]{self._last_sync}[/]"
             widget = self.query_one("#header-title", Static)

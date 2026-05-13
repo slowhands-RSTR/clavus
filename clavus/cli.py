@@ -188,14 +188,16 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     """Diagnose Clavus store health — read-only check."""
     from clavus.store import BlobStore
     from clavus.sync import load_remotes, Remote
+    from clavus.config import ClavusConfig
     from pathlib import Path
-    import json
+    import subprocess, json
     import socket
     import urllib.request
     import urllib.error
     import urllib.parse
 
     store = BlobStore()
+    cfg = ClavusConfig.load()
     ok: list[str] = []
     warn: list[str] = []
     fail: list[str] = []
@@ -297,8 +299,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         url = remote.url.rstrip("/")
         ping_ok = False
         try:
-            # Fast ping: just the root URL with a short timeout
-            req = urllib.request.Request(url, method="HEAD")
+            # Try /api/ping endpoint (defined on all clavus relays)
+            req = urllib.request.Request(f"{url}/api/ping")
             urllib.request.urlopen(req, timeout=5)
             ping_ok = True
         except (urllib.error.URLError, socket.timeout, OSError):
@@ -316,14 +318,78 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         try:
             parsed = urllib.parse.urlparse(remote.url)
             if parsed.netloc:
-                addr = socket.gethostbyname(parsed.netloc)
-                ok.append(f"  ✅ '{parsed.netloc}' — {addr}")
+                # Use parsed.hostname (without port) for DNS resolution
+                host = parsed.hostname or parsed.netloc.split(":")[0]
+                addr = socket.gethostbyname(host)
+                ok.append(f"  ✅ '{host}' — {addr}")
         except socket.gaierror:
             try:
                 parsed = urllib.parse.urlparse(remote.url)
-                warn.append(f"  ⚠️  '{parsed.netloc}' — could not resolve")
+                host = parsed.hostname or parsed.netloc.split(":")[0]
+                warn.append(f"  ⚠️  '{host}' — could not resolve")
             except Exception:
                 warn.append(f"  ⚠️  remote '{remote.name}' — could not parse URL")
+
+    # 8. Tailscale serve proxy — the relay's tailnet gateway
+    print("  tailnet relay proxy:")
+    port = cfg.port or 7890
+    ts_serve_ok = False
+    try:
+        r = subprocess.run(
+            ["tailscale", "serve", "status"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and "No serve config" not in r.stdout:
+            ts_serve_ok = True
+            check("tailscale serve", True, f"proxy active on port {port}")
+        else:
+            fail.append(f"  ❌ tailscale serve — not configured (relay unreachable via MagicDNS)")
+            warn.append(f"  💡 Fix: tailscale serve --bg --http {port} http://localhost:{port}")
+    except FileNotFoundError:
+        warn_check("tailscale", "not installed — LAN-only collab")
+    except Exception as e:
+        warn_check("tailscale serve", str(e))
+
+    # 9. Relay process + end-to-end MagicDNS reachability
+    print("  relay:")
+    relay_alive = False
+    relay_port = port
+    # Try 7890 first (where tailscale serve proxies from), then fall back to raw relay port
+    # Try GET (HEAD not supported on all endpoints)
+    for check_port in (port, 7891) if port != 7891 else (7891,):
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{check_port}/api/ping")
+            urllib.request.urlopen(req, timeout=3)
+            relay_alive = True
+            relay_port = check_port
+            check("relay process", True, f"running on port {check_port}")
+            break
+        except Exception:
+            continue
+    if not relay_alive:
+        fail.append(f"  ❌ relay process — not running on port {port} (or 7891)")
+        fail.append(f"  💡 Fix: run 'clavus share' to start it")
+
+    # Check if MagicDNS URL is actually reachable via tailnet (not just DNS-resolved)
+    ts_host: str | None = None
+    if ts_serve_ok and relay_alive:
+        try:
+            r = subprocess.run(
+                ["tailscale", "status", "--json"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                dns = json.loads(r.stdout).get("Self", {}).get("DNSName", "")
+                if dns:
+                    ts_host = dns.rstrip(".")
+            if ts_host:
+                proxy_url = f"http://{ts_host}:{port}/api/ping"
+                req2 = urllib.request.Request(proxy_url)
+                urllib.request.urlopen(req2, timeout=5)
+                check("MagicDNS proxy", True, f"http://{ts_host}:{port}/ — reachable via tailnet")
+        except Exception:
+            warn_check("MagicDNS proxy", f"http://{ts_host}:{port}/ — http request failed")
+            warn.append(f"  💡 Verify from another tailnet machine: curl http://{ts_host or '?'}:{port}/api/ping")
 
     # Summary
     print()
@@ -340,6 +406,183 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print(f"  💡 Run 'clavus backup' to create a full backup")
     else:
         print(f"  💡 Everything looks good!")
+
+
+def cmd_p2p(args: argparse.Namespace) -> None:
+    """Discover and sync with peers on the tailnet via direct TCP connection.
+
+    Usage:
+      clavus p2p                  # discover online peers
+      clavus p2p --host           # start listening for incoming connections
+      clavus p2p --connect <dns>  # connect to a peer by DNS name
+    """
+    from clavus.store import BlobStore
+    from clavus.p2p_transport import TCPTransport, p2p_sync, discover_peers
+    from clavus.config import ClavusConfig
+    import time
+
+    store = BlobStore()
+    cfg = ClavusConfig.load()
+
+    # ── Resolve tailscale DNS for this machine ────────────────────────────
+    import subprocess, json
+    ts_dns = ""
+    try:
+        r = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            ts_dns = json.loads(r.stdout).get("Self", {}).get("DNSName", "").rstrip(".")
+    except Exception:
+        pass
+
+    # ── Discover peers ────────────────────────────────────────────────────
+    if not args.host and not args.connect:
+        print("  Discovering peers on tailnet...")
+        peers = discover_peers()
+        if not peers:
+            print("  No peers found — make sure Tailscale is running")
+            return
+
+        online = [p for p in peers if p.get("online", False)]
+        offline = [p for p in peers if not p.get("online", False)]
+
+        print(f"\n  Online ({len(online)}):")
+        if not online:
+            print("    (none)")
+        for p in online:
+            dns = p.get("dns", "")
+            ip = p.get("ip", "")
+            print(f"    {p['name']}")
+            if dns:
+                print(f"      DNS: {dns}")
+            if ip:
+                print(f"      IP:  {ip}")
+
+        if offline:
+            print(f"\n  Offline ({len(offline)}):")
+            for p in offline:
+                print(f"    {p['name']}")
+
+        print(f"\n  Usage:")
+        print(f"    clavus p2p --host              # start listening")
+        if ts_dns:
+            print(f"    clavus p2p --connect {ts_dns}  # connect to this machine")
+        else:
+            print(f"    clavus p2p --connect <peer-dns>  # connect to a peer")
+        return
+
+    # ── Collect local manifests ────────────────────────────────────────────
+    last_proj_name = cfg.default_project or store.read_ref("_last_project") or ""
+    active_project = store.get_index(last_proj_name)
+    if not active_project:
+        print("  No active project. Run 'clavus project <name>' first.")
+        return
+
+    proj = active_project
+    head = proj.head or ""
+    snapshots = [head] if head else []
+    blobs: list[str] = []
+
+    # Walk snapshot history to collect all blob references
+    current = head
+    seen: set[str] = set()
+    while current:
+        if current in seen:
+            break
+        seen.add(current)
+        snap = store.load_snapshot(current)
+        if not snap:
+            break
+        if snap.content_hash:
+            blobs.append(snap.content_hash)
+        if snap.als_hash:
+            blobs.append(snap.als_hash)
+        if snap.sample_hashes:
+            blobs.extend(snap.sample_hashes)
+        if snap.parent == current:
+            break
+        current = snap.parent
+
+    print(f"  Project: {proj.name}")
+    print(f"  Snapshots: {len(snapshots)}, Blobs: {len(blobs)}")
+
+    # ── Host mode ─────────────────────────────────────────────────────────
+    if args.host:
+        port = cfg.port or 7892
+        print(f"\n  Listening on port {port}...")
+        print(f"  Share this with your collaborator:")
+        print(f"    clavus p2p --connect {ts_dns or '<your-dns>'}")
+        print()
+
+        transport = TCPTransport(proj.name, snapshots, blobs)
+        results: dict = {}
+        done = False
+
+        def handler(project: str, sock):
+            nonlocal done
+            print(f"\n  Peer connected: {project}")
+            r = p2p_sync(
+                sock=sock,
+                store=store,
+                local_snapshots=snapshots,
+                local_blobs=blobs,
+                local_has=store.has_object,
+                peer_snapshots=[],   # TODO: get from peer manifest
+                peer_blobs=[],
+                peer_has=lambda h: False,
+            )
+            results["sync"] = r
+            done = True
+            print(f"\n  Sync result: {r}")
+            sock.close()
+
+        transport.listen(port, handler)
+
+        # Wait for one connection or Ctrl+C
+        try:
+            while not done:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n  Stopping...")
+        finally:
+            transport.close()
+        return
+
+    # ── Connect mode ─────────────────────────────────────────────────────
+    if args.connect:
+        peer_dns = args.connect
+        port = cfg.port or 7892
+        print(f"\n  Connecting to {peer_dns}:{port}...")
+
+        transport = TCPTransport(proj.name, snapshots, blobs)
+        peer_manifest, sock = transport.connect(peer_dns, port)
+
+        if not peer_manifest or not sock:
+            print(f"  Failed to connect to {peer_dns}")
+            transport.close()
+            return
+
+        print(f"  Connected. Peer project: {peer_manifest.project}")
+        print(f"  Peer snapshots: {len(peer_manifest.snapshots)}, blobs: {len(peer_manifest.blobs)}")
+
+        peer_has = lambda h: h in set(peer_manifest.blobs)
+
+        r = p2p_sync(
+            sock=sock,
+            store=store,
+            local_snapshots=snapshots,
+            local_blobs=blobs,
+            local_has=store.has_object,
+            peer_snapshots=peer_manifest.snapshots,
+            peer_blobs=peer_manifest.blobs,
+            peer_has=peer_has,
+        )
+        print(f"\n  Sync result: {r}")
+        sock.close()
+        transport.close()
+        return
 
 
 def cmd_help(args: argparse.Namespace) -> None:
@@ -1519,6 +1762,30 @@ def cmd_share(args: argparse.Namespace) -> None:
             pass
 
     lan_url = f"http://{socket.gethostbyname(socket.gethostname())}:{port}"
+
+    # Auto-setup tailscale serve if missing — this is the #1 failure point for cross-account sharing
+    try:
+        r = subprocess.run(
+            ["tailscale", "serve", "status"],
+            capture_output=True, text=True, timeout=5,
+        )
+        serve_ok = r.returncode == 0 and "No serve config" not in r.stdout
+    except Exception:
+        serve_ok = False
+
+    if not serve_ok:
+        print()
+        print(f"  ⚠️  tailscale serve not configured — MagicDNS URL won't work for collaborators")
+        print(f"  💡 Fixing: tailscale serve --bg --http {port} http://localhost:{port}")
+        try:
+            subprocess.run(
+                ["tailscale", "serve", "--bg", "--http", str(port), f"http://localhost:{port}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            print(f"  ✅ tailscale serve enabled")
+        except Exception as e:
+            print(f"  ❌ Could not enable tailscale serve: {e}")
+        print()
 
     print(f"  🎹 Clavus Share")
     print(f"  {'─' * 45}")
@@ -3716,6 +3983,13 @@ def main():
     # Repair (recover from corrupt/missing index)
     p_doctor = subparsers.add_parser("doctor", help="Diagnose Clavus store health (read-only)")
     p_doctor.add_argument("--verbose", "-v", action="store_true", help="Show detailed info")
+
+    # P2P (peer-to-peer sync over Tailscale)
+    p_p2p = subparsers.add_parser("p2p", help="Discover and sync with peers on the tailnet")
+    p_p2p.add_argument("--host", action="store_true", help="Start listening for incoming connections")
+    p_p2p.add_argument("--connect", type=str, default="",
+                       help="Connect to a peer by their Tailscale DNS name")
+
     p_setup = subparsers.add_parser("setup", help="Guided first-run setup")
     p_repair = subparsers.add_parser("repair", help="Repair Clavus storage — recover projects from backup, cues, and refs")
     p_repair.add_argument("--force", "-f", action="store_true",
@@ -3756,6 +4030,7 @@ def main():
         "checkout": cmd_checkout,
         "remote": cmd_remote,
         "doctor": cmd_doctor,
+        "p2p": cmd_p2p,
         "setup": cmd_setup,
         "help": cmd_help,
         "repair": cmd_repair,
