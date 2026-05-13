@@ -253,7 +253,7 @@ class BlobStore:
         """
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, default=str))
-        tmp.rename(path)
+        tmp.replace(path)
 
     # ── Snapshot Storage ──
 
