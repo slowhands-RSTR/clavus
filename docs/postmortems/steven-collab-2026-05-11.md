@@ -191,3 +191,110 @@ Race: Worker A calls `list_view.clear()` → removes all children. Worker B iter
 2. **Test fresh installs.** Dogfood the `git clone && pip install -e . && clavus setup` flow on both platforms before every collaborator session.
 3. **Workers need guardrails.** `@work` is powerful but dangerous. Consider a linter rule: no `@work` without `explicit=True`, no `async` command handler without `@work`.
 4. **Cross-platform smoke test before collab.** 5 minutes of pre-flight on both machines would have caught MagicDNS, root_als, and HEAD ref before Steven joined.
+
+---
+
+# Addendum: May 12 Follow-up Session — 2026-05-12
+
+**Trigger:** Steven returned for a second collaboration test. He had reinstalled Clavus from fresh. Goal was to confirm the May 11 fixes worked end-to-end and to test the C15 (dead remote timeout) scenario.
+
+**Participants:** Chris (macOS), Steven (Windows), Hermes (agent)
+
+---
+
+## Session Summary
+
+Steven ran a fresh `pip install -e .` at 8:52pm. After reinstall, all May 11 issues were confirmed resolved — pull/push worked immediately.
+
+### What was tested and confirmed working
+
+| Test | Result | Notes |
+|------|--------|-------|
+| P4: Fresh install | ✅ | Steven reinstalled at 8:52pm — pulled successfully after reinstall |
+| Pull from Mac relay | ✅ | First try after reinstall |
+| Push to Mac relay | ✅ | Cues + snapshots reached Mac |
+| C15: Dead remote timeout | ✅ fixed | Probe timeout already `timeout=10` at `tui.py:1727` |
+
+### Issues discovered during May 12 session
+
+**1. `_worker_error()` output invisible on Windows (C15 partial)**
+
+`#footer-status { display: none }` in CSS hides the footer in input mode. When `_worker_error()` called `_status()` (which wrote to the footer), the error was invisible on Windows — the footer never rendered. macOS also affected.
+
+**Root cause:** `_worker_error()` wrote to `_status()` which targeted `#footer-status`. The CSS rule `display: none` in `input-mode` hid the footer when any input was focused. Workers run in the background while input is focused.
+
+**Fix (May 13):** `_worker_error()` now calls `self.notify(msg, timeout=12.0, severity="error")` instead of `_status()`. `self.notify()` renders as a native OS notification, completely bypassing the footer CSS.
+
+**Commit:** `8219529` — `fix: worker errors now show native OS notifications via self.notify()`
+
+---
+
+**2. `cmd_join` silently replaced existing remote (Issue #10)**
+
+Running `clavus join` with a new URL while a remote was already configured silently removed the old remote and added the new one. No warning. Pull/push silently used the new remote.
+
+**Fix (May 13):** `cmd_join` now warns before replacing an existing remote. Three-way logic:
+- Same URL + same name → no-op (already connected)
+- Same URL + different name → update name
+- New URL + existing remote → warn + replace (single remote at a time)
+
+**Commit:** `c533a9c` — `fix: warn when joining a new relay replaces existing remote (Issue #10)`
+
+---
+
+**3. `pull_snapshot_blobs` silently skipped failed blobs**
+
+If 1 of 20 blobs failed to download (disk full, permissions, network), the function returned a count of successful blobs with no warning. The caller displayed only the success count.
+
+**Fix (May 13):** `pull_snapshot_blobs` now returns `(count, failed_hashes)`. All three download loops (content, .als, samples) track failures. All callers updated to show `⚠ N` when blobs fail.
+
+**Commit:** `350b3f3` — `hardening: pull_snapshot_blobs returns (count, failed_hashes)`
+
+---
+
+**4. `save_snapshot` silently saved without .als backup**
+
+If the `.als` file was deleted/moved between snapshot saves, `store.save_snapshot()` saved a snapshot with `als_hash=None`. The user saw "Snapshot saved" but had no file to restore.
+
+**Fix (May 13):** `create_snapshot` now checks `snap.als_hash` after saving and appends a warning: `⚠️ Snapshot saved but .als file has no backup — restore will not be possible`.
+
+**Commit:** `c533a9c` — `fix: warn when joining a new relay replaces existing remote (Issue #10)` (bundled with Issue #10 fix)
+
+---
+
+### Steven's reinstall observation
+
+Steven at 8:52pm: `rmdir /s C:\Users\soulb\.clavus && rmdir /s C:\Users\soulb\clavus && pip install -e .`
+
+His issues on May 11 were likely from a stale install with mixed old/new code. A clean reinstall gave him a working system immediately. **This reinforces the lesson: dogfood `git clone && pip install -e .` as the canonical fresh-start test, not `pip install` from PyPI.**
+
+---
+
+## Files Changed (May 13 Hardening)
+
+| File | Change |
+|-------|--------|
+| `clavus/tui.py` | `_worker_error()` → `self.notify()`; `:share <project>` scope; CSS comment |
+| `clavus/cli.py` | Multi-join guard; no-.als snapshot warning; `cmd_doctor` upgrade |
+| `clavus/store.py` | Atomic JSON writes via `.tmp` rename; corrupt JSON restore |
+| `clavus/sync.py` | `pull_snapshot_blobs` → `(count, failed_hashes)` |
+| `TESTING.md` | P4 marked ✅ 5/12 |
+| `docs/hardening-plan.md` | Relay HEAD race condition documented as resolved |
+| `README.md` | Known Limitations section added |
+| `docs/plans/build-day-2026-05-13.md` | Build day plan |
+
+---
+
+## Pre-release State (May 13, 2026)
+
+**Tag:** `v0.1.0-beta` — created after this session
+**Commit:** `38fc576` ("README: add Known Limitations section")
+**Hardening commits since `pre-beta-hardening-2026-05-13`:** `8219529`, `741d1be`, `c533a9c`, `350b3f3`, `28d915b`, `38fc576`
+
+**Remaining known issues for v0.1.0-beta:**
+- Issue #10 multi-join guard: fixed (warn + replace)
+- `_worker_error()` visibility: fixed (self.notify())
+- Blob failure reporting: fixed (tuple return)
+- Snapshot without .als: fixed (warning)
+- C15 dead remote timeout: confirmed fixed (`timeout=10` in probe)
+- Fresh install: confirmed working (Steven 8:52pm reinstall)
