@@ -510,7 +510,7 @@ def cmd_p2p(args: argparse.Namespace) -> None:
 
     # ── Host mode ─────────────────────────────────────────────────────────
     if args.host:
-        port = cfg.port or 7892
+        port = 7892
         print(f"\n  Listening on port {port}...")
         print(f"  Share this with your collaborator:")
         print(f"    clavus p2p --connect {ts_dns or '<your-dns>'}")
@@ -553,7 +553,7 @@ def cmd_p2p(args: argparse.Namespace) -> None:
     # ── Connect mode ─────────────────────────────────────────────────────
     if args.connect:
         peer_dns = args.connect
-        port = cfg.port or 7892
+        port = 7892
         print(f"\n  Connecting to {peer_dns}:{port}...")
 
         transport = TCPTransport(proj.name, snapshots, blobs)
