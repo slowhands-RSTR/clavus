@@ -111,7 +111,7 @@ Full networking details: `references/tailscale-serve-relay.md`
 | `o` | Open project in DAW |
 | `p` | Pull (auto-snapshots first) |
 | `P` | Push |
-| `U` | Push stems |
+| `i` | Inject cues as Ableton markers |
 | `Tab` | Switch cues / history pane |
 | `j` / `k` | Navigate |
 | `:` | Command mode |

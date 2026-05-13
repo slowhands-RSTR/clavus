@@ -165,6 +165,7 @@ Press `o` — Clavus opens the latest version of the `.als` in Ableton Live.
 | `a` | Assign cue to someone |
 | `R` | Resolve / unresolve cue |
 | `!` | Resolve sync conflict |
+| `i` | Inject cues as Ableton markers |
 | `T` | Restore to snapshot |
 | `d` | Diff (see what changed) |
 | `o` | Open project in Ableton |
