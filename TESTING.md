@@ -31,8 +31,8 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | T3 | `S` snapshot + auto-push | ✅ 5/10 | ✅ 5/11 | |
 | T4 | `e` edit cue text → persists | ✅ 5/10 | ✅ 5/11 | |
 | T5 | `e` edit snapshot message → persists after reload | ✅ 5/10 | ✅ 5/11 | |
-| T6 | `!` resolve cue conflict (ConflictScreen modal) | 🔲 | ✅ 5/11 | |
-| T7 | `!` resolve snapshot message conflict (SnapConflictScreen) | 🔲 | 🔲 | |
+| T6 | `!` resolve cue conflict (ConflictScreen modal) | ✅ 5/12 | ✅ 5/11 | |
+| T7 | `!` resolve snapshot message conflict (SnapConflictScreen) | ✅ 5/12 | ✅ 5/12 | |
 | T8 | `o` open HEAD in Ableton | ✅ 5/10 | ✅ 5/11 | |
 | T9 | `o` from history pane → open selected snapshot | ✅ 5/10 | ✅ 5/11 | |
 | T10 | `T` restore to snapshot | ✅ 5/10 | ✅ 5/11 | |
@@ -89,7 +89,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | E7 | Very large .als (200+ tracks, 10MB+) → snapshot performance | 🔲 | 🔲 | Need Ableton save to trigger real change |
 | E8 | Project with non-ASCII characters in name/path | ✅ 5/12 | 🔲 | "Shades Of Love Edit (7) 2022" — parens, spaces fine |
 | E9 | Multiple remotes → push to all, pull from all | 🔲 | 🔲 | |
-| E10 | `clavus share` port conflict → clear error | 🔲 | 🔲 | |
+| E10 | `clavus share` port conflict → clear error | ✅ 5/12 | 🔲 | Win: pull latest for fix |
 
 ## Platform-Specific
 
