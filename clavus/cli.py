@@ -2260,6 +2260,22 @@ def cmd_cue(args: argparse.Namespace) -> None:
     # Strip @ prefix if present
     if position.startswith("@"):
         position = position[1:]
+    # Validate position format — must be bars.beats.sixteenths or bars:beats
+    def _pos_is_ok(p: str) -> bool:
+        try:
+            if ":" in p:
+                parts = p.split(":")
+                int(parts[0]); int(parts[1]) if len(parts) > 1 else 0
+                return True
+            parts = p.split(".")
+            for part in parts:
+                int(part)
+            return True
+        except (ValueError, TypeError):
+            return False
+    if position != "0.0.0" and not _pos_is_ok(position):
+        print(f"  ⚠ Invalid position '{position}' — using 0.0.0 instead")
+        position = "0.0.0"
 
     cue = add_cue_command(
         text=args.text,

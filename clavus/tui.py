@@ -2145,18 +2145,22 @@ class ClavusApp(App):
         """
         def sort_key(c: Cue) -> tuple:
             pos = c.position or ""
-            if ":" in pos:
-                # bars:beats format
-                parts = pos.split(":")
-                bars = int(parts[0]) if parts[0] else 0
+            try:
+                if ":" in pos:
+                    # bars:beats format
+                    parts = pos.split(":")
+                    bars = int(parts[0]) if parts[0] else 0
+                    beats = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+                    return (bars, beats, 0, c.timestamp)
+                # bars.beats.sixteenths format
+                parts = pos.split(".")
+                bars = int(parts[0]) if len(parts) > 0 and parts[0] else 0
                 beats = int(parts[1]) if len(parts) > 1 and parts[1] else 0
-                return (bars, beats, 0, c.timestamp)
-            # bars.beats.sixteenths format
-            parts = pos.split(".")
-            bars = int(parts[0]) if len(parts) > 0 and parts[0] else 0
-            beats = int(parts[1]) if len(parts) > 1 and parts[1] else 0
-            sixteenths = int(parts[2]) if len(parts) > 2 and parts[2] else 0
-            return (bars, beats, sixteenths, c.timestamp)
+                sixteenths = int(parts[2]) if len(parts) > 2 and parts[2] else 0
+                return (bars, beats, sixteenths, c.timestamp)
+            except (ValueError, TypeError):
+                # Invalid position string — sort to the end
+                return (999999, 0, 0, c.timestamp)
         return sorted(cues, key=sort_key)
 
     async def _do_pull(self):
