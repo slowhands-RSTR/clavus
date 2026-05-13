@@ -17,7 +17,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | C9 | Stem import → push → peer pulls → WAV appears | ✅ 5/12 | 🔲 | 🔲 | Win→Mac stem push, Mac materialized 3 WAVs |
 | C10 | Stem push/pull dedup (same WAV doesn't transfer twice) | ✅ 5/12 | 🔲 | 🔲 | Second push: 0 stems, skip unreachable remote |
 | C11 | Push → peer edits → peer pushes → you pull (roundtrip) | ✅ 5/11 | 🔲 | 🔲 | Mac→Win relay push + Win local pull validated; full peer-edit cycle not yet |
-| C12 | Rapid push/edit/push (optimistic locking: 409 rejection) | 🔲 | 🔲 | 🔲 | |
+| C12 | Rapid push/edit/push (optimistic locking: 409 rejection) | ✅ 5/12 | 🔲 | 🔲 | Win pushed first → Mac 409 → pull → auto-snap → push OK |
 | C13 | Network drop mid-push → retry → clean state | 🔲 | 🔲 | 🔲 | |
 | C14 | Relay restart while clients connected → clients recover | 🔲 | 🔲 | 🔲 | |
 | C15 | Cross-account Tailscale (shared node, MagicDNS) | ✅ 5/11 | 🔲 | 🔲 | MagicDNS share URL (chrispc.tail46b8d9.ts.net) → join → pull 10 projects ✅; Pull spinner hangs on dead remotes (Windows) |
