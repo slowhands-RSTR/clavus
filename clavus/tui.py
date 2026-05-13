@@ -130,6 +130,7 @@ class HelpScreen(Screen):
             yield Static("  :snapshot <msg>  Create snapshot     :project <name>  Switch project")
             yield Static("  :open [path]     Open in Ableton     :pull / :push    Manual sync")
             yield Static("  :stem push/pull  Stem file sync      :init <path>     Init project")
+            yield Static("  :p2p-host        Start P2P host      :p2p-connect <dns>  P2P sync")
             yield Static("  :remote rename <name>               :remote add <name> <url>")
             yield Static("[dim]Esc / q / Enter / h — close[/]", classes="help-dim")
 
@@ -552,6 +553,24 @@ class ClavusApp(App):
                 self._status("use :join http://IP:PORT — get URL from 'clavus share' on host")
         elif cmd in ("help", "h", "?"):
             self.push_screen(HelpScreen())
+        elif cmd == "p2p-host":
+            self._status("starting P2P host in new terminal...")
+            subprocess.Popen([
+                "open", "-a", "Terminal",
+                str(Path(sys.executable).parent / "python3"),
+                "-m", "clavus", "p2p", "--host"
+            ])
+        elif cmd == "p2p-connect":
+            if arg:
+                self._status(f"P2P connecting to {arg}...")
+                _p = subprocess.run(
+                    [sys.executable, "-m", "clavus", "p2p", "--connect", arg],
+                    capture_output=True, text=True, timeout=60)
+                out = (_p.stdout or "") + (_p.stderr or "")
+                self._status(out.strip()[:120])
+                self._connect()
+            else:
+                self._status("use :p2p-connect <peer-dns>")
         else:
             self._debug_log(f"dispatch: unknown cmd='{cmd}' arg='{arg}'")
             self._status(f"unknown: {cmd}")
