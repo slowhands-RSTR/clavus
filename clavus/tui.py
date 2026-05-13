@@ -1784,8 +1784,8 @@ class ClavusApp(App):
                         msgs.append(f"{pname}: ❌ {err[:40]}")
                         self._log_event(f"pull-all: {pname} FAILED — {err}")
                     elif c or s:
-                        blob_count = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_data, remote)
-                        msgs.append(f"{pname}: {c}c {s}s" + (f" {blob_count}b" if blob_count else ""))
+                        blob_count, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_data, remote)
+                        msgs.append(f"{pname}: {c}c {s}s" + (f" {blob_count}b" if blob_count else "") + (f" ⚠{len(failed)}" if failed else ""))
                         self._log_event(f"pull-all: {pname} OK — {c}c {s}s")
                     else:
                         msgs.append(f"{pname}: up to date")
@@ -1942,7 +1942,9 @@ class ClavusApp(App):
                 if head_changed and current_head and remote:
                     try:
                         from clavus.sync import pull_snapshot_blobs
-                        pull_snapshot_blobs(self.store, proj, remote)
+                        _, failed = pull_snapshot_blobs(self.store, proj, remote)
+                        if failed:
+                            self.notify(f"⚠️ {len(failed)} blob(s) failed to download", severity="warning")
                     except Exception:
                         pass  # best-effort — don't break UI refresh on blob failure
                 
@@ -2212,11 +2214,12 @@ class ClavusApp(App):
                             # Pull data (offload to thread to keep UI responsive)
                             remote_ref = remote
                             result = await asyncio.to_thread(pull_from_remote, self.store, proj_index, remote_ref)
-                            blob_count = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote_ref)
+                            blob_count, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote_ref)
                             parts = []
                             if result.get("cues"): parts.append(f"{result['cues']}c")
                             if result.get("snapshots"): parts.append(f"{result['snapshots']}s")
                             if blob_count: parts.append(f"{blob_count}b")
+                            if failed: parts.append(f"⚠{len(failed)}")
                             self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {pname}  {' '.join(parts)}" if parts else f"\u2b07 {time.strftime('%H:%M')} {pname}  up to date"
                             self._update_header()
                             await asyncio.sleep(0)
@@ -2299,6 +2302,8 @@ class ClavusApp(App):
 
             # Fast path: localhost → data's already on disk, just re-read
             is_localhost = remote.url.startswith("http://localhost") or remote.url.startswith("http://127.0.0.1")
+            blobs = 0
+            failed: list[str] = []
             if is_localhost:
                 self._load_cues_from_disk()
                 self._load_snapshots_from_disk()
@@ -2306,7 +2311,7 @@ class ClavusApp(App):
                 snaps_n = len(self.snaps)
                 conflicts_n = sum(1 for c in self.cues if getattr(c, '_conflict', False))
                 # Still pull blobs from relay (they may need materialization)
-                blobs = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote)
+                _, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote)
             else:
                 result = await asyncio.to_thread(pull_from_remote, self.store, proj_index, remote)
                 if result.get("error"):
@@ -2321,8 +2326,8 @@ class ClavusApp(App):
                 cues_n = result.get("cues", 0)
                 snaps_n = result.get("snapshots", 0)
                 conflicts_n = result.get("conflicts", 0)
-                blobs = pull_snapshot_blobs(self.store, proj_index, remote)
-            self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
+                blobs, failed = pull_snapshot_blobs(self.store, proj_index, remote)
+            self._sync_status = f"⇊ {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "") + (f" ⚠{len(failed)}" if failed else "")
             if conflicts_n:
                 self._sync_status += f"  \u26a0{conflicts_n}"
             self._update_header()

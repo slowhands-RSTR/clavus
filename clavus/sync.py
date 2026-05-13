@@ -417,11 +417,12 @@ def push_snapshot_blobs(
 
 def pull_snapshot_blobs(
     store: BlobStore, proj: ClavusProject, remote: Remote,
-) -> int:
+) -> tuple[int, list[str]]:
     """Pull missing snapshot content blobs + .als backups from a remote.
 
     Checks which blobs in our snapshot history are missing locally and
-    fetches them from the remote. Returns number of blobs downloaded.
+    fetches them from the remote. Returns (count, failed_hashes).
+    failed_hashes lists hashes that were requested but could not be downloaded.
     """
     import base64
     import httpx
@@ -431,12 +432,13 @@ def pull_snapshot_blobs(
 
     client = SyncClient(remote.url)
     count = 0
+    failed: list[str] = []
 
     try:
         # Re-read project from store (pull may have updated it)
         proj_ref = store.get_index(proj.name)
         if not proj_ref:
-            return 0
+            return (0, [])
         proj = proj_ref
 
         # Collect locally missing content hashes from our snapshot history
@@ -507,6 +509,7 @@ def pull_snapshot_blobs(
             except Exception:
                 pass
             print(f"    ⚠️  Could not fetch blob {h[:12]}")
+            failed.append(h)
 
         # Download missing .als backups
         if missing_als:
@@ -525,6 +528,7 @@ def pull_snapshot_blobs(
                     downloaded.add(h)
             except Exception as e:
                 print(f"    ⚠️  Could not fetch .als backup {h[:12]}: {e}")
+                failed.append(h)
 
         # Download missing audio samples
         if missing_samples:
@@ -543,6 +547,8 @@ def pull_snapshot_blobs(
                     downloaded.add(h)
             except Exception:
                 pass
+            print(f"    ⚠️  Could not fetch audio sample {h[:12]}")
+            failed.append(h)
 
         # Fetch sample filenames for downloaded samples
         if missing_samples:
@@ -624,7 +630,7 @@ def pull_snapshot_blobs(
     except Exception as e:
         print(f"    ⚠️  Materialization failed: {e}")
 
-    return count
+    return (count, failed)
 
 
 # ─── Push / Pull Logic ───────────────────────────────────────────────

@@ -1805,9 +1805,11 @@ def cmd_join(args: argparse.Namespace) -> None:
                 s = result.get("snapshots", 0)
                 c = result.get("cues", 0)
                 print(f"{s} snapshots, {c} cues")
-                blob_count = pull_snapshot_blobs(store, proj_data, Remote(name=remote_name, url=base))
+                blob_count, failed = pull_snapshot_blobs(store, proj_data, Remote(name=remote_name, url=base))
                 if blob_count:
                     print(f"        📦 {blob_count} audio blob(s)")
+                if failed:
+                    print(f"        ⚠️  {len(failed)} blob(s) failed — check disk space or network")
 
     # ── Phase 6: Next Steps ──────────────────────────────────────────
     print()
@@ -2403,9 +2405,11 @@ def cmd_remote(args: argparse.Namespace) -> None:
         if result.get("snapshots"):
             parts.append(f"{result['snapshots']} snapshots")
 
-        blob_count = pull_snapshot_blobs(store, proj, remote_ref)
+        blob_count, failed = pull_snapshot_blobs(store, proj, remote_ref)
         if blob_count:
             parts.append(f"{blob_count} blob(s)")
+        if failed:
+            parts.append(f"{len(failed)} blob(s) failed")
 
         if parts:
             print(f"   Got {', '.join(parts)}")
@@ -2759,7 +2763,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
                     # Pull data
                     remote_ref = Remote(name=remote.name, url=remote.url)
                     result = pull_from_remote(store, proj, remote_ref)
-                    blob_count = pull_snapshot_blobs(store, proj, remote_ref)
+                    blob_count, failed = pull_snapshot_blobs(store, proj, remote_ref)
                     parts = []
                     if result.get("cues"):
                         parts.append(f"{result['cues']} cues")
@@ -2767,6 +2771,8 @@ def cmd_pull(args: argparse.Namespace) -> None:
                         parts.append(f"{result['snapshots']} snapshots")
                     if blob_count:
                         parts.append(f"{blob_count} blob(s)")
+                    if failed:
+                        parts.append(f"{len(failed)} blob(s) failed")
                     if parts:
                         print(f"   Got {', '.join(parts)}")
                     else:
@@ -2890,9 +2896,11 @@ def cmd_pull(args: argparse.Namespace) -> None:
 
             # Pull snapshot content blobs + .als backups
             from clavus.sync import pull_snapshot_blobs
-            blob_count = pull_snapshot_blobs(store, proj, remote)
+            blob_count, failed = pull_snapshot_blobs(store, proj, remote)
             if blob_count:
                 parts.append(f"{blob_count} blob{'s' if blob_count != 1 else ''}")
+            if failed:
+                parts.append(f"{len(failed)} blob(s) failed")
 
             # Pull stems for current HEAD
             head = store.read_ref("HEAD")
