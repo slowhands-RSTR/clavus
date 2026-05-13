@@ -569,8 +569,11 @@ class ClavusApp(App):
                         capture_output=True, text=True, timeout=60)
                     out = (_p.stdout or "") + (_p.stderr or "")
                     self._log_event(f":p2p-connect {arg} → {out.strip()[:200]}")
-                    self.notify(out.strip()[:120] or "P2P sync complete", timeout=5.0)
-                    self._status("P2P done — see log")
+                    # Show the last meaningful line (sync result or error)
+                    lines = [l.strip() for l in out.split("\n") if l.strip()]
+                    summary = lines[-1] if lines else "P2P sync complete"
+                    self.notify(summary[:120], timeout=5.0)
+                    self._status(summary[:80])
                 except subprocess.TimeoutExpired:
                     self._log_event(f":p2p-connect {arg} TIMEOUT")
                     self.notify("P2P sync timed out after 60s", timeout=5.0, severity="error")
