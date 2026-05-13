@@ -14,8 +14,8 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | C6 | Resolve snapshot message conflict with `!` | ✅ 5/12 | 🔲 | 🔲 | Mac↔Win — Win picked remote version, conflict cleared |
 | C7 | Peer pushes snap → you `o` to open in Ableton | ✅ 5/11 | 🔲 | 🔲 | Cross-machine open |
 | C8 | Peer pushes snap → you `T` restore → .als lands correctly | ✅ 5/11 | 🔲 | 🔲 | Restore works; Suite/Intro .als mismatch is Ableton-side |
-| C9 | Stem import → push → peer pulls → WAV appears | 🔲 | 🔲 | 🔲 | |
-| C10 | Stem push/pull dedup (same WAV doesn't transfer twice) | 🔲 | 🔲 | 🔲 | |
+| C9 | Stem import → push → peer pulls → WAV appears | ✅ 5/12 | 🔲 | 🔲 | Win→Mac stem push, Mac materialized 3 WAVs |
+| C10 | Stem push/pull dedup (same WAV doesn't transfer twice) | ✅ 5/12 | 🔲 | 🔲 | Second push: 0 stems, skip unreachable remote |
 | C11 | Push → peer edits → peer pushes → you pull (roundtrip) | ✅ 5/11 | 🔲 | 🔲 | Mac→Win relay push + Win local pull validated; full peer-edit cycle not yet |
 | C12 | Rapid push/edit/push (optimistic locking: 409 rejection) | 🔲 | 🔲 | 🔲 | |
 | C13 | Network drop mid-push → retry → clean state | 🔲 | 🔲 | 🔲 | |
