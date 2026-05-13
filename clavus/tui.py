@@ -540,7 +540,7 @@ class ClavusApp(App):
         elif cmd in ("delete", "del"):
             self.action_delete_cue()
         elif cmd == "share":
-            self._run_share()
+            self._run_share(arg)
         elif cmd == "join":
             if arg and (arg.startswith("http://") or arg.startswith("https://")):
                 self._run_join_url(arg)
@@ -1600,8 +1600,12 @@ class ClavusApp(App):
         except Exception as e:
             self._status(f"delete failed: {e}")
 
-    def _run_share(self):
-        """Start a relay and show connection URLs."""
+    def _run_share(self, project: str = ""):
+        """Start a relay and show connection URLs.
+
+        If project is given, scope the relay to that project only.
+        If no project is given, share all projects (show help text).
+        """
         from clavus.config import ClavusConfig
         import subprocess, os
 
@@ -1610,9 +1614,22 @@ class ClavusApp(App):
         tailscale_ip = self._tailscale_ip()
         port = cfg.port
 
+        # Validate project if specified
+        if project:
+            proj_data = self.store.get_index(project)
+            if not proj_data:
+                self._worker_error(f"share: project '{project}' not found — use :projects to list")
+                return
+
+        # Build relay args — scope to project if provided
+        relay_args = [sys.executable, "-m", "clavus", "relay", "--port", str(port)]
+        if project:
+            relay_args.append("--project")
+            relay_args.append(project)
+
         # Spawn relay server
         proc = subprocess.Popen(
-            [sys.executable, "-m", "clavus", "relay", "--port", str(port)],
+            relay_args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -1625,7 +1642,7 @@ class ClavusApp(App):
                 except subprocess.TimeoutExpired:
                     proc.kill()
 
-        self.push_screen(ShareModal(lan_ip, tailscale_ip, port, stop_relay))
+        self.push_screen(ShareModal(lan_ip, tailscale_ip, port, stop_relay, project))
 
     @staticmethod
     def _lan_ip() -> str:
@@ -2568,11 +2585,12 @@ class ClavusApp(App):
         self._footer_toast(f"[{C['dim']}]{ts}[/] [{C['accent']}⟩[/] {safe}", 8.0)
 
     def _worker_error(self, msg: str):
-        """Log an error from a @work worker to disk AND show a brief toast.
-        
-        Workers can't reliably use set_timer for sticky display (known Textual bug).
-        This writes to ~/.clavus/errors.log so the error is always recoverable,
-        and shows a short toast pointing to the log file.
+        """Log an error from a @work worker to disk AND show a native notification.
+
+        Uses self.notify() — Textual's built-in notification system — which works
+        reliably across all platforms and bypasses all footer CSS timing issues.
+        Workers can't use set_timer reliably (known Textual bug), and the footer
+        may be hidden (display:none) during input-mode on Windows.
         """
         from pathlib import Path
         log_path = Path.home() / ".clavus" / "errors.log"
@@ -2580,7 +2598,8 @@ class ClavusApp(App):
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
         with open(log_path, "a") as f:
             f.write(f"[{ts}] {msg}\n")
-        self._status(f"❌ error — see errors.log")
+        # Show native OS notification — works on all platforms, no CSS dependency
+        self.notify(msg, timeout=12.0, severity="error")
 
     def _debug_log(self, msg: str):
         """Write diagnostic message to debug log when --debug is active."""
@@ -2903,17 +2922,19 @@ class ShareModal(ModalScreen[None]):
         Binding("escape", "dismiss", "Close"),
     ]
 
-    def __init__(self, lan_ip: str, tailscale_ip: str, port: int, stop_cb) -> None:
+    def __init__(self, lan_ip: str, tailscale_ip: str, port: int, stop_cb, project: str = "") -> None:
         super().__init__()
         self.lan_ip = lan_ip
         self.tailscale_ip = tailscale_ip
         self.port = port
         self.stop_cb = stop_cb
+        self.project = project
 
     def compose(self) -> ComposeResult:
         join_url = f"http://{self.tailscale_ip or self.lan_ip}:{self.port}"
+        scope_note = f" 🔒 scoped to: {self.project}" if self.project else " (all projects)"
         with Vertical(id="share-box"):
-            yield Static("🎹  Clavus Share — relay running", id="share-title")
+            yield Static(f"🎹  Clavus Share — relay running{scope_note}", id="share-title")
             yield Static(f"  {join_url}  ", id="share-url")
             yield Static(
                 "Collaborator runs:  clavus join " + join_url,
