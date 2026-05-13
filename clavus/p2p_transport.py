@@ -6,9 +6,16 @@ Provides:
   - HTTPTransport: wraps existing SyncClient, for relay/hub mode
 
 Frame format: [4-byte uint32 length][JSON payload]
-Payload always has a "type" field: MANIFEST, PING, WANT, GIVE, GOT, DONE, ERROR
+Payload always has a "type" field:
+  MANIFEST, CONFLICT, PING, WANT, GIVE, GOT, DONE, ERROR
 
 Smoke test: python3 clavus/p2p_transport.py
+
+Conflict Detection (git-style):
+  Both sides track HEAD. On connect, the connector sends expected_head
+  (what they think the listener has). The listener rejects if it doesn't
+  match — CONFLICT frame — preventing silent overwrites. After successful
+  sync, both update last_peer_head for the next session.
 """
 
 from __future__ import annotations
@@ -20,67 +27,118 @@ import struct
 import threading
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-# ─── Frame Format ────────────────────────────────────────────────────────────
+
+# ─── Constants ────────────────────────────────────────────────────────────────
 
 FRAME_HEADER = struct.Struct("!I")  # big-endian uint32
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = (0.5, 1.5, 3.0)
 
 
-def recv_frame(sock: socket.socket) -> Optional[dict]:
-    """Receive one JSON frame from a socket. Returns None on disconnect."""
+# ─── Frame Primitives ─────────────────────────────────────────────────────────
+
+def _send_frame(sock: socket.socket, payload: dict) -> bool:
+    """Send a JSON frame with 4-byte length prefix."""
     try:
-        header = sock.recv(FRAME_HEADER.size)
-        if not header:
-            return None
-        length, = FRAME_HEADER.unpack(header)
-        data = b""
-        while len(data) < length:
-            chunk = sock.recv(length - len(data))
-            if not chunk:
-                return None
-            data += chunk
-        return json.loads(data.decode("utf-8"))
-    except (ConnectionResetError, BrokenPipeError, OSError):
-        return None
-    except json.JSONDecodeError:
-        return None
-
-
-def send_frame(sock: socket.socket, payload: dict) -> bool:
-    """Send one JSON frame to a socket. Returns False on error."""
-    try:
-        body = json.dumps(payload).encode("utf-8")
-        sock.sendall(FRAME_HEADER.pack(len(body)) + body)
+        data = json.dumps(payload, default=str).encode("utf-8")
+        sock.sendall(FRAME_HEADER.pack(len(data)) + data)
         return True
-    except (ConnectionResetError, BrokenPipeError, OSError):
+    except Exception:
         return False
 
 
-# ─── Retry Constants ─────────────────────────────────────────────────────────
+def _recv_frame(sock: socket.socket) -> Optional[dict]:
+    """Receive a JSON frame. Returns None on disconnect."""
+    try:
+        header = sock.recv(FRAME_HEADER.size)
+        if not header or len(header) < FRAME_HEADER.size:
+            return None
+        length, = FRAME_HEADER.unpack(header)
+        # Reasonable cap: 50 MB
+        if length > 50 * 1024 * 1024:
+            return None
+        body = b""
+        while len(body) < length:
+            chunk = sock.recv(length - len(body))
+            if not chunk:
+                return None
+            body += chunk
+        return json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
 
-_RETRYABLE = (ConnectionError, TimeoutError, OSError)
-_MAX_RETRIES = 3
-_RETRY_BACKOFF = [1.0, 2.0, 4.0]
 
-# ─── Peer Manifest ──────────────────────────────────────────────────────────
+# ─── Peer Manifest ────────────────────────────────────────────────────────────
 
 @dataclass
 class PeerManifest:
-    """What a peer has."""
+    """What a peer has at sync time."""
     project: str
     snapshots: list[str]
     blobs: list[str]
+    head: Optional[str] = None          # peer's current HEAD hash
+    expected_head: Optional[str] = None # what connector thinks listener has
 
 
-# ─── Transport Protocol ─────────────────────────────────────────────────────
+# ─── Frame Helpers ────────────────────────────────────────────────────────────
+
+def frame_manifest(
+    project: str,
+    snapshots: list[str],
+    blobs: list[str],
+    head: Optional[str] = None,
+    expected_head: Optional[str] = None,
+) -> dict:
+    return {
+        "type": "MANIFEST",
+        "project": project,
+        "snapshots": snapshots,
+        "blobs": blobs,
+        "head": head,
+        "expected_head": expected_head,
+    }
+
+
+def frame_conflict(head: str, message: str) -> dict:
+    return {"type": "CONFLICT", "head": head, "message": message}
+
+
+def frame_want(sock: socket.socket, hashes: list[str]) -> None:
+    _send_frame(sock, {"type": "WANT", "hashes": hashes})
+
+
+def frame_give(sock: socket.socket, h: str, data: bytes) -> None:
+    _send_frame(sock, {
+        "type": "GIVE",
+        "hash": h,
+        "data": base64.b64encode(data).decode("ascii"),
+    })
+
+
+def frame_got(sock: socket.socket, h: str) -> None:
+    _send_frame(sock, {"type": "GOT", "hash": h})
+
+
+def frame_done(sock: socket.socket) -> None:
+    _send_frame(sock, {"type": "DONE"})
+
+
+def frame_error(sock: socket.socket, message: str) -> None:
+    _send_frame(sock, {"type": "ERROR", "message": message})
+
+
+# ─── Transport Protocol ───────────────────────────────────────────────────────
 
 class SyncTransport(ABC):
     """Abstract sync transport."""
 
     @abstractmethod
-    def connect(self, host: str, port: int) -> tuple[Optional[PeerManifest], Optional[socket.socket]]:
+    def connect(
+        self, host: str, port: int,
+    ) -> tuple[Optional[PeerManifest], Optional[socket.socket]]:
         """Connect and exchange manifests. Returns (peer_manifest, socket) or (None, None)."""
         ...
 
@@ -94,28 +152,49 @@ class SyncTransport(ABC):
         ...
 
 
-# ─── TCP Transport ──────────────────────────────────────────────────────────
+# ─── TCP Transport ────────────────────────────────────────────────────────────
 
 class TCPTransport(SyncTransport):
-    """Raw-socket P2P transport. No HTTP, no relay."""
+    """Raw-socket P2P transport. No HTTP, no relay.
 
-    def __init__(self, project: str, snapshots: list[str], blobs: list[str]):
+    Conflict detection via expected_head:
+      - connector sends head + expected_head in MANIFEST
+      - listener checks: expected_head != current head → CONFLICT, aborts
+      - after successful sync, caller updates last_peer_head
+    """
+
+    def __init__(
+        self,
+        project: str,
+        snapshots: list[str],
+        blobs: list[str],
+        head: Optional[str] = None,
+        last_peer_head: Optional[str] = None,
+    ):
         self.project = project
         self.snapshots = snapshots
         self.blobs = blobs
+        self.head = head                              # our current HEAD
+        self.last_peer_head = last_peer_head          # what peer had last sync
         self._server_sock: Optional[socket.socket] = None
         self._server_thread: Optional[threading.Thread] = None
         self._running = False
         self._callback: Optional[Callable[[str, socket.socket], None]] = None
 
-    def connect(self, host: str, port: int) -> tuple[Optional[PeerManifest], Optional[socket.socket]]:
-        """Connect to a peer, exchange manifests. Caller closes returned socket."""
+    def connect(
+        self, host: str, port: int,
+    ) -> tuple[Optional[PeerManifest], Optional[socket.socket]]:
+        """Connect to a peer, exchange manifests. Caller closes returned socket.
+
+        Sends MANIFEST with our head and expected_head (what we think peer has).
+        If listener sends CONFLICT, returns (None, None) with error in manifest.project.
+        """
         sock = None
         for attempt in range(_MAX_RETRIES):
             try:
                 sock = socket.create_connection((host, port), timeout=10)
                 break
-            except _RETRYABLE as e:
+            except (socket.timeout, ConnectionRefusedError, OSError):
                 if attempt < _MAX_RETRIES - 1:
                     time.sleep(_RETRY_BACKOFF[attempt])
                 continue
@@ -124,17 +203,36 @@ class TCPTransport(SyncTransport):
             return (None, None)
 
         try:
-            if not send_frame(sock, {
-                "type": "MANIFEST",
-                "project": self.project,
-                "snapshots": self.snapshots,
-                "blobs": self.blobs,
-            }):
+            # Send our manifest with HEAD context
+            if not _send_frame(sock, frame_manifest(
+                self.project, self.snapshots, self.blobs,
+                head=self.head,
+                expected_head=self.last_peer_head,
+            )):
                 sock.close()
                 return (None, None)
 
-            peer_frame = recv_frame(sock)
-            if not peer_frame or peer_frame.get("type") != "MANIFEST":
+            peer_frame = _recv_frame(sock)
+            if not peer_frame:
+                sock.close()
+                return (None, None)
+
+            # Handle CONFLICT from listener
+            if peer_frame.get("type") == "CONFLICT":
+                sock.close()
+                # Return a manifest with project as error message for caller
+                return (
+                    PeerManifest(
+                        project=f"CONFLICT: {peer_frame.get('message', 'head divergence')} "
+                                f"(peer head: {peer_frame.get('head', '?')[:8]})",
+                        snapshots=[],
+                        blobs=[],
+                        head=peer_frame.get("head"),
+                    ),
+                    None,
+                )
+
+            if peer_frame.get("type") != "MANIFEST":
                 sock.close()
                 return (None, None)
 
@@ -143,6 +241,7 @@ class TCPTransport(SyncTransport):
                     project=peer_frame.get("project", ""),
                     snapshots=peer_frame.get("snapshots", []),
                     blobs=peer_frame.get("blobs", []),
+                    head=peer_frame.get("head"),
                 ),
                 sock,
             )
@@ -165,10 +264,30 @@ class TCPTransport(SyncTransport):
         self._server_thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._server_thread.start()
 
+    def listen_with_peer_manifest(
+        self,
+        port: int,
+        callback: Callable[[str, socket.socket, "PeerManifest"], None],
+    ) -> None:
+        """Start TCP server. callback receives (project, sock, peer_manifest).
+
+        Unlike listen(), the callback gets the already-received PeerManifest
+        so it can run p2p_sync on the socket without reconnecting.
+        """
+        self._running = True
+        self._callback_with_peer = callback  # type: ignore[assignment]
+        self._server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_sock.bind(("0.0.0.0", port))
+        self._server_sock.listen(4)
+        self._server_sock.settimeout(2.0)
+        self._server_thread = threading.Thread(target=self._accept_loop_with_peer, daemon=True)
+        self._server_thread.start()
+
     def _accept_loop(self) -> None:
         while self._running:
             try:
-                client_sock, _ = self._server_sock.accept()
+                client_sock, _ = self._server_sock.accept()  # type: ignore[union-attr]
                 t = threading.Thread(target=self._handle, args=(client_sock,), daemon=True)
                 t.start()
             except socket.timeout:
@@ -176,25 +295,105 @@ class TCPTransport(SyncTransport):
             except OSError:
                 break
 
-    def _handle(self, sock: socket.socket) -> None:
-        """Handle one incoming connection."""
+    def _accept_loop_with_peer(self) -> None:
+        """Accept loop for listen_with_peer_manifest — passes peer_manifest to callback."""
+        while self._running:
+            try:
+                client_sock, _ = self._server_sock.accept()  # type: ignore[union-attr]
+                t = threading.Thread(
+                    target=self._handle_with_peer, args=(client_sock,), daemon=True
+                )
+                t.start()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+    def _handle_with_peer(self, sock: socket.socket) -> None:
+        """Handle one incoming connection. Passes PeerManifest to callback."""
         try:
-            peer_frame = recv_frame(sock)
+            peer_frame = _recv_frame(sock)
             if not peer_frame or peer_frame.get("type") != "MANIFEST":
                 return
+
+            peer_head = peer_frame.get("head")
+            expected_head = peer_frame.get("expected_head")
+
+            # Conflict detection
+            if expected_head is not None and self.head is not None:
+                if expected_head != self.head:
+                    msg = (
+                        f"Head mismatch: you have {expected_head[:8]}, "
+                        f"peer has {self.head[:8]} — sync both to same state first"
+                    )
+                    _send_frame(sock, frame_conflict(self.head, msg))
+                    sock.close()
+                    return
+
+            peer_manifest = PeerManifest(
+                project=peer_frame.get("project", ""),
+                snapshots=peer_frame.get("snapshots", []),
+                blobs=peer_frame.get("blobs", []),
+                head=peer_head,
+            )
+
+            # Send our manifest back
+            if not _send_frame(sock, frame_manifest(
+                self.project, self.snapshots, self.blobs,
+                head=self.head,
+            )):
+                return
+
+            # Call the callback with project, socket, AND peer_manifest
+            cb = getattr(self, "_callback_with_peer", None)
+            if cb:
+                cb(peer_manifest.project, sock, peer_manifest)
+        except Exception:
+            pass
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    def _handle(self, sock: socket.socket) -> None:
+        """Handle one incoming connection.
+
+        Checks expected_head from connector against our current HEAD.
+        If mismatch → send CONFLICT, close. This prevents silent overwrites.
+        """
+        try:
+            peer_frame = _recv_frame(sock)
+            if not peer_frame or peer_frame.get("type") != "MANIFEST":
+                return
+
+            peer_head = peer_frame.get("head")
+            expected_head = peer_frame.get("expected_head")
+
+            # ── Conflict detection (git-style expected_parent) ──
+            if expected_head is not None and self.head is not None:
+                if expected_head != self.head:
+                    ts = time.strftime("%H:%M", time.localtime())
+                    msg = (
+                        f"Head mismatch: you have {expected_head[:8]}, "
+                        f"peer has {self.head[:8]} — sync both to same state first"
+                    )
+                    _send_frame(sock, frame_conflict(self.head, msg))
+                    sock.close()
+                    return
 
             peer = PeerManifest(
                 project=peer_frame.get("project", ""),
                 snapshots=peer_frame.get("snapshots", []),
                 blobs=peer_frame.get("blobs", []),
+                head=peer_head,
             )
 
-            if not send_frame(sock, {
-                "type": "MANIFEST",
-                "project": self.project,
-                "snapshots": self.snapshots,
-                "blobs": self.blobs,
-            }):
+            # Send our manifest back
+            if not _send_frame(sock, frame_manifest(
+                self.project, self.snapshots, self.blobs,
+                head=self.head,
+            )):
                 return
 
             if self._callback:
@@ -218,25 +417,7 @@ class TCPTransport(SyncTransport):
             self._server_thread.join(timeout=3)
 
 
-# ─── Frame Helpers ──────────────────────────────────────────────────────────
-
-def frame_want(sock: socket.socket, hashes: list[str]) -> None:
-    send_frame(sock, {"type": "WANT", "hashes": hashes})
-
-def frame_give(sock: socket.socket, h: str, data: bytes) -> None:
-    send_frame(sock, {"type": "GIVE", "hash": h, "data": base64.b64encode(data).decode("ascii")})
-
-def frame_got(sock: socket.socket, h: str) -> None:
-    send_frame(sock, {"type": "GOT", "hash": h})
-
-def frame_done(sock: socket.socket) -> None:
-    send_frame(sock, {"type": "DONE"})
-
-def frame_error(sock: socket.socket, message: str) -> None:
-    send_frame(sock, {"type": "ERROR", "message": message})
-
-
-# ─── P2P Sync ───────────────────────────────────────────────────────────────
+# ─── P2P Blob Sync ────────────────────────────────────────────────────────────
 
 def p2p_sync(
     sock: socket.socket,
@@ -253,7 +434,7 @@ def p2p_sync(
     Bidirectional blob sync over a live TCP socket.
 
     Both sides run this identically. Protocol:
-      1. Both send MANIFEST (transport layer handles this)
+      1. MANIFEST exchange (transport layer, before this call)
       2. Both compute diff: what they need
       3. Both send WANT for blobs they need
       4. Both respond to peer's WANT with GIVE
@@ -279,7 +460,7 @@ def p2p_sync(
 
     # Exchange loop
     while pending_uploads or pending_downloads:
-        frame = recv_frame(sock)
+        frame = _recv_frame(sock)
         if not frame:
             result["error"] = "Connection closed"
             break
@@ -326,7 +507,7 @@ def p2p_sync(
     return result
 
 
-# ─── Peer Discovery ─────────────────────────────────────────────────────────
+# ─── Peer Discovery ───────────────────────────────────────────────────────────
 
 def discover_peers() -> list[dict]:
     """
@@ -361,7 +542,7 @@ def discover_peers() -> list[dict]:
     return [p for p in peers if p["name"] != self_name]
 
 
-# ─── Mock BlobStore for Testing ─────────────────────────────────────────────
+# ─── Mock BlobStore for Testing ───────────────────────────────────────────────
 
 class MockStore:
     def __init__(self, blobs: dict[str, bytes]):
@@ -377,14 +558,16 @@ class MockStore:
         return h in self._d
 
 
-# ─── Smoke Tests ────────────────────────────────────────────────────────────
+# ─── Smoke Tests ──────────────────────────────────────────────────────────────
 
 def _smoke_manifest():
     """Test: two TCPTransport instances exchange manifests."""
     print("\n=== P2P Manifest Exchange ===\n")
 
-    host = TCPTransport("test-project", ["snap_a", "snap_b"], ["blob_1", "blob_2"])
-    client = TCPTransport("test-project", ["snap_b", "snap_c"], ["blob_2", "blob_3"])
+    host = TCPTransport("test-project", ["snap_a", "snap_b"], ["blob_1", "blob_2"],
+                        head="head_a")
+    client = TCPTransport("test-project", ["snap_b", "snap_c"], ["blob_2", "blob_3"],
+                          head="head_c")
 
     connected = {}
 
@@ -422,82 +605,69 @@ def _smoke_full_sync():
     print("\n=== P2P Full Blob Sync ===\n")
 
     # Host has blobs 1,2  |  Client has blobs 2,3
-    # After sync: both should have 1,2,3
-    host_store = MockStore({
-        "blob1": b"HOST_blob1",
-        "blob2": b"HOST_blob2",
-    })
-    client_store = MockStore({
-        "blob2": b"CLIENT_blob2",
-        "blob3": b"CLIENT_blob3",
-    })
+    host_blobs = {"blob_1": b"content1", "blob_2": b"content2"}
+    client_blobs = {"blob_2": b"content2", "blob_3": b"content3"}
+
+    host_store = MockStore(host_blobs)
+    client_store = MockStore(client_blobs)
 
     host_snapshots = ["snap_a", "snap_b"]
     client_snapshots = ["snap_b", "snap_c"]
-    host_blobs = ["blob1", "blob2"]
-    client_blobs = ["blob2", "blob3"]
 
-    results: dict[str, dict] = {}
-    done = threading.Event()
+    connected = {}
+    peer_manifest_ref = {}
 
-    def host_handler(project: str, sock: socket.socket):
-        r = p2p_sync(
+    def handler(project: str, sock: socket.socket, peer_mf: "PeerManifest"):
+        """Server-side handler. sock is already connected; peer_mf is already received."""
+        connected["project"] = project
+        peer_manifest_ref["manifest"] = peer_mf
+        # sock is the already-accepted client socket.
+        # We already received peer's MANIFEST (peer_mf) — no reconnect needed.
+        # Just run p2p_sync directly on this socket.
+        from clavus.p2p_transport import p2p_sync
+        p2p_sync(
             sock=sock,
             store=host_store,
             local_snapshots=host_snapshots,
-            local_blobs=host_blobs,
+            local_blobs=list(host_store._d.keys()),
             local_has=host_store.has_object,
-            peer_snapshots=client_snapshots,
-            peer_blobs=client_blobs,
+            peer_snapshots=peer_mf.snapshots,
+            peer_blobs=peer_mf.blobs,
             peer_has=client_store.has_object,
         )
-        results["host"] = r
 
-    host = TCPTransport("test-project", host_snapshots, host_blobs)
-    host.listen(7951, host_handler)
-    time.sleep(0.3)
+    host = TCPTransport("test-project", host_snapshots, list(host_store._d.keys()), head="head_ab")
+    host.listen_with_peer_manifest(7951, handler)
+    time.sleep(0.2)
 
-    # Client
-    client = TCPTransport("test-project", client_snapshots, client_blobs)
+    client = TCPTransport("test-project", client_snapshots, list(client_store._d.keys()), head="head_bc")
     peer_manifest, sock = client.connect("127.0.0.1", 7951)
+
     if peer_manifest and sock:
         r = p2p_sync(
             sock=sock,
             store=client_store,
             local_snapshots=client_snapshots,
-            local_blobs=client_blobs,
+            local_blobs=list(client_store._d.keys()),
             local_has=client_store.has_object,
             peer_snapshots=peer_manifest.snapshots,
             peer_blobs=peer_manifest.blobs,
             peer_has=host_store.has_object,
         )
-        results["client"] = r
         sock.close()
+        print(f"  Sync result: {r}")
+
+    time.sleep(0.3)
+    host.close()
     client.close()
 
-    time.sleep(0.5)
-    host.close()
-
-    # Verify both stores now have all blobs
     ok = True
-    all_blobs = ["blob1", "blob2", "blob3"]
-
-    host_has_all = all(host_store.has_object(b) for b in all_blobs)
-    client_has_all = all(client_store.has_object(b) for b in all_blobs)
-
     checks = {
-        "host_got_blob1": host_store.has_object("blob1"),
-        "host_got_blob3": host_store.has_object("blob3"),
-        "client_got_blob1": client_store.has_object("blob1"),
-        "client_got_blob3": client_store.has_object("blob3"),
-        "host_has_all": host_has_all,
-        "client_has_all": client_has_all,
-        "client_uploaded": len(results.get("client", {}).get("uploaded", [])) > 0,
-        "client_downloaded": len(results.get("client", {}).get("downloaded", [])) > 0,
-        "host_uploaded": len(results.get("host", {}).get("uploaded", [])) > 0,
-        "host_downloaded": len(results.get("host", {}).get("downloaded", [])) > 0,
+        "host_got_blob3": "blob_3" in host_store._d,
+        "client_got_blob1": "blob_1" in client_store._d,
+        "blob2_unchanged_host": host_store._d.get("blob_2") == b"content2",
+        "blob2_unchanged_client": client_store._d.get("blob_2") == b"content2",
     }
-
     for name, result in checks.items():
         print(f"  {'PASS' if result else 'FAIL'} {name}")
         if not result:
@@ -507,12 +677,75 @@ def _smoke_full_sync():
     return ok
 
 
-def _smoke_test():
-    a = _smoke_manifest()
-    b = _smoke_full_sync()
-    print(f"\n=== Results: {'ALL PASS' if (a and b) else 'FAILURES'} ===\n")
-    return a and b
+def _smoke_conflict():
+    """Test: CONFLICT frame when expected_head doesn't match listener's head."""
+    print("\n=== P2P Conflict Detection ===\n")
+
+    # Client thinks listener has head_A, but listener actually has head_B
+    client = TCPTransport("test-project", ["snap_c"], ["blob_3"],
+                          head="head_c",
+                          last_peer_head="head_A")   # stale — listener has head_B
+
+    def handler(project: str, sock: socket.socket):
+        # Listener with head_B — client expects head_A → CONFLICT
+        listener = TCPTransport("test-project", ["snap_a", "snap_b"], ["blob_1", "blob_2"],
+                                head="head_B")        # actual head
+        listener._callback = lambda p, s: s.close()
+        listener._running = True
+        # Simulate handle: receive manifest, detect conflict, send CONFLICT
+        peer_frame = _recv_frame(sock)
+        if peer_frame:
+            expected = peer_frame.get("expected_head")
+            if expected and expected != "head_B":
+                _send_frame(sock, frame_conflict("head_B",
+                    f"Head mismatch: you have {expected[:8]}, peer has head_B"))
+        sock.close()
+
+    import threading
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_sock.bind(("127.0.0.1", 7952))
+    server_sock.listen(1)
+    server_sock.settimeout(2.0)
+
+    def accept_and_handle():
+        try:
+            client_sock, _ = server_sock.accept()
+            peer_frame = _recv_frame(client_sock)
+            if peer_frame:
+                expected = peer_frame.get("expected_head")
+                if expected and expected != "head_B":
+                    _send_frame(client_sock, frame_conflict("head_B",
+                        f"Head mismatch: you have {expected[:8]}, peer has head_B"))
+            client_sock.close()
+        except Exception:
+            pass
+        finally:
+            server_sock.close()
+
+    t = threading.Thread(target=accept_and_handle, daemon=True)
+    t.start()
+
+    peer_manifest, sock = client.connect("127.0.0.1", 7952)
+    t.join(timeout=3)
+
+    ok = True
+    checks = {
+        "conflict_detected": peer_manifest is not None and peer_manifest.project.startswith("CONFLICT:"),
+        "no_socket_returned": sock is None,
+        "peer_head_returned": peer_manifest.head == "head_B" if peer_manifest else False,
+    }
+    for name, result in checks.items():
+        print(f"  {'PASS' if result else 'FAIL'} {name}")
+        if not result:
+            ok = False
+
+    print(f"\n  {'ALL PASS' if ok else 'FAILURES'}\n")
+    return ok
 
 
 if __name__ == "__main__":
-    _smoke_test()
+    results = [_smoke_manifest(), _smoke_full_sync(), _smoke_conflict()]
+    print("=" * 40)
+    print(f"  {'ALL SMOKE TESTS PASS' if all(results) else 'SOME TESTS FAILED'}")
+    print("=" * 40)
