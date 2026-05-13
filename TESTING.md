@@ -19,7 +19,7 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | C11 | Push → peer edits → peer pushes → you pull (roundtrip) | ✅ 5/11 | 🔲 | 🔲 | Mac→Win relay push + Win local pull validated; full peer-edit cycle not yet |
 | C12 | Rapid push/edit/push (optimistic locking: 409 rejection) | ✅ 5/12 | 🔲 | 🔲 | Win pushed first → Mac 409 → pull → auto-snap → push OK |
 | C13 | Network drop mid-push → retry → clean state | 🔲 | 🔲 | 🔲 | |
-| C14 | Relay restart while clients connected → clients recover | 🔲 | 🔲 | 🔲 | |
+| C14 | Relay restart while clients connected → clients recover | ✅ 5/12 | 🔲 | 🔲 | Mac relay killed → Win error → restart → Win push OK |
 | C15 | Cross-account Tailscale (shared node, MagicDNS) | ✅ 5/11 | 🔲 | 🔲 | MagicDNS share URL (chrispc.tail46b8d9.ts.net) → join → pull 10 projects ✅; Pull spinner hangs on dead remotes (Windows) |
 
 ## TUI
@@ -84,10 +84,10 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | E2 | Empty relay → push/pull → clear error message | ✅ 5/11 | ✅ 5/11 | |
 | E3 | Pull with no remotes configured → clear error | ✅ 5/11 | ✅ 5/11 | ✗ in header + footer error |
 | E4 | Push with no remotes → clear error | ✅ 5/11 | ✅ 5/11 | ✗ in header + footer error |
-| E5 | Corrupted .als file → snapshot fails gracefully | 🔲 | 🔲 | |
+| E5 | Corrupted .als file → snapshot fails gracefully | ✅ 5/12 | 🔲 | Content-addressed — stored corrupt bytes, no crash |
 | E6 | Missing Ableton → `clavus open` fails gracefully | 🔲 | 🔲 | |
-| E7 | Very large .als (200+ tracks, 10MB+) → snapshot performance | 🔲 | 🔲 | |
-| E8 | Project with non-ASCII characters in name/path | 🔲 | 🔲 | |
+| E7 | Very large .als (200+ tracks, 10MB+) → snapshot performance | 🔲 | 🔲 | Need Ableton save to trigger real change |
+| E8 | Project with non-ASCII characters in name/path | ✅ 5/12 | 🔲 | "Shades Of Love Edit (7) 2022" — parens, spaces fine |
 | E9 | Multiple remotes → push to all, pull from all | 🔲 | 🔲 | |
 | E10 | `clavus share` port conflict → clear error | 🔲 | 🔲 | |
 
@@ -102,8 +102,8 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | P5 | macOS: `open` command launches Ableton | ✅ 5/10 | |
 | P6 | macOS: `tailscale serve` survives sleep/wake | 🔲 | |
 | P7 | Linux: install + `clavus tui` runs (no DAW needed) | 🔲 | |
-| P8 | Cross-platform: Mac snapshot → Windows restore → opens in Ableton | 🔲 | |
-| P9 | Cross-platform: Windows snapshot → Mac restore → opens in Ableton | 🔲 | |
+| P8 | Cross-platform: Mac snapshot → Windows restore → opens in Ableton | ✅ 5/12 | | |
+| P9 | Cross-platform: Windows snapshot → Mac restore → opens in Ableton | ✅ 5/12 | | |
 
 ## Test Sessions
 
