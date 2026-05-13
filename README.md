@@ -94,6 +94,16 @@ Full networking details: `references/tailscale-serve-relay.md`
 - **Freeze detection** — warns before snapshotting frozen tracks (cross-platform crash risk)
 - **Backup & recovery** — rotating `.bak` index backups, daily full-store archives, auto-restore
 
+## Known Limitations
+
+**Ableton Suite vs Intro/Standard:** Clavus snapshots the raw `.als` project file (a GZIP-compressed XML archive). Larger Suite-only features (Max for Live devices, certain MIDI effects) are preserved as binary blobs inside the `.als` but Ableton Intro cannot decode them. Restoring a Suite project on an Intro license will produce an error or data loss. Always verify you can open a restored `.als` before deleting the original.
+
+**OneDrive / Files On-Demand:** If your `.als` files live in a OneDrive-synced folder with "Files On-Demand" enabled, Ableton may be unable to read or write the file (macOS and Windows both affected). Move your projects to a local non-synced folder for use with Clavus.
+
+**Single remote at a time:** `clavus join` replaces any existing remote. To switch collab partners, run `clavus join <new-url>` — your snapshots and history remain local.
+
+**No concurrent push protection:** Two people pushing at the exact same second may cause a 409 conflict. Clavus handles this gracefully with an automatic retry, but for best results push before your collaborator pushes.
+
 ## Keybindings
 
 | Key | Action |
