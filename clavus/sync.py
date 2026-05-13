@@ -138,6 +138,24 @@ class SyncClient:
         except Exception:
             return False
 
+    def get_relay_head(self, project: str) -> str | None:
+        """Fetch the current HEAD hash for a project on the relay.
+
+        Used before pushing when local state has no expected_parent — probes
+        the relay so we can send expected_parent=relay_head to enable conflict
+        detection even on the first push after a pull.
+        """
+        try:
+            r = self.client.get(
+                f"{self.base_url}/api/sync/head/{project}",
+                timeout=10,
+            )
+            if r.status_code == 200:
+                return r.json().get("head")
+        except Exception:
+            pass
+        return None
+
     def pull(self, project: str) -> Optional[dict]:
         r, err = self._retry(
             lambda: self.client.get(
@@ -705,11 +723,25 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote, force:
             return result
         print(f"  ✅ Connected")
 
+        # ── Compute expected_parent ──────────────────────────────────────────
+        # If local state has no last_head, probe the relay so we can still
+        # detect conflicts on the first push after a pull (last_remote_head
+        # is only set on push success, not pull — so pull-then-push has no guard).
+        expected_parent: str | None = None
+        if not force:
+            if proj.last_remote_head or remote.last_head:
+                expected_parent = proj.last_remote_head or remote.last_head
+            else:
+                relay_probe = client.get_relay_head(proj.name)
+                if relay_probe:
+                    expected_parent = relay_probe
+                    print(f"  📡 relay HEAD probe → {relay_probe[:8]} (no local record)")
+
         # ── Phase 1: Snapshots (establishes project + history on relay) ──
         snap_data = _snapshots_to_dicts(store, proj)
         print(f"  📸 Pushing {len(snap_data)} snapshot(s)...")
         ok, conflict, relay_head = client.push_snapshots(proj.name, snap_data,
-                                              expected_parent=None if force else (proj.last_remote_head or remote.last_head),
+                                              expected_parent=expected_parent,
                                               force=force)
         if snap_data:
             result["snapshots"] = len(snap_data) if ok else 0
@@ -905,13 +937,19 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
             # Pick the snapshot with the newest timestamp
             newest = max(snap_list, key=lambda s: s.get("timestamp", 0))
             relay_head = newest.get("full_hash", newest.get("hash", ""))
-            if relay_head:
-                proj.head = relay_head
-                store.set_index(proj)
-                # Verify it stuck
-                verify = store.get_index(proj.name)
-                if not verify or not verify.head:
-                    print(f"  ⚠️  Head set to {relay_head[:10]} but read back empty — possible write failure")
+        else:
+            # No new snapshots — probe the relay's actual HEAD so we have a
+            # record for expected_parent on the next push (last_remote_head
+            # is only set when snapshots land, so an empty pull would leave us
+            # with no guard on the subsequent push).
+            relay_head = client.get_relay_head(proj.name)
+        if relay_head:
+            proj.head = relay_head
+            store.set_index(proj)
+            # Verify it stuck
+            verify = store.get_index(proj.name)
+            if not verify or not verify.head:
+                print(f"  ⚠️  Head set to {relay_head[:10]} but read back empty — possible write failure")
 
         # last_head MUST track relay HEAD for optimistic lock, not local HEAD
         remote.last_head = relay_head if relay_head else proj.head

@@ -1077,6 +1077,22 @@ async def sync_pull(name: str = Query(..., description="Project name")):
     }
 
 
+@app.get("/api/sync/head/{project}")
+async def sync_get_head(project: str):
+    """Return the current HEAD hash for a project on the relay.
+
+    Used by peers to probe the relay's HEAD before pushing, so they can
+    set expected_parent even when they have no local last_head record.
+    """
+    _check_project_access(project)
+    store = BlobStore()
+    try:
+        _, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"head": None}, status_code=200)
+    return {"head": proj.head}
+
+
 @app.post("/api/sync/push")
 async def sync_push(body: SyncPushBody, name: str = Query(..., description="Project name")):
     """Push (merge) cues into a project using last-write-wins."""
