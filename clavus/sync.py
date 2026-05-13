@@ -836,16 +836,23 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
             print(f"  📸 Importing {len(snapshots_data)} snapshot(s)...")
         for s in snapshots_data:
             remote_msg = s.get("message", "")
+            full_hash = s.get("full_hash", s["hash"])
+            if not full_hash or len(full_hash) < 8:
+                print(f"  ⚠️  Skipping snapshot with invalid hash: {s.get('hash', '???')}")
+                continue
             # Check for message conflict before overwriting
-            meta_dir = store.objects_dir / s.get("full_hash", s["hash"])[:2]
+            meta_dir = store.objects_dir / full_hash[:2]
             meta_dir.mkdir(parents=True, exist_ok=True)
-            meta_path = meta_dir / f"{s.get('full_hash', s['hash'])}.meta"
+            meta_path = meta_dir / f"{full_hash}.meta"
             local_msg = ""
             if meta_path.exists():
-                local_meta = json.loads(meta_path.read_text())
-                local_msg = local_meta.get("message", "")
+                try:
+                    local_meta = json.loads(meta_path.read_text())
+                    local_msg = local_meta.get("message", "")
+                except Exception:
+                    pass
             snap = Snapshot(
-                hash=s.get("full_hash", s["hash"]),
+                hash=full_hash,
                 timestamp=s.get("timestamp", 0.0),
                 message=s.get("message", ""),
                 parent=s.get("parent", None),
@@ -864,7 +871,11 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
                 snap.conflict_message = remote_msg  # store remote as conflict
                 snap_conflicts += 1
             from dataclasses import asdict
-            meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
+            try:
+                meta_path.write_text(json.dumps(asdict(snap), indent=2, default=str))
+            except Exception as e:
+                print(f"  ❌ Failed to write snapshot {full_hash[:10]}: {e}")
+                continue
 
             # Always update .sample files from sample_paths (ensures relative paths)
             for sh, rel in snap.sample_paths.items():
@@ -891,6 +902,10 @@ def pull_from_remote(store: BlobStore, proj: ClavusProject, remote: Remote, outp
             if relay_head:
                 proj.head = relay_head
                 store.set_index(proj)
+                # Verify it stuck
+                verify = store.get_index(proj.name)
+                if not verify or not verify.head:
+                    print(f"  ⚠️  Head set to {relay_head[:10]} but read back empty — possible write failure")
 
         # last_head MUST track relay HEAD for optimistic lock, not local HEAD
         remote.last_head = relay_head if relay_head else proj.head

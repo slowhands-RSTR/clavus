@@ -417,7 +417,7 @@ class ClavusApp(App):
 
     # ─── Remote picker ─────────────────────────────────────────────────
 
-    @work(exclusive=False)
+    @work(exclusive=True)
     async def _run_list_remotes(self):
         from clavus.sync import load_remotes
         remotes = load_remotes(self.store)
@@ -552,7 +552,7 @@ class ClavusApp(App):
             self._debug_log(f"dispatch: unknown cmd='{cmd}' arg='{arg}'")
             self._status(f"unknown: {cmd}")
 
-    @work(exclusive=False)
+    @work(exclusive=True)
     async def _run_switch_project(self, name: str):
         self._status(f"switching to {name}...")
         proj = self.store.get_index(name)
@@ -587,7 +587,7 @@ class ClavusApp(App):
         except NoMatches:
             pass
 
-    @work(exclusive=False)
+    @work(exclusive=True)
     async def _run_list_projects(self):
         projects = self.store.list_projects()
         if not projects:
@@ -607,6 +607,9 @@ class ClavusApp(App):
         self._update_footer_hint()
 
     def _clear_project_list(self):
+        # Skip if a picker is active — its clear/rebuild would race with us
+        if self._project_picker_active or self._remote_picker_active:
+            return
         try:
             lv = self.query_one("#clv", ListView)
             for c in list(lv.children):
@@ -1721,7 +1724,7 @@ class ClavusApp(App):
             
             self._status(f"⬇ probing {remote.name} for projects...")
             client = SyncClient(remote.url)
-            r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
+            r, err = await asyncio.to_thread(client.request_with_retry, "GET", "/api/projects", timeout=10)
             if r is None or r.status_code != 200:
                 client.close()
                 self._worker_error(f"pull-all: cannot reach {remote.name} — {err or (r.status_code if r else 'no response')}")
@@ -1754,7 +1757,7 @@ class ClavusApp(App):
                     self.store.set_index(proj_data)
                 
                 try:
-                    result = pull_from_remote(self.store, proj_data, remote)
+                    result = await asyncio.to_thread(pull_from_remote, self.store, proj_data, remote)
                     err = result.get("error", "")
                     c = result.get("cues", 0)
                     s = result.get("snapshots", 0)
@@ -1762,7 +1765,7 @@ class ClavusApp(App):
                         msgs.append(f"{pname}: ❌ {err[:40]}")
                         self._log_event(f"pull-all: {pname} FAILED — {err}")
                     elif c or s:
-                        blob_count = pull_snapshot_blobs(self.store, proj_data, remote)
+                        blob_count = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_data, remote)
                         msgs.append(f"{pname}: {c}c {s}s" + (f" {blob_count}b" if blob_count else ""))
                         self._log_event(f"pull-all: {pname} OK — {c}c {s}s")
                     else:
@@ -2155,7 +2158,7 @@ class ClavusApp(App):
                     await asyncio.sleep(0)
                     client = SyncClient(remote.url)
                     try:
-                        r, err = client.request_with_retry("GET", "/api/projects", timeout=10)
+                        r, err = await asyncio.to_thread(client.request_with_retry, "GET", "/api/projects", timeout=10)
                         if r is None or r.status_code != 200:
                             continue
                         projects = r.json().get("projects", [])
@@ -2166,10 +2169,11 @@ class ClavusApp(App):
                             if self.store.get_index(pname):
                                 proj_index = self.store.get_index(pname)
                             else:
-                                self._sync_status = f"\u2b07 {time.strftime('%H:%M')} {pname}..."
+                                self._sync_status = f"⬇ {time.strftime('%H:%M')} {pname}..."
                                 self._update_header()
                                 await asyncio.sleep(0)
-                                r2, _ = client.request_with_retry(
+                                r2, _ = await asyncio.to_thread(
+                                    client.request_with_retry,
                                     "GET", "/api/sync/pull",
                                     params={"name": pname}, timeout=30)
                                 if r2 is None or r2.status_code != 200:
@@ -2186,10 +2190,10 @@ class ClavusApp(App):
                                 )
                                 self.store.set_index(new_proj)
                                 proj_index = new_proj
-                            # Pull data
+                            # Pull data (offload to thread to keep UI responsive)
                             remote_ref = remote
-                            result = pull_from_remote(self.store, proj_index, remote_ref)
-                            blob_count = pull_snapshot_blobs(self.store, proj_index, remote_ref)
+                            result = await asyncio.to_thread(pull_from_remote, self.store, proj_index, remote_ref)
+                            blob_count = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote_ref)
                             parts = []
                             if result.get("cues"): parts.append(f"{result['cues']}c")
                             if result.get("snapshots"): parts.append(f"{result['snapshots']}s")
@@ -2283,9 +2287,9 @@ class ClavusApp(App):
                 snaps_n = len(self.snaps)
                 conflicts_n = sum(1 for c in self.cues if getattr(c, '_conflict', False))
                 # Still pull blobs from relay (they may need materialization)
-                blobs = pull_snapshot_blobs(self.store, proj_index, remote)
+                blobs = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote)
             else:
-                result = pull_from_remote(self.store, proj_index, remote)
+                result = await asyncio.to_thread(pull_from_remote, self.store, proj_index, remote)
                 if result.get("error"):
                     self._peer_reachable = False
                     self._last_sync = f"\u2b07 \u2717 {time.strftime('%H:%M')}"
@@ -2381,7 +2385,7 @@ class ClavusApp(App):
             self._update_header()
             await asyncio.sleep(0)
             self._status(f"\u2b06 {'force-' if force else ''}pushing to {remote.name}...")
-            result = push_to_remote(self.store, proj_index, remote, force=force)
+            result = await asyncio.to_thread(push_to_remote, self.store, proj_index, remote, force=force)
             if result.get("error"):
                 self._peer_reachable = False
                 self._last_sync = f"\u2b06 \u2717 {time.strftime('%H:%M')}"
@@ -2398,7 +2402,7 @@ class ClavusApp(App):
                 return
             cues_n = result.get("cues", 0)
             snaps_n = result.get("snapshots", 0)
-            blobs = push_snapshot_blobs(self.store, proj_index, remote)
+            blobs = await asyncio.to_thread(push_snapshot_blobs, self.store, proj_index, remote)
             self._sync_status = f"\u2b06 {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "")
             self._update_header()
             await asyncio.sleep(0)
