@@ -1102,7 +1102,7 @@ def push_stems_to_remote(
 
         missing = r.json().get("missing", [])
         if not missing:
-            return len(all_hashes)  # All already present on remote
+            return 0  # All already present on remote — nothing transferred
 
         # Upload each missing stem blob
         for stem_hash in missing:

@@ -10,8 +10,8 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | C2 | Peer pushes → you pull | ✅ 5/11 | 🔲 | 🔲 | |
 | C3 | Both edit same cue → push/pull → ⚠ appears | ✅ 5/11 | 🔲 | 🔲 | |
 | C4 | Resolve cue conflict with `!` → push → peer pulls resolved | ✅ 5/11 | 🔲 | 🔲 | |
-| C5 | Both edit same snapshot message → ⚠ appears on snap | 🔲 | 🔲 | 🔲 | New feature — never live-tested |
-| C6 | Resolve snapshot message conflict with `!` | 🔲 | 🔲 | 🔲 | New feature |
+| C5 | Both edit same snapshot message → ⚠ appears on snap | ✅ 5/12 | 🔲 | 🔲 | Mac↔Win — push Mac, pull Win → ⚠ appears |
+| C6 | Resolve snapshot message conflict with `!` | ✅ 5/12 | 🔲 | 🔲 | Mac↔Win — Win picked remote version, conflict cleared |
 | C7 | Peer pushes snap → you `o` to open in Ableton | ✅ 5/11 | 🔲 | 🔲 | Cross-machine open |
 | C8 | Peer pushes snap → you `T` restore → .als lands correctly | ✅ 5/11 | 🔲 | 🔲 | Restore works; Suite/Intro .als mismatch is Ableton-side |
 | C9 | Stem import → push → peer pulls → WAV appears | 🔲 | 🔲 | 🔲 | |

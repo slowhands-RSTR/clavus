@@ -3316,11 +3316,19 @@ def cmd_stem_push(args: argparse.Namespace) -> None:
         print("No stems to push for current snapshot.")
         return
 
-    from clavus.sync import push_stems_to_remote
+    from clavus.sync import push_stems_to_remote, SyncClient
     for remote in remotes:
         print(f"  Pushing to '{remote.name}'...")
-        count = push_stems_to_remote(store, proj, remote, stem_store, head)
-        print(f"    Pushed {count} stem(s)")
+        try:
+            client = SyncClient(remote.url)
+            if not client.fast_ping(timeout=3.0):
+                print(f"    ⏭  Skipping — unreachable")
+                client.close()
+                continue
+            count = push_stems_to_remote(store, proj, remote, stem_store, head)
+            print(f"    Pushed {count} stem(s)")
+        except Exception as e:
+            print(f"    ⏭  Skipping — {e}")
 
 
 # ─── Main Entry Point ──────────────────────────────────────────────────
