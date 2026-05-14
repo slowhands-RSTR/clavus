@@ -1289,6 +1289,8 @@ class ClavusApp(App):
             self._log_event(f"snapshot edit failed: {e}")
 
     def action_reply(self):
+        if not self._focused_is_cues():
+            return
         cue = self._get_cue()
         if not cue:
             self._status("select a cue first")
@@ -1306,6 +1308,8 @@ class ClavusApp(App):
         self._show_input("edit", "Edit:", prefill=cue.text)
 
     def action_resolve(self):
+        if not self._focused_is_cues():
+            return
         cue = self._get_cue()
         if not cue:
             self._status("select a cue first")
@@ -1609,6 +1613,8 @@ class ClavusApp(App):
     def action_assign(self):
         if self._input_mode or time.time() - self._input_debounce < 0.3:
             return  # ignore while input active or within 300ms of dismiss
+        if not self._focused_is_cues():
+            return
         cue = self._get_cue()
         if not cue:
             return
@@ -1624,6 +1630,8 @@ class ClavusApp(App):
 
     def action_start(self):
         """Toggle cue in_progress (start/stop playback marker)."""
+        if not self._focused_is_cues():
+            return
         cue = self._get_cue()
         if not cue:
             return
@@ -1642,6 +1650,8 @@ class ClavusApp(App):
     @work(exclusive=True)
     async def action_archive(self):
         """Archive the selected cue — ask for confirmation first."""
+        if not self._focused_is_cues():
+            return
         cue = self._get_cue()
         if not cue:
             self._status("select a cue first")
@@ -2636,6 +2646,13 @@ class ClavusApp(App):
         except NoMatches:
             pass
         return None
+
+    def _focused_is_cues(self) -> bool:
+        """True if the cues list pane is currently focused."""
+        try:
+            return self.query_one("#clv", ListView).has_focus
+        except NoMatches:
+            return False
 
     def action_focus_next_pane(self):
         """Tab between cues list and history pane."""
