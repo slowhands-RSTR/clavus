@@ -615,9 +615,11 @@ class ClavusApp(App):
         elif cmd == "find":
             self._status("scanning for peers...")
             try:
+                _env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
                 _p = subprocess.run(
                     [sys.executable, "-m", "clavus", "find", "--tailscale"],
-                    capture_output=True, text=True, encoding='utf-8', timeout=15)
+                    capture_output=True, text=True, encoding='utf-8', timeout=15,
+                    env=_env)
                 out = (_p.stdout or "") + (_p.stderr or "")
                 self._log_event(f":find → {out.strip()[:300]}")
                 # Show the actual output to the user

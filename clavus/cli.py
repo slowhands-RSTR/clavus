@@ -2935,7 +2935,7 @@ def cmd_find(args: argparse.Namespace) -> None:
     if args.tailscale:
         try:
             from clavus.discovery import discover_tailscale_peers
-            print(f"📡 Scanning your Tailscale tailnet for Clavus servers ({args.timeout}s)...")
+            print(f"[SCAN] Scanning your Tailscale tailnet for Clavus servers ({args.timeout}s)...")
             peers = discover_tailscale_peers(timeout=args.timeout)
             if not peers:
                 print()
@@ -2953,7 +2953,7 @@ def cmd_find(args: argparse.Namespace) -> None:
             print("❌ LAN discovery requires zeroconf. Install: pip install zeroconf")
             return
 
-        print(f"📡 Scanning for Clavus servers on LAN ({args.timeout}s)...")
+        print(f"[SCAN] Scanning for Clavus servers on LAN ({args.timeout}s)...")
         peers = discover_peers(timeout=args.timeout)
 
     if not peers:
