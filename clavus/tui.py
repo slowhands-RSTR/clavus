@@ -143,20 +143,7 @@ class HelpScreen(Screen):
 # ─── Settings Screen ─────────────────────────────────────────────────
 
 class SettingsScreen(ModalScreen):
-    """Read-only config display — shows current settings, Ctrl+S to return to main."""
-
-    CSS = f"""
-    SettingsScreen {{ background: {C['bg']}; align: center middle; }}
-    #settings-box {{ 
-        width: 60; max-height: 95%;
-        background: {C['surface2']}; border: thick {C['accent']};
-        padding: 1 2;
-    }}
-    #settings-box .title {{ color: {C['accent']}; text-style: bold; padding-bottom: 1; }}
-    #settings-box .section {{ color: {C['yellow']}; text-style: bold; padding-top: 1; }}
-    #settings-box .value {{ color: {C['fg']}; }}
-    #settings-box .dim {{ color: {C['muted']}; }}
-    """
+    """config viewer — minimal test."""
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
@@ -164,22 +151,7 @@ class SettingsScreen(ModalScreen):
     ]
 
     def compose(self):
-        from clavus.config import ClavusConfig
-        cfg = ClavusConfig.load()
-        with VerticalScroll(id="settings-box"):
-            yield Static("SETTINGS", classes="title")
-            yield Static("Author", classes="section")
-            yield Static(f"  {cfg.author}", classes="value")
-            yield Static(f"  [dim]Shown on cues you create[/]", classes="dim")
-            yield Static("Server", classes="section")
-            yield Static(f"  {cfg.default_server}", classes="value")
-            yield Static("Project", classes="section")
-            yield Static(f"  {cfg.default_project or '(none)'}", classes="value")
-            yield Static("Projects directory", classes="section")
-            yield Static(f"  {cfg.projects_dir}", classes="value")
-            yield Static("")
-            yield Static("[dim]Use :set <key> <value> in the prompt bar to change settings[/]", classes="dim")
-            yield Static("[dim]Esc / q / Ctrl+S — close[/]", classes="dim")
+        yield Static("SETTINGS — press Esc or q to close")
 
     def action_dismiss(self):
         self.app.pop_screen()
