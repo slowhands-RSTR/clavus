@@ -18,7 +18,7 @@
 | B7 | Both edit → push/pull → conflict detected → resolve with `!` | Both | ✅ 5/11 | C3-C4 from testing matrix |
 | B8 | Switch projects via `:project <name>` → pull/push works | Both | 🟡 5/13 | Cross-project HEAD bug fixed, needs re-test |
 | B9 | Open project in Ableton with `o` | Both | ✅ 5/11 | |
-| B10 | Cue inject: `:inject` → markers appear in Ableton | Both | ✅ 5/11 | |
+| B10 | Cue inject: `:inject` → markers appear in Ableton | Both | ✅ 5/13 | Validated on Windows — auto-snapshot after inject works |
 
 ---
 

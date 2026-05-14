@@ -1,190 +1,199 @@
 # Clavus — DAW Project Versioning & Collaboration
 
-**Version:** 0.8.0-beta  **Platforms:** macOS · Windows · Linux · **DAWs:** Ableton (Reaper, Bitwig coming)
+**Version:** 0.9.0-beta · **Platforms:** macOS, Windows, Linux · **DAWs:** Ableton Live (Reaper, Bitwig coming)
 
-Save points that travel. Snapshots, timeline-anchored cues, push/pull sync over Tailscale, and a keyboard-driven terminal dashboard. No cloud, no plugins, no accounts. Works solo. Works with your crew.
+Snapshots, timeline-anchored discussion cues, push/pull sync over Tailscale, and a keyboard-driven terminal dashboard. No cloud, no plugins, no accounts. Works solo. Works with your crew.
 
-## Quick Start
+---
+
+## Quick Install
 
 ```bash
 git clone https://github.com/castle-queenside/clavus
 cd clavus
-pip install -e .            # macOS / Linux  (Windows: py -m pip install -e .)
+pip install -e .            # macOS/Linux
+# Windows:   py -m pip install -e .
 clavus setup                # guided first-time wizard
 clavus tui                  # open the dashboard
 ```
 
-## Two Ways to Use It
+That's it. You're ready to work alone or join a session.
 
-### Solo
+---
 
-Just you, your project, and the TUI. Snapshots, cues, diffs, and restores all work locally with zero setup. Great for leaving yourself notes at specific timeline positions and rolling back when an idea doesn't land.
+## Solo Mode
 
-### Collaborate
+No setup needed beyond the quick install. Every project you open gets:
 
-Two ways to sync — pick what fits your workflow.
-
-#### Direct P2P (two people, same session)
-
-```
-┌──────────┐                      ┌──────────┐
-│   You    │ ◄── push/pull ─────► │   Peer   │
-│  share   │    via Tailscale     │  share   │
-└──────────┘                      └──────────┘
-```
-
-Both machines run `clavus share`. Each discovers the other and pushes/pulls directly. No relay machine, nobody has to be "the host." Both need to be online at the same time.
+- **Snapshots** — content-addressed checkpoints you can restore anytime
+- **Cues** — timeline-pinned comments at specific positions (bar.beat or timecode)
+- **Diffs** — see exactly what changed between snapshots (tracks, devices, clips, markers)
+- **Restore** — roll back to any previous state
+- **Backup** — full-store archive with rotating auto-backups
 
 ```bash
-# Both people do this:
-clavus share &                                       # each runs their own relay
-clavus find --tailscale                              # discover each other
-clavus remote add <their-name> http://<their-url>    # add each other
-clavus tui                                           # work + S + P as usual
+clavus init /path/to/project.als   # import a project
+clavus tui                          # work in the TUI
+S                                   # snapshot (save checkpoint)
+T                                   # restore to a previous snapshot
 ```
 
-**⚠️ Cross-account?** Share machines + use MagicDNS (see Tailscale note below).
+---
 
-#### Shared relay (any number, async)
+## Collaboration Mode (Relay)
 
+This is the primary path for sharing work. One person runs a **relay**, everyone else **joins** it. Push/pull happens through the relay, so people don't need to be online at the same time.
+
+```text
+┌─────────┐    push/pull    ┌──────────────┐    push/pull    ┌─────────┐
+│   You   │ ◄─────────────► │    Relay     │ ◄─────────────► │  Peer   │
+└─────────┘                 └──────────────┘                 └─────────┘
 ```
-┌─────────┐              ┌──────────────┐              ┌─────────┐
-│   You   │ ◄── push ──► │    Relay     │ ◄── push ──► │  Peer   │
-└─────────┘              └──────────────┘              └─────────┘
-```
 
-One machine runs the relay. Everyone else joins. The relay stores everything — people can push and pull at different times. Good for 3+ people or when not everyone is online at once. No cloud, no dedicated server — the relay is just someone's machine.
+### Host Setup (do once)
 
-**Relay host (do once):**
 ```bash
-clavus share --port 7891 &                              # start relay
-tailscale serve --bg --http 7890 http://localhost:7891   # HTTP proxy for cross-account
-```
-Verify: `curl http://<your-machine>.tailxxxx.ts.net:7890/api/ping` → `{"status":"ok"}`  
-After reboot, re-run `tailscale serve`. The relay auto-starts.
+# 1. Start the relay
+clavus share --port 7891
 
-**Everyone else:**
+# 2. Expose it on your Tailscale network (one-time, survives reboot)
+tailscale serve --bg --http 7890 http://localhost:7891
+
+# 3. Verify it's live
+curl http://$(hostname).tailXXXX.ts.net:7890/api/ping
+# → {"status":"ok"}
+```
+
+Send your collaborator the URL: `http://your-machine.tailXXXX.ts.net:7890`
+
+> **Cross-account?** Share your machine from [admin.tailscale.com](https://login.tailscale.com/admin/machines) → your machine → Share → their email. They **must accept** the invite. Raw `100.x.x.x` IPs are blocked for cross-account TCP.
+
+### Joining a Session
+
 ```bash
-clavus join http://<magicdns-url>:7890   # NOT the raw IP
-clavus pull
-clavus tui
+clavus join http://host.tailXXXX.ts.net:7890
+clavus pull      # sync all projects
+clavus tui       # open the dashboard
 ```
 
-**Daily (both modes):** `p` to pull, work in your DAW, `S` to snapshot, `P` to push.
+### Daily Workflow
 
-#### Tailscale note (cross-account)
-
-If you and your collaborator use different Tailscale accounts:
-
-1. **Share your machine** from [admin.tailscale.com](https://login.tailscale.com/admin/machines) → your machine → Share → their email
-2. **They must accept** the invite
-3. **Use MagicDNS, not raw IP** — `100.x.x.x` only works same-account. Shared users get blocked on raw TCP
-
-Full networking details: `references/tailscale-serve-relay.md`
-
-## Features
-
-- **Snapshots** — content-addressed checkpoints with diffs (tracks, devices, clips, markers)
-- **Cues** — threaded timeline-pinned comments, injected as DAW markers
-- **Sync** — push/pull over Tailscale with optimistic locking (409 conflict protection)
-- **Conflict resolution** — ⚠ warns on concurrent edits, `!` resolves them
-- **Restore** — roll back to any snapshot
-- **Stem sync** — content-addressed WAV push/pull (only changed files transfer)
-- **Auto-snapshot** on pull — never lose local changes
-- **Freeze detection** — warns before snapshotting frozen tracks (cross-platform crash risk)
-- **Backup & recovery** — rotating `.bak` index backups, daily full-store archives, auto-restore
-
-## Known Limitations
-
-**Ableton Suite vs Intro/Standard:** Clavus snapshots the raw `.als` project file (a GZIP-compressed XML archive). Larger Suite-only features (Max for Live devices, certain MIDI effects) are preserved as binary blobs inside the `.als` but Ableton Intro cannot decode them. Restoring a Suite project on an Intro license will produce an error or data loss. Always verify you can open a restored `.als` before deleting the original.
-
-**OneDrive / Files On-Demand:** If your `.als` files live in a OneDrive-synced folder with "Files On-Demand" enabled, Ableton may be unable to read or write the file (macOS and Windows both affected). Move your projects to a local non-synced folder for use with Clavus.
-
-**Single remote at a time:** `clavus join` replaces any existing remote. To switch collab partners, run `clavus join <new-url>` — your snapshots and history remain local.
-
-**No concurrent push protection:** Two people pushing at the exact same second may cause a 409 conflict. Clavus handles this gracefully with an automatic retry, but for best results push before your collaborator pushes.
-
-## Keybindings
+```
+p → work in Ableton → S → P
+```
 
 | Key | Action |
 |-----|--------|
-| `c` | New cue |
-| `S` | Snapshot |
-| `r` | Reply to cue |
-| `e` | Edit cue / snapshot message |
-| `a` | Assign cue |
-| `R` | Resolve / unresolve cue |
-| `x` | Archive cue |
-| `!` | Resolve sync conflict |
-| `T` | Restore snapshot |
-| `d` | Diff snapshot |
-| `o` | Open project in DAW |
-| `p` | Pull (auto-snapshots first) |
-| `P` | Push |
+| `p` | Pull latest (auto-snapshots your local work first) |
+| `S` | Snapshot (save a checkpoint) |
+| `P` | Push your changes to the relay |
 | `i` | Inject cues as Ableton markers |
-| `Tab` | Switch cues / history pane |
-| `j` / `k` | Navigate |
-| `:` | Command mode |
-| `?` / `h` | Help |
-| `q` | Quit |
+
+Full keybinding reference inside the TUI with `?` or `h`.
+
+---
+
+## If Something Goes Wrong
+
+**"HEAD has moved — pull first."**
+Someone else pushed while you were working. Press `p` (your work is auto-snapshotted), then push again. Nothing lost.
+
+**"⚠ on a cue."**
+Both people edited the same cue. Press `!` to pick your version or theirs.
+
+**"Frozen track warning."**
+Frozen tracks crash Ableton cross-platform. Unfreeze before snapshotting, or pass `--allow-frozen` if everyone's on the same OS.
+
+**"Nothing shows up. It says no project."**
+You need to init or join: `:init /path/to/project.als`, or `clavus join http://<url>:7890` then `p` to pull.
+
+**"Connection refused."**
+Is the relay running? Is Tailscale on? If cross-account, is the machine shared?
+
+---
+
+## Feature Overview
+
+| Capability | How |
+|------------|-----|
+| Snapshots | `S` — content-addressed, includes raw .als backup |
+| Cues | `c` — threaded timeline comments, injectable as DAW markers |
+| Sync | `p` / `P` — push/pull over Tailscale relay (or direct P2P) |
+| Stem sync | `U` / `:stem pull` — content-addressed WAV transfer |
+| Conflict handling | ⚠ warns on concurrent edits, `!` to resolve |
+| Restore | `T` — roll back to any snapshot |
+| Backup | `clavus backup` — full-store archive, auto-rotating index backups |
+| Freeze detection | Warns before snapshotting frozen tracks |
+| Force push | `:push!` — bypass conflict detection when needed |
+
+---
+
+## Known Limitations
+
+**Ableton Suite vs Intro/Standard:** Clavus snapshots the raw `.als` file (GZIP-compressed XML). Suite-only features are preserved as binary data inside the `.als`, but Intro/Standard can't decode them. Verify a restored `.als` opens before deleting the original.
+
+**OneDrive / Files On-Demand:** If `.als` files live in a OneDrive-synced folder, Ableton may have trouble reading/writing them. Keep projects on a local drive.
+
+**Single remote at a time:** `clavus join` replaces any existing remote. Your snapshots and history remain local.
+
+**No concurrent push protection:** Two people pushing at the exact same instant may get a 409. Clavus handles it gracefully, but best practice is to pull before pushing.
+
+^ See post, referenced.
+
+---
 
 ## Stems
 
 ```bash
-clavus stem import-folder ~/Desktop/Stems/   # import all WAVs in one shot
-clavus stem import kick.wav --track "Kick"    # single file
-clavus stem push
-clavus stem pull
+clavus stem import-folder ~/Desktop/Stems/   # import all WAVs
+clavus stem push                              # upload to relay
+clavus stem pull                              # download from relay
 ```
+
 TUI: `U` to push, `:stem pull` to pull. Files land in `~/.clavus/stems/<project>/<hash>/`.
+
+---
 
 ## Backup
 
 ```bash
-clavus backup                  # full store backup (tar.gz)
+clavus backup                  # full store archive (tar.gz)
 clavus backups                 # list backups
-clavus restore-store <file>    # restore
+clavus restore-store <file>    # restore from backup
 clavus repair                  # fix corrupted index (auto-restores from .bak)
 ```
 
-Rotating index backups run automatically before every write. Full daily backups too.
+Rotating index backups run automatically before every write. Full daily archives too.
+
+---
 
 ## Roadmap
 
-**v0.9 — First non-Ableton DAW**
-- Reaper adapter (`.rpp` — plain text, markers map directly to cue positions)
-- Max for Live integration (snapshot/push/pull from inside Ableton — no terminal switching)
-- DAW-agnostic project detection (no more hardcoded `.als` assumptions)
-- Linux end-to-end testing (Reaper + Bitwig both run natively)
-
-**v1.0 — Multi-DAW + polish**
-- Bitwig adapter (`.bwproject`)
-- Phone dashboard companion (tiny HTTP server for monitoring from your phone)
+**v1.0** (next)
+- Reaper adapter (`.rpp` — plain text, markers map to cue positions)
+- Max for Live integration (snapshot/push/pull from inside Ableton)
+- DAW-agnostic project detection
+- Phone dashboard companion
 - Stem sync hardening (partial transfers, resume)
-- Auto-snapshot daemon refinements (configurable intervals, smarter change detection)
+- Linux end-to-end testing
 
-**Ideas for later**
-- FL Studio adapter
-- Logic Pro adapter
-- Web-based diff viewer for snapshots
-- MIDI Remote Script integration (control Clavus from your controller)
+**v1.5+**
+- Bitwig adapter (`.bwproject`)
+- FL Studio / Logic Pro adapters
+- Web-based diff viewer
+- MIDI Remote Script integration
 
-## FAQ
+---
 
-**"Nothing shows up. It says no project."**  
-Initialize or join: `:init /path/to/project.als`, or `clavus join http://<url>:7890` then `p` to pull.
+## Updating
 
-**"HEAD has moved — pull first."**  
-Someone else pushed. Press `p` (your work is auto-snapshotted), then push again. Nothing lost.
+```bash
+cd clavus
+git pull
+pip install -e .    # Windows: py -m pip install -e .
+```
 
-**"⚠ on a cue."**  
-Both people edited it. Press `!` to pick your version or theirs. Push after.
-
-**"Frozen track warning."**  
-Frozen tracks crash Ableton cross-platform. Unfreeze before snapshotting. Pass `--allow-frozen` if everyone's on the same OS.
-
-**"How do I update?"**  
-`cd clavus && git pull && pip install -e .`
+---
 
 ## License
 
