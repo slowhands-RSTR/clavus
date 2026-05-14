@@ -1628,9 +1628,7 @@ class ClavusApp(App):
     def action_edit_item(self):
         """Edit the selected item: cues if cue pane focused, snapshots if history pane."""
         target = self._focused_list_view()
-        self._log_event(f"DEBUG action_edit_item: target={target.id if target else None} snaps={len(self.snaps)}")
         if target and target.id == "hlv" and self.snaps:
-            # History pane — edit snapshot message via footer input
             idx = self._get_history_idx()
             snap = self.snaps[idx]
             self._show_input("edit_snapshot", f"Edit message ({snap.hash[:12]}):", prefill=snap.message)
