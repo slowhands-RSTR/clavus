@@ -143,7 +143,7 @@ class HelpScreen(Screen):
 # ─── Settings Screen ─────────────────────────────────────────────────
 
 class SettingsScreen(Screen):
-    """In-app settings editor — edit config, save, and return."""
+    """Read-only config display — shows current settings, Ctrl+S to return to main."""
 
     CSS = f"""
     SettingsScreen {{ background: {C['bg']}; align: center middle; }}
@@ -153,108 +153,34 @@ class SettingsScreen(Screen):
         padding: 1 2;
     }}
     #settings-box .title {{ color: {C['accent']}; text-style: bold; padding-bottom: 1; }}
-    #settings-box .field-label {{ color: {C['yellow']}; margin-top: 1; }}
-    #settings-box Input {{ 
-        width: 100%;
-        background: {C['bg']}; border: solid {C['border']};
-        color: {C['fg']}; padding: 0 1;
-    }}
-    #settings-box Input:focus {{ border: solid {C['accent']}; }}
-    #settings-box .hint {{ color: {C['muted']}; padding-bottom: 1; }}
-    #settings-box .btn-row {{ align: center middle; padding-top: 1; }}
-    #settings-box #save-btn {{ 
-        width: 20;
-        background: {C['accent']}; color: {C['bg']};
-        text-style: bold; margin-right: 1;
-    }}
-    #settings-box #cancel-btn {{ 
-        width: 20;
-        background: {C['border']}; color: {C['fg']};
-    }}
-    #settings-box #msg {{ 
-        color: {C['green']}; text-style: italic; 
-        height: 1; margin-top: 1; text-align: center;
-        display: none;
-    }}
-    #settings-box #msg.error {{ color: {C['red']}; display: block; }}
-    #settings-box #msg.success {{ display: block; }}
+    #settings-box .section {{ color: {C['yellow']}; text-style: bold; padding-top: 1; }}
+    #settings-box .value {{ color: {C['fg']}; }}
+    #settings-box .dim {{ color: {C['muted']}; }}
     """
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
         Binding("q", "dismiss", "Close"),
-        Binding("ctrl+s", "save", "Save"),
+        Binding("ctrl+s", "dismiss", "Close"),
     ]
-
-    def __init__(self):
-        super().__init__()
-        from clavus.config import ClavusConfig
-        self._cfg = ClavusConfig.load()
-        self._orig = {
-            "author": self._cfg.author,
-            "default_server": self._cfg.default_server,
-            "default_project": self._cfg.default_project,
-            "projects_dir": self._cfg.projects_dir,
-        }
 
     def compose(self):
         from clavus.config import ClavusConfig
         cfg = ClavusConfig.load()
         with VerticalScroll(id="settings-box"):
-            yield Static("⚙ SETTINGS", classes="title")
-            yield Static("Author name", classes="field-label")
-            yield Static("Shown on cues you create", classes="hint")
-            yield Input(value=cfg.author, id="in-author")
-            yield Static("Default server", classes="field-label")
-            yield Static("Relay endpoint for push/pull", classes="hint")
-            yield Input(value=cfg.default_server, id="in-server")
-            yield Static("Default project", classes="field-label")
-            yield Static("Auto-select on startup (or leave blank)", classes="hint")
-            yield Input(value=cfg.default_project, id="in-project")
-            yield Static("Projects directory", classes="field-label")
-            yield Static("Where cloned projects land", classes="hint")
-            yield Input(value=cfg.projects_dir, id="in-dir")
-            yield Static("", id="msg")
-            with Horizontal(classes="btn-row"):
-                yield Button("💾 Save", id="save-btn", variant="primary")
-                yield Button("Cancel", id="cancel-btn")
-
-    def on_button_pressed(self, event: Button.Pressed):
-        if event.button.id == "save-btn":
-            self.action_save()
-        elif event.button.id == "cancel-btn":
-            self.action_dismiss()
-
-    def action_save(self):
-        from clavus.config import ClavusConfig
-        from pathlib import Path
-        cfg = ClavusConfig.load()
-        author = self.query_one("#in-author", Input).value.strip()
-        server = self.query_one("#in-server", Input).value.strip()
-        project = self.query_one("#in-project", Input).value.strip()
-        proj_dir = self.query_one("#in-dir", Input).value.strip()
-
-        if not author:
-            msg = self.query_one("#msg")
-            msg.update("author name cannot be empty")
-            msg.classes = "error"
-            return
-        if not proj_dir:
-            msg = self.query_one("#msg")
-            msg.update("projects directory cannot be empty")
-            msg.classes = "error"
-            return
-
-        cfg.author = author
-        cfg.default_server = server
-        cfg.default_project = project
-        cfg.projects_dir = proj_dir
-        cfg.server_url = server if server else f"http://{cfg.host}:{cfg.port}"
-        cfg.save()
-
-        msg = self.query_one("#msg")
-        msg.update("✓ saved — press Esc to close")
-        msg.classes = "success"
+            yield Static("SETTINGS", classes="title")
+            yield Static("Author", classes="section")
+            yield Static(f"  {cfg.author}", classes="value")
+            yield Static(f"  [dim]Shown on cues you create[/]", classes="dim")
+            yield Static("Server", classes="section")
+            yield Static(f"  {cfg.default_server}", classes="value")
+            yield Static("Project", classes="section")
+            yield Static(f"  {cfg.default_project or '(none)'}", classes="value")
+            yield Static("Projects directory", classes="section")
+            yield Static(f"  {cfg.projects_dir}", classes="value")
+            yield Static("")
+            yield Static("[dim]Use :set <key> <value> in the prompt bar to change settings[/]", classes="dim")
+            yield Static("[dim]Esc / q / Ctrl+S — close[/]", classes="dim")
 
     def action_dismiss(self):
         self.app.pop_screen()
