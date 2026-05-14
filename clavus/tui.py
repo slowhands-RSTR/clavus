@@ -161,7 +161,6 @@ class SettingsScreen(ModalScreen):
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
         Binding("q", "dismiss", "Close"),
-        Binding("ctrl+s", "dismiss", "Close"),
     ]
 
     def compose(self):
