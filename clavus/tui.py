@@ -126,6 +126,7 @@ class HelpScreen(Screen):
             yield Static("NAVIGATION", classes="help-section")
             yield Static("  j/↓  Down           k/↑  Up           Tab  Switch pane")
             yield Static("  Esc  Cancel/Dismiss ?/h  Help         :    Command mode")
+            yield Static("  Ctrl+S  Settings")
             yield Static("COMMANDS (:)", classes="help-section")
             yield Static("  :snapshot <msg>  Create snapshot     :project <name>  Switch project")
             yield Static("  :open [path]     Open in Ableton     :pull / :push    Manual sync")
@@ -134,6 +135,126 @@ class HelpScreen(Screen):
             yield Static("  :find            Discover peers      :repair          Fix store")
             yield Static("  :remote rename <name>               :remote add <name> <url>")
             yield Static("[dim]Esc / q / Enter / h — close[/]", classes="help-dim")
+
+    def action_dismiss(self):
+        self.app.pop_screen()
+
+
+# ─── Settings Screen ─────────────────────────────────────────────────
+
+class SettingsScreen(Screen):
+    """In-app settings editor — edit config, save, and return."""
+
+    CSS = f"""
+    SettingsScreen {{ background: {C['bg']}e0; align: center middle; }}
+    #settings-box {{ 
+        width: 60; max-height: 95%;
+        background: {C['surface']}; border: thick {C['accent']};
+        padding: 1 2;
+    }}
+    #settings-box Static.title {{ color: {C['accent']}; text-style: bold; padding-bottom: 1; }}
+    #settings-box .field-label {{ color: {C['yellow']}; margin-top: 1; }}
+    #settings-box Input {{ 
+        width: 100%; height: 3;
+        background: {C['bg']}; border: solid {C['border']};
+        color: {C['fg']}; padding: 0 1;
+    }}
+    #settings-box Input:focus {{ border: solid {C['accent']}; }}
+    #settings-box .hint {{ color: {C['muted']}; padding-bottom: 1; }}
+    #settings-box .btn-row {{ align: center middle; padding-top: 1; }}
+    #settings-box #save-btn {{ 
+        width: 20; height: 3;
+        background: {C['accent']}; color: {C['bg']};
+        text-style: bold; margin-right: 1;
+    }}
+    #settings-box #cancel-btn {{ 
+        width: 20; height: 3;
+        background: {C['border']}; color: {C['fg']};
+    }}
+    #settings-box #msg {{ 
+        color: {C['green']}; text-style: italic; 
+        height: 1; margin-top: 1; text-align: center;
+        display: none;
+    }}
+    #settings-box #msg.error {{ color: {C['red']}; display: block; }}
+    #settings-box #msg.success {{ display: block; }}
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("q", "dismiss", "Close"),
+        Binding("ctrl+s", "save", "Save"),
+    ]
+
+    def __init__(self):
+        super().__init__()
+        from clavus.config import ClavusConfig
+        self._cfg = ClavusConfig.load()
+        self._orig = {
+            "author": self._cfg.author,
+            "default_server": self._cfg.default_server,
+            "default_project": self._cfg.default_project,
+            "projects_dir": self._cfg.projects_dir,
+        }
+
+    def compose(self):
+        from clavus.config import ClavusConfig
+        cfg = ClavusConfig.load()
+        with VerticalScroll(id="settings-box"):
+            yield Static("⚙ SETTINGS", classes="title")
+            yield Static("Author name", classes="field-label")
+            yield Static("Shown on cues you create", classes="hint")
+            yield Input(value=cfg.author, id="in-author")
+            yield Static("Default server", classes="field-label")
+            yield Static("Relay endpoint for push/pull", classes="hint")
+            yield Input(value=cfg.default_server, id="in-server")
+            yield Static("Default project", classes="field-label")
+            yield Static("Auto-select on startup (or leave blank)", classes="hint")
+            yield Input(value=cfg.default_project, id="in-project")
+            yield Static("Projects directory", classes="field-label")
+            yield Static("Where cloned projects land", classes="hint")
+            yield Input(value=cfg.projects_dir, id="in-dir")
+            yield Static("", id="msg")
+            with Horizontal(classes="btn-row"):
+                yield Button("💾 Save", id="save-btn", variant="primary")
+                yield Button("Cancel", id="cancel-btn")
+
+    def on_button_pressed(self, event: Button.Pressed):
+        if event.button.id == "save-btn":
+            self.action_save()
+        elif event.button.id == "cancel-btn":
+            self.action_dismiss()
+
+    def action_save(self):
+        from clavus.config import ClavusConfig
+        from pathlib import Path
+        cfg = ClavusConfig.load()
+        author = self.query_one("#in-author", Input).value.strip()
+        server = self.query_one("#in-server", Input).value.strip()
+        project = self.query_one("#in-project", Input).value.strip()
+        proj_dir = self.query_one("#in-dir", Input).value.strip()
+
+        if not author:
+            msg = self.query_one("#msg")
+            msg.update("author name cannot be empty")
+            msg.classes = "error"
+            return
+        if not proj_dir:
+            msg = self.query_one("#msg")
+            msg.update("projects directory cannot be empty")
+            msg.classes = "error"
+            return
+
+        cfg.author = author
+        cfg.default_server = server
+        cfg.default_project = project
+        cfg.projects_dir = proj_dir
+        cfg.server_url = server if server else f"http://{cfg.host}:{cfg.port}"
+        cfg.save()
+
+        msg = self.query_one("#msg")
+        msg.update("✓ saved — press Esc to close")
+        msg.classes = "success"
 
     def action_dismiss(self):
         self.app.pop_screen()
@@ -213,6 +334,7 @@ class ClavusApp(App):
         Binding("?", "help", "Help", show=False),
         Binding("h", "help", "Help", show=False),
         Binding("escape", "cancel_input", "Cancel input", show=False),
+        Binding("ctrl+s", "settings", "Settings", show=False),
     ]
 
     def __init__(self, url: str = "", debug: bool = False):
@@ -1609,6 +1731,10 @@ class ClavusApp(App):
     def action_help(self):
         """Show full key bindings and commands overlay."""
         self.push_screen(HelpScreen())
+
+    def action_settings(self):
+        """Show settings screen."""
+        self.push_screen(SettingsScreen())
 
     def action_assign(self):
         if self._input_mode or time.time() - self._input_debounce < 0.3:
