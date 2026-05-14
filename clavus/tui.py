@@ -797,7 +797,8 @@ class ClavusApp(App):
                         self._log_event(line.strip())
             if proc.returncode != 0 and err:
                 self._log_event(f"error: {err}")
-            self._status("inject complete" if proc.returncode == 0 else "inject failed")
+            msg = "inject complete" if proc.returncode == 0 else f"inject failed: {err[:60] if err else 'unknown'}"
+            self._status(msg)
             # Auto-snapshot so injected markers survive future :open
             if proc.returncode == 0 and out and "no changes" not in out:
                 self._log_event("auto-snapshot to save injected markers...")
