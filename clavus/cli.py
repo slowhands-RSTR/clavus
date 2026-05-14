@@ -4277,8 +4277,9 @@ def main():
             from importlib.metadata import version
             v = version("clavus")
         except ImportError:
-            v = "0.8.0-beta"
-        print(f"clavus {v}")
+            v = "0.1.0-beta"
+        print_banner()
+        print(f"  Version: {v}")
         return
 
     # Override clavus directory if specified
