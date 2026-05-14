@@ -19,8 +19,9 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | C11 | Push → peer edits → peer pushes → you pull (roundtrip) | ✅ 5/11 | 🔲 | 🔲 | Mac→Win relay push + Win local pull validated; full peer-edit cycle not yet |
 | C12 | Rapid push/edit/push (optimistic locking: 409 rejection) | ✅ 5/12 | 🔲 | 🔲 | Win pushed first → Mac 409 → pull → auto-snap → push OK |
 | C13 | Network drop mid-push → retry → clean state | 🔲 | 🔲 | 🔲 | |
-| C14 | Relay restart while clients connected → clients recover | ✅ 5/12 | 🔲 | 🔲 | Mac relay killed → Win error → restart → Win push OK |
-| C15 | Cross-account Tailscale (shared node, MagicDNS) | ✅ 5/11 | 🔲 | 🔲 | MagicDNS share URL (chrispc.tail46b8d9.ts.net) → join → pull 10 projects ✅; Pull spinner hangs on dead remotes (Windows) |
+| C14 | Sample materialization after blob download (order bug) | ✅ 5/13 | 🔲 | 🔲 | Fixed: blobs downloaded first, then materialized (was reversed) |
+| C15 | Relay restart while clients connected → clients recover | ✅ 5/12 | 🔲 | 🔲 | Mac relay killed → Win error → restart → Win push OK |
+| C16 | Cross-account Tailscale (shared node, MagicDNS) | ✅ 5/11 | 🔲 | 🔲 | MagicDNS share URL (chrispc.tail46b8d9.ts.net) → join → pull 10 projects ✅; Pull spinner hangs on dead remotes (Windows) |
 
 ## TUI
 
@@ -75,8 +76,8 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | L13 | `clavus stem import/push/pull/list` | ✅ 5/11 | 🔲 | Import, list, push all ✅ |
 | L14 | `clavus open` launches Ableton with HEAD | ✅ 5/11 | ✅ 5/11 | |
 | L16 | `clavus p2p` peer discovery (local and tailnet peers) | ✅ 5/13 | 🔲 | Online/offline listing, MagicDNS, usage hints |
-| L17 | `clavus p2p --host` starts listening on port 7892 | 🔲 | 🔲 | Requires a second machine to test |
-| L18 | `clavus p2p --connect <dns>` connects and syncs | 🔲 | 🔲 | Full bidirectional blob sync over TCP |
+| L17 | `clavus p2p --host` / `--connect` TCP sync | ✅ 5/13 | 🔲 | Manifest exchange, conflict detection, blob sync |
+| L18 | relay: `force=True` bypasses conflict check | ✅ 5/13 | 🔲 | Bug: force was parsed by API model but never checked |
 
 ## Edge Cases & Error Handling
 
@@ -92,6 +93,8 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | E8 | Project with non-ASCII characters in name/path | ✅ 5/12 | 🔲 | "Shades Of Love Edit (7) 2022" — parens, spaces fine |
 | E9 | Multiple remotes → push to all, pull from all | 🔲 | 🔲 | |
 | E10 | `clavus share` port conflict → clear error | ✅ 5/12 | 🔲 | Win: pull latest for fix |
+| E11 | Cross-project push: push project A, switch to B, push B | ✅ 5/13 | 🔲 | Fixed: conflict was using global HEAD instead of per-project |
+| E12 | Sample blob sync: push with samples → pull → files on disk | ✅ 5/13 | 🔲 | Fixed: materialization was running before blob download |
 
 ## Platform-Specific
 
@@ -116,7 +119,8 @@ Living test matrix. Mark ✅ (pass), ❌ (fail), ⚠️ (flake), 🔲 (untested)
 | 5/11/26 | Chris + Hermes | Windows | T1, T3, T12, T13, T15, T18, T25-T28, P1 | Windows TUI confirmed: c, S, p, P, j/k, :project, :projects, :remotes, :inject, :push! all working. Force push deadlock fixed — relay now updates HEAD on force push even when snapshots already exist. F binding removed, :push! is break-glass command-only. |
 | 5/11/26 eve | Chris + Hermes | Mac+Win | :pull-all, :push!, push conflict bugs | **:push! was never executing** — `async` without `@work`, same bug as :pull-all. Fixed. **Cross-project push conflicts** — `last_head` was per-remote global, switching projects caused 409. Fixed: `ClavusProject.last_remote_head`. **:pull-all error invisible on Windows** — 6 attempted fixes (30s timer, sentinel, _sticky_error, direct widget.write, forced refresh). Root cause appears to be CSS `display:none` still active when @work worker writes to #footer-status. Error text lands in hidden widget. Needs modal/log-file approach. 7 commits. |
 | 5/11/26 night | Chris + Hermes | Mac+Win | H1-H2 hardening, C1-C4, C7-C8 collaboration | **Hardening branch tested.** --debug flag + errors.log confirmed. **3 pull bugs fixed:** welcome autoload, root_als gate, global HEAD ref blocking per-project heads. 4 commits merged to main. **Collaboration validated:** Mac↔Win push/pull, cue conflict ⚠ + ! resolution, cross-machine `o` open, `T` restore all ✅. Suite/Intro .als incompatibility is Ableton-side, not Clavus. |
-|| 5/13/26 | Chris + Hermes | macOS | Full test suite (test_*.py), P2P smoke, CLI smoke, doctor, p2p --help | **All 6 test scripts passed** (test_cli, test_cues, test_snapshot, test_parser, test_cli_full, test_watch). **P2P transport:** manifest exchange ✅, conflict detection ✅, full blob sync ⚠️ (race in _smoke_full_sync, p2p_sync itself works). **CLI:** `clavus p2p` discovers 2 online + 3 offline peers. `clavus doctor` shows 21 ✅ / 1 ⚠️ / 1 ❌ (relay not running). **New code reviewed:** P2P transport (~750 lines), git-style conflict detection, ThreadPoolExecutor blob upload, relay HEAD probe, doctor tailscale/relay checks, auto tailscale serve setup on `clavus share`. |
+| 5/13/26 | Chris + Hermes | macOS + Win | L16-L18 P2P, relay bugs, E11-E12 | **P2P transport** built & tested (manifest, conflict, blob sync). **3 relay bugs fixed**: force=True ignored, empty snap crash (500), global HEAD ref causing cross-project false conflicts. **Sample materialization fixed**: blobs downloaded before materialization. **Collaborator test**: Steven nuked/reinstalled, joined, pulled, pushed his own project "edit anthem v2" with 31 sample blobs. **Beta checklist written** (docs/beta-checklist.md). |
+| 5/13/26 | Chris + Hermes | macOS | Full test suite (test_*.py), P2P smoke, CLI smoke, doctor, p2p --help | **All 6 test scripts passed** (test_cli, test_cues, test_snapshot, test_parser, test_cli_full, test_watch). **P2P transport:** manifest exchange ✅, conflict detection ✅, full blob sync ⚠️ (race in _smoke_full_sync, p2p_sync itself works). **CLI:** `clavus p2p` discovers 2 online + 3 offline peers. `clavus doctor` shows 21 ✅ / 1 ⚠️ / 1 ❌ (relay not running). **New code reviewed:** P2P transport (~750 lines), git-style conflict detection, ThreadPoolExecutor blob upload, relay HEAD probe, doctor tailscale/relay checks, auto tailscale serve setup on `clavus share`. |
 
 ---
 
