@@ -146,16 +146,16 @@ class SettingsScreen(Screen):
     """In-app settings editor — edit config, save, and return."""
 
     CSS = f"""
-    SettingsScreen {{ background: {C['bg']}e0; align: center middle; }}
+    SettingsScreen {{ background: {C['bg']}; align: center middle; }}
     #settings-box {{ 
         width: 60; max-height: 95%;
-        background: {C['surface']}; border: thick {C['accent']};
+        background: {C['surface2']}; border: thick {C['accent']};
         padding: 1 2;
     }}
-    #settings-box Static.title {{ color: {C['accent']}; text-style: bold; padding-bottom: 1; }}
+    #settings-box .title {{ color: {C['accent']}; text-style: bold; padding-bottom: 1; }}
     #settings-box .field-label {{ color: {C['yellow']}; margin-top: 1; }}
     #settings-box Input {{ 
-        width: 100%; height: 3;
+        width: 100%;
         background: {C['bg']}; border: solid {C['border']};
         color: {C['fg']}; padding: 0 1;
     }}
@@ -163,12 +163,12 @@ class SettingsScreen(Screen):
     #settings-box .hint {{ color: {C['muted']}; padding-bottom: 1; }}
     #settings-box .btn-row {{ align: center middle; padding-top: 1; }}
     #settings-box #save-btn {{ 
-        width: 20; height: 3;
+        width: 20;
         background: {C['accent']}; color: {C['bg']};
         text-style: bold; margin-right: 1;
     }}
     #settings-box #cancel-btn {{ 
-        width: 20; height: 3;
+        width: 20;
         background: {C['border']}; color: {C['fg']};
     }}
     #settings-box #msg {{ 
