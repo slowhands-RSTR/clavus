@@ -824,7 +824,7 @@ class ClavusApp(App):
                 env=_rest_env,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-            out = stdout.decode().strip()
+            out = stdout.decode('utf-8', errors='replace').strip()
             if out:
                 for line in out.split("\n"):
                     if line.strip():
@@ -937,7 +937,7 @@ class ClavusApp(App):
             )
             if proc.stdout:
                 async for line in proc.stdout:
-                    text = line.decode().strip()
+                    text = line.decode('utf-8', errors='replace').strip()
                     if text:
                         self._log_event(text)
                         self._status(text)
@@ -1095,7 +1095,7 @@ class ClavusApp(App):
                 env=_snap_env,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-            out = stdout.decode().strip()
+            out = stdout.decode('utf-8', errors='replace').strip()
             if proc.returncode == 0:
                 self._log_event("● markers saved to snapshot")
                 self._load_snapshots_from_disk()
@@ -1978,8 +1978,8 @@ class ClavusApp(App):
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-        out = stdout.decode().strip()
-        err = stderr.decode().strip()
+        out = stdout.decode('utf-8', errors='replace').strip()
+        err = stderr.decode('utf-8', errors='replace').strip()
         msg = out.split("\n")[-1][:60] if out else (err.split("\n")[-1][:60] if err else "done")
         self._status(f"stems: {msg}")
         self._log_event(f"stems: {msg}")
