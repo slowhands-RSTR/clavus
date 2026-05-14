@@ -142,7 +142,7 @@ class HelpScreen(Screen):
 
 # ─── Settings Screen ─────────────────────────────────────────────────
 
-class SettingsScreen(Screen):
+class SettingsScreen(ModalScreen):
     """Read-only config display — shows current settings, Ctrl+S to return to main."""
 
     CSS = f"""
@@ -1660,7 +1660,13 @@ class ClavusApp(App):
 
     def action_settings(self):
         """Show settings screen."""
-        self.push_screen(SettingsScreen())
+        try:
+            screen = SettingsScreen()
+            self.push_screen(screen)
+            self._log_event("settings screen pushed")
+        except Exception as e:
+            self._log_event(f"settings error: {e}")
+            self._status(f"settings error: {e}")
 
     def action_assign(self):
         if self._input_mode or time.time() - self._input_debounce < 0.3:
