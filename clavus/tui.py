@@ -142,17 +142,115 @@ class HelpScreen(Screen):
 # ─── Settings Screen ─────────────────────────────────────────────────
 
 class SettingsScreen(ModalScreen):
-    """config viewer — minimal test."""
+    """Settings overlay — identical pattern to CRUX SettingsScreen."""
+
+    _bg = "#0b1418"
+    _surface = "#0f1a20"
+    _fg = "#b8c8c8"
+    _accent = "#1a9e9e"
+    _border = "#1a3040"
+    _dim = "#6a8a8a"
+    _yellow = "#d4a030"
+
+    CSS = f"""
+    SettingsScreen {{ background: {_bg}; align: center middle; }}
+    #settings-box {{
+        width: 70; max-height: 95%;
+        background: {_surface}; border: thick {_accent};
+        padding: 0 1;
+    }}
+    #settings-box Static {{ width: 100%; }}
+    #settings-box .s-title {{ color: {_accent}; text-style: bold; }}
+    #settings-box .s-section {{ color: {_yellow}; text-style: bold; padding-top: 1; }}
+    #settings-box .s-label {{ color: {_dim}; }}
+    #settings-box Input {{
+        background: {_bg}; color: {_fg};
+        border: solid {_border}; height: 3; min-width: 40;
+    }}
+    #settings-box Input:focus {{ border: solid {_accent}; }}
+    #settings-box Button {{
+        background: {_surface}; color: {_fg};
+        border: solid {_border}; height: 3; min-width: 12; padding: 0 2;
+    }}
+    #settings-box Button:hover {{ border: solid {_accent}; }}
+    #settings-box Button.primary {{ background: {_accent}; color: {_bg}; text-style: bold; }}
+    #settings-box #s-actions {{ height: 5; margin-top: 1; }}
+    #settings-box #s-result {{ color: {_dim}; height: 1; }}
+    """
 
     BINDINGS = [
-        Binding("escape", "dismiss", "Close"),
-        Binding("q", "dismiss", "Close"),
+        Binding("escape", "cancel", "Cancel"),
+        Binding("q", "cancel", "Cancel"),
     ]
 
-    def compose(self):
-        yield Static("SETTINGS — press Esc or q to close")
+    def action_cancel(self):
+        self.app.pop_screen()
 
-    def action_dismiss(self):
+    def __init__(self):
+        super().__init__()
+        from clavus.config import ClavusConfig, CONFIG_PATH
+        self._cfg = ClavusConfig.load()
+        self._cfg_path = CONFIG_PATH
+
+    def compose(self):
+        with VerticalScroll(id="settings-box"):
+            yield Static("CLAVUS — SETTINGS", classes="s-title")
+
+            # Author
+            yield Static("AUTHOR", classes="s-section")
+            yield Input(value=self._cfg.author or "", id="s-author", placeholder="your name")
+
+            # Paths
+            yield Static("PATHS", classes="s-section")
+            yield Static("Projects directory", classes="s-label")
+            yield Input(value=self._cfg.projects_dir or "", id="s-projects-dir", placeholder="~/.clavus/projects")
+            yield Static("Server host", classes="s-label")
+            yield Input(value=self._cfg.host or "", id="s-host", placeholder="localhost")
+            yield Static("Server port", classes="s-label")
+            yield Input(value=str(self._cfg.port or ""), id="s-port", placeholder="7890")
+            yield Static("Server URL", classes="s-label")
+            yield Input(value=self._cfg.server_url or "", id="s-url", placeholder="http://localhost:7890")
+
+            # Actions
+            yield Static("", id="s-result")
+            yield Horizontal(
+                Button("Save", id="s-save", variant="primary"),
+                Button("Cancel", id="s-cancel"),
+                id="s-actions",
+            )
+
+    def on_button_pressed(self, event: Button.Pressed):
+        btn_id = event.button.id
+        if btn_id == "s-save":
+            self._save()
+        elif btn_id == "s-cancel":
+            self.app.pop_screen()
+
+    def _save(self):
+        import json
+        try:
+            data = json.loads(self._cfg_path.read_text())
+        except Exception:
+            data = {}
+
+        author = self.query_one("#s-author", Input).value.strip()
+        projects_dir = self.query_one("#s-projects-dir", Input).value.strip()
+        host = self.query_one("#s-host", Input).value.strip()
+        port_str = self.query_one("#s-port", Input).value.strip()
+        server_url = self.query_one("#s-url", Input).value.strip()
+
+        data["author"] = author or "Chris"
+        data["projects_dir"] = projects_dir
+        data["host"] = host or "0.0.0.0"
+        try:
+            data["port"] = int(port_str) if port_str else 7890
+        except ValueError:
+            data["port"] = 7890
+        data["server_url"] = server_url
+
+        self._cfg_path.write_text(json.dumps(data, indent=2) + "\n")
+        result = self.query_one("#s-result", Static)
+        result.update("✓ saved")
         self.app.pop_screen()
 
 
@@ -231,6 +329,7 @@ class ClavusApp(App):
         Binding("h", "help", "Help", show=False),
         Binding("escape", "cancel_input", "Cancel input", show=False),
         Binding("s", "settings", "Settings", priority=True),
+        Binding("ctrl+s", "settings", "Settings", priority=True),
     ]
 
     def __init__(self, url: str = "", debug: bool = False):
@@ -1631,8 +1730,8 @@ class ClavusApp(App):
         self.push_screen(HelpScreen())
 
     def action_settings(self):
-        """Open help screen (temp)."""
-        self.push_screen(HelpScreen())
+        """Open settings screen."""
+        self.push_screen(SettingsScreen())
 
     def action_assign(self):
         if self._input_mode or time.time() - self._input_debounce < 0.3:
