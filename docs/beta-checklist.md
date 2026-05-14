@@ -11,10 +11,10 @@
 |---|------|-----|--------|-------|
 | B1 | Fresh install: clone → `pip install -e .` → `clavus setup` works | Both | 🔲 | |
 | B2 | Host starts relay: `clavus share` → prints Tailscale URL | Host | ✅ 5/13 | |
-| B3 | Collaborator joins: `clavus join <url>` → projects appear | Steven | 🟡 5/13 | Worked after nuke + reinstall |
-| B4 | Pull: `p` in TUI → snapshots + cues land | Both | 🟡 5/13 | Cues synced ✅. Samples need re-test with latest code |
-| B5 | Make change in Ableton → `S` snapshot → `P` push → relay receives | Steven | 🟡 5/13 | Steven pushed successfully after HEAD fix |
-| B6 | Other side pulls → sees the pushed snapshot + samples on disk | Host | 🔲 | **Needs re-test** — samples should materialize now |
+| B3 | Collaborator joins: `clavus join <url>` → projects appear | Steven | ✅ 5/13 | Worked after nuke + reinstall |
+| B4 | Pull: `p` in TUI → snapshots + cues land | Both | ✅ 5/13 | 16 cues, 12 snapshots, 40 blobs ✅ |
+| B5 | Make change in Ableton → `S` snapshot → `P` push → relay receives | Steven | ✅ 5/13 | Chris pushed `71f6a446` from Windows |
+| B6 | Other side pulls → sees the pushed snapshot + samples on disk | Host | ✅ 5/13 | Mac pulled and confirmed new HEAD landed |
 | B7 | Both edit → push/pull → conflict detected → resolve with `!` | Both | ✅ 5/11 | C3-C4 from testing matrix |
 | B8 | Switch projects via `:project <name>` → pull/push works | Both | 🟡 5/13 | Cross-project HEAD bug fixed, needs re-test |
 | B9 | Open project in Ableton with `o` | Both | ✅ 5/11 | |
@@ -77,4 +77,4 @@
 4. Host pulls → sees Steven's changes ✅
 5. Both edit same thing → conflict detected → resolved ✅
 
-**If all 5 pass without manual intervention: ship beta.**
+**✅ All 5 steps passed on 5/13/26 — beta gate cleared!**
