@@ -620,17 +620,15 @@ class ClavusApp(App):
                     capture_output=True, text=True, timeout=15)
                 out = (_p.stdout or "") + (_p.stderr or "")
                 self._log_event(f":find → {out.strip()[:300]}")
-                lines = [l.strip() for l in out.split("\n") if l.strip()]
-                peers = [l for l in lines if "http" in l or "tailscale" in l or "peer" in l.lower()]
-                if peers:
-                    for p in peers[:5]:
-                        self._log_event(p)
-                    self.notify(f"Found {len(peers)} peer(s) — check log", timeout=5.0)
-                else:
-                    self.notify("No peers found on tailnet", timeout=4.0)
-                self._status(f"find: {len(peers)} peer(s)")
+                # Show the actual output to the user
+                summary = out.strip().split("\n")[-1][:80] if out.strip() else "no output"
+                if "No Clavus servers" in out or "no peers" in out.lower():
+                    self.notify("No peers found via Tailscale — try your relay URL directly", timeout=6.0)
+                elif out.strip():
+                    self.notify(f"Found: {summary}", timeout=5.0)
+                self._status(summary)
             except subprocess.TimeoutExpired:
-                self._status("find timed out")
+                self._status("find timed out (15s)")
             except Exception as e:
                 self._status(f"find failed: {e}")
         elif cmd == "repair":
