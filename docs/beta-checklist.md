@@ -54,7 +54,7 @@
 
 ### For Host (Chris)
 
-- [ ] Pull latest `perf-improvements`
+- [ ] `git pull` (on main branch — all beta code is merged)
 - [ ] `py -m pip install -e .`
 - [ ] Restart relay (`kill` old → `clavus share --port 7891`)
 - [ ] Verify Tailscale serve proxy: `curl http://localhost:7891/api/ping` → 200
