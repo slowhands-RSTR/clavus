@@ -3457,7 +3457,11 @@ def cmd_cue_render(args: argparse.Namespace) -> None:
 
     if args.inject:
         # Inject directly into the project's .als file
-        render_cues_as_markers(unresolved, "", inject_into_als=proj.root_als)
+        from clavus.progress import Spinner, status
+        with Spinner("injecting cues into .als..."):
+            render_cues_as_markers(unresolved, "", inject_into_als=proj.root_als)
+        status(f"📍 Injected {len(unresolved)} cues into {proj.root_als}")
+        print(f"   Auto-snapshot to save: clavus snapshot \"injected markers\" or use :snapshot in TUI")
     else:
         output = args.output or f"{proj.name}_cues.xml"
         render_cues_as_markers(unresolved, output)
@@ -4099,6 +4103,9 @@ def main():
     p_join.add_argument("--tailscale", action="store_true",
                        help="Scan Tailscale only (default: LAN + Tailscale)")
 
+    # Inject (alias for cue-render --inject)
+    subparsers.add_parser("inject", help="Inject unresolved cues as Ableton markers")
+
     # TUI (terminal dashboard)
     p_tui = subparsers.add_parser("tui", help="Launch the TUI dashboard")
     p_tui.add_argument("--connect", "-c", default="",
@@ -4219,6 +4226,9 @@ def main():
 
     if args.command in commands:
         commands[args.command](args)
+    elif args.command == "inject":
+        args.inject = True
+        cmd_cue_render(args)
     elif args.command == "stem":
         stem_actions = {
             "import": cmd_stem_import,

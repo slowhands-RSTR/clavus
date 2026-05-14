@@ -786,9 +786,9 @@ class ClavusApp(App):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-            out = stdout.decode().strip()
-            err = stderr.decode().strip()
+            raw_out, raw_err = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = raw_out.decode('utf-8', errors='replace').strip()
+            err = raw_err.decode('utf-8', errors='replace').strip()
             if out:
                 for line in out.split("\n"):
                     if line.strip():
