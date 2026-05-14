@@ -1080,7 +1080,9 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     # ── Parse ──
     print("🔍 Scanning .als file...")
-    project = parse_als(als_path)
+    from clavus.progress import Spinner
+    with Spinner("parsing project file..."):
+        project = parse_als(als_path)
     print()
 
     # ── Summary ──
@@ -3656,9 +3658,11 @@ def cmd_open(args: argparse.Namespace) -> None:
 
 def cmd_backup(args: argparse.Namespace) -> None:
     """Backup the entire Clavus store (cues, snapshots, refs, config)."""
+    from clavus.progress import Spinner
     from clavus.store import BlobStore
     store = BlobStore()
-    archive_path = store.backup_store()
+    with Spinner("creating backup..."):
+        archive_path = store.backup_store()
     size_mb = archive_path.stat().st_size / (1024 * 1024)
     print(f"💾 Backup saved: {archive_path}")
     print(f"   Size: {size_mb:.1f} MB")

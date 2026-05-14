@@ -131,6 +131,7 @@ class HelpScreen(Screen):
             yield Static("  :open [path]     Open in Ableton     :pull / :push    Manual sync")
             yield Static("  :stem push/pull  Stem file sync      :init <path>     Init project")
             yield Static("  :p2p-host        Start P2P host      :p2p-connect <dns>  P2P sync")
+            yield Static("  :find            Discover peers      :repair          Fix store")
             yield Static("  :remote rename <name>               :remote add <name> <url>")
             yield Static("[dim]Esc / q / Enter / h — close[/]", classes="help-dim")
 
@@ -611,6 +612,40 @@ class ClavusApp(App):
                 self._connect()
             else:
                 self._status("use :p2p-connect <peer-dns>")
+        elif cmd == "find":
+            self._status("scanning for peers...")
+            try:
+                _p = subprocess.run(
+                    [sys.executable, "-m", "clavus", "find", "--tailscale"],
+                    capture_output=True, text=True, timeout=15)
+                out = (_p.stdout or "") + (_p.stderr or "")
+                self._log_event(f":find → {out.strip()[:300]}")
+                lines = [l.strip() for l in out.split("\n") if l.strip()]
+                peers = [l for l in lines if "http" in l or "tailscale" in l or "peer" in l.lower()]
+                if peers:
+                    for p in peers[:5]:
+                        self._log_event(p)
+                    self.notify(f"Found {len(peers)} peer(s) — check log", timeout=5.0)
+                else:
+                    self.notify("No peers found on tailnet", timeout=4.0)
+                self._status(f"find: {len(peers)} peer(s)")
+            except subprocess.TimeoutExpired:
+                self._status("find timed out")
+            except Exception as e:
+                self._status(f"find failed: {e}")
+        elif cmd == "repair":
+            self._status("repairing store...")
+            try:
+                _p = subprocess.run(
+                    [sys.executable, "-m", "clavus", "repair"],
+                    capture_output=True, text=True, timeout=30)
+                out = (_p.stdout or "") + (_p.stderr or "")
+                self._log_event(f":repair → {out.strip()[:300]}")
+                self.notify("✅ Store repair complete", timeout=5.0)
+                self._status("repair done")
+                self._connect()  # reload
+            except Exception as e:
+                self._status(f"repair failed: {e}")
         else:
             self._debug_log(f"dispatch: unknown cmd='{cmd}' arg='{arg}'")
             self._status(f"unknown: {cmd}")
