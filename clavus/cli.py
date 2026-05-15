@@ -719,7 +719,7 @@ def cmd_help(args: argparse.Namespace) -> None:
 
 def cmd_setup(args: argparse.Namespace) -> None:
     """Guided first-run setup — author, port, Tailscale, Ableton detection."""
-    import platform, socket, subprocess
+    import json, platform, socket, subprocess
     from clavus.config import ClavusConfig
     from clavus.store import BlobStore
 
@@ -759,18 +759,28 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print()
     print("🌐 Network discovery...")
     ts_ip = ""
+    ts_magic_dns = ""
     try:
-        r = subprocess.run(["tailscale", "version"], capture_output=True, text=True, timeout=5)
+        r = subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
-            print("   ✅ Tailscale found")
-            r2 = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5)
-            ts_ip = r2.stdout.strip()
-            if ts_ip:
-                print(f"   📡 Tailscale IP: {ts_ip}")
+            import json
+            status = json.loads(r.stdout)
+            self_info = status.get("Self", {})
+            ts_magic_dns = self_info.get("DNSName", "").rstrip(".")
+            ts_ips = self_info.get("TailscaleIPs", [])
+            ts_ip = ts_ips[0] if ts_ips else ""
+            if ts_magic_dns:
+                print(f"   ✅ Tailscale found")
+                print(f"   🌐 MagicDNS: {ts_magic_dns}")
+                if ts_ip:
+                    print(f"   📡 Tailscale IP: {ts_ip}")
                 cfg.set("tailscale_ip", ts_ip)
+                cfg.set("tailscale_magic_dns", ts_magic_dns)
+            else:
+                print("   ✅ Tailscale running (MagicDNS not configured)")
         else:
             print("   ℹ️  Tailscale not found — LAN-only collab")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
         print("   ℹ️  Tailscale not found — LAN-only collab")
 
     # Initialize store (needed for remotes)
