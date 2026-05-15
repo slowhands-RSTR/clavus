@@ -108,7 +108,7 @@ class HelpScreen(Screen):
     HelpScreen {{ background: {C['bg']}e0; align: center middle; }}
     #help-box {{ 
         width: 68; max-height: 95%;
-        background: {C['surface']}; border: thick {C['accent']};
+        background: {C['surface']}; border: solid {C['accent']};
         padding: 0 1;
     }}
     #help-box Static {{ width: 100%; }}
@@ -172,7 +172,7 @@ class SettingsScreen(ModalScreen):
     SettingsScreen {{ background: {C['bg']}; align: center middle; }}
     #settings-box {{
         width: 70; max-height: 95%;
-        background: {C['surface']}; border: thick {C['accent']};
+        background: {C['surface']}; border: solid {C['accent']};
         padding: 0 1;
     }}
     #settings-box Static {{ width: 100%; }}
@@ -3206,7 +3206,7 @@ class ShareModal(ModalScreen[None]):
         width: 52;
         max-height: 12;
         background: {C['surface']};
-        border: thick {C['accent']};
+        border: solid {C['accent']};
         padding: 1 2;
     }}
     #share-title {{
@@ -3293,7 +3293,7 @@ class JoinModal(ModalScreen[None]):
         width: 56;
         max-height: 16;
         background: {C['surface']};
-        border: thick {C['accent']};
+        border: solid {C['accent']};
         padding: 1 2;
     }}
     #join-title {{
