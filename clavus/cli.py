@@ -201,6 +201,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     ok: list[str] = []
     warn: list[str] = []
     fail: list[str] = []
+    info: list[str] = []
 
     def check(label: str, cond: bool, detail: str = "") -> None:
         sym = "✅" if cond else "❌"
@@ -211,6 +212,13 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             ok.append(msg)
         else:
             fail.append(msg)
+
+    def check_info(label: str, detail: str = "") -> None:
+        """Informational check — always shows a ✅ or 💡, never ❌."""
+        msg = f"  💡 {label}"
+        if detail:
+            msg += f": {detail}"
+        info.append(msg)
 
     def warn_check(label: str, detail: str = "") -> None:
         msg = f"  ⚠️  {label}"
@@ -299,7 +307,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         url = remote.url.rstrip("/")
         ping_ok = False
         try:
-            # Try /api/ping endpoint (defined on all clavus relays)
             req = urllib.request.Request(f"{url}/api/ping")
             urllib.request.urlopen(req, timeout=5)
             ping_ok = True
@@ -310,7 +317,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             host = urllib.parse.urlparse(url).netloc
         except Exception:
             host = url
-        check(f"remote '{remote.name}' ({host})", ping_ok, "reachable" if ping_ok else "unreachable")
+        # localhost relay is optional — show as info, not failure
+        is_localhost = host in ("localhost", "localhost:7890", "127.0.0.1", "127.0.0.1:7890")
+        if ping_ok:
+            check(f"remote '{remote.name}' ({host})", True, "reachable")
+        elif is_localhost:
+            check_info(f"relay '{remote.name}' ({host})", f"not running — start with 'clavus share' (optional for LAN collab)")
+        else:
+            check(f"remote '{remote.name}' ({host})", False, "unreachable")
 
     # 7. Tailscale MagicDNS — resolve each remote's hostname
     print("  network:")
@@ -330,7 +344,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             except Exception:
                 warn.append(f"  ⚠️  remote '{remote.name}' — could not parse URL")
 
-    # 8. Tailscale serve proxy — the relay's tailnet gateway
+    # 8. Tailscale serve — the relay's tailnet gateway (informational only)
     print("  tailnet relay proxy:")
     port = cfg.port or 7890
     ts_serve_ok = False
@@ -343,19 +357,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             ts_serve_ok = True
             check("tailscale serve", True, f"proxy active on port {port}")
         else:
-            fail.append(f"  ❌ tailscale serve — not configured (relay unreachable via MagicDNS)")
-            warn.append(f"  💡 Fix: tailscale serve --bg --http {port} http://localhost:{port}")
+            # Not running — informational only, not a failure
+            check_info("tailscale serve", f"not configured (run 'tailscale serve --bg --http {port} http://localhost:{port}' to enable MagicDNS relay)")
     except FileNotFoundError:
-        warn_check("tailscale", "not installed — LAN-only collab")
+        check_info("tailscale", "not installed — LAN-only collab (Tailscale enables remote relay)")
     except Exception as e:
-        warn_check("tailscale serve", str(e))
+        check_info("tailscale serve", str(e))
 
     # 9. Relay process + end-to-end MagicDNS reachability
+# 9. Relay process — informational (optional for LAN-only collab)
     print("  relay:")
     relay_alive = False
     relay_port = port
-    # Try 7890 first (where tailscale serve proxies from), then fall back to raw relay port
-    # Try GET (HEAD not supported on all endpoints)
     for check_port in (port, 7891) if port != 7891 else (7891,):
         try:
             req = urllib.request.Request(f"http://127.0.0.1:{check_port}/api/ping")
@@ -367,8 +380,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         except Exception:
             continue
     if not relay_alive:
-        fail.append(f"  ❌ relay process — not running on port {port} (or 7891)")
-        fail.append(f"  💡 Fix: run 'clavus share' to start it")
+        # Informational only — relay is optional for LAN-only usage
+        check_info("relay process", f"not running (run 'clavus share' to start it — required for remote collab")
 
     # Check if MagicDNS URL is actually reachable via tailnet (not just DNS-resolved)
     ts_host: str | None = None
@@ -398,14 +411,21 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print(line)
     for line in warn:
         print(line)
+    for line in info:
+        print(line)
     print()
     if fail:
         print(f"  💡 Run 'clavus repair' to recover from corruption")
         print(f"  💡 Run 'clavus restore-store' to restore from backup")
+        print()
+        print(f"  ⚠️  Some checks failed — collation may be limited until resolved.")
     elif warn:
         print(f"  💡 Run 'clavus backup' to create a full backup")
+        print()
+        print(f"  ✅ Core system healthy — ready to collab.")
     else:
-        print(f"  💡 Everything looks good!")
+        print(f"  ✅ Everything looks good!")
+        print(f"  ✅ Ready to collab.")
 
 
 def cmd_p2p(args: argparse.Namespace) -> None:
@@ -3767,11 +3787,15 @@ def cmd_open(args: argparse.Namespace) -> None:
             ableton_path = str(candidate)
             break
         if ableton_path:
-            sp.run(["open", "-a", ableton_path, str(out_path)])
-            print(f"   🎹 Launched Ableton Live")
+            result = sp.run(["open", "-a", ableton_path, str(out_path)])
+            if result.returncode == 0:
+                print(f"   🎹 Launched Ableton Live")
+            else:
+                print(f"   ⚠️  Ableton Live returned exit code {result.returncode}")
+                print(f"      Try opening manually: {out_path}")
         else:
-            sp.run(["open", str(out_path)])
-            print(f"   🎹 Opened .als with default app")
+            print(f"   ⚠️  Ableton Live not found in /Applications")
+            print(f"      Install Ableton Live, then run: open {out_path}")
     elif system == "Windows":
         sp.run(["start", "", str(out_path)], shell=True)
         print(f"   🎹 Opened .als with default app")
@@ -4410,7 +4434,22 @@ def main():
         else:
             print("Usage: clavus stem {import|list|push|pull}")
     else:
-        cmd_help(args)
+        # No command given — friendly welcome
+        from rich.console import Console
+        from rich.style import Style
+        c = Console()
+        accent = Style(color="#1a9e9e", bold=True)
+        dim = Style(color="#6a9a9a")
+        print()
+        c.print("  👋 Welcome to [bold #1a9e9e]Clavus[/]", style=accent)
+        c.print("  snapshot · sync · collaborate on Ableton Live", style=dim)
+        print()
+        c.print("  Get started:", style=accent)
+        print("    clavus doctor     — check your setup")
+        print("    clavus tui        — launch the dashboard")
+        print("    clavus projects   — list your projects")
+        print()
+        c.print("  Run 'clavus --help' for all commands.", style=dim)
 
 
 if __name__ == "__main__":
