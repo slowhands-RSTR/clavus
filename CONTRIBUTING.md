@@ -14,7 +14,7 @@ Check the [issue tracker](https://github.com/castle-queenside/clavus/issues) for
 - Improve documentation
 - Fix anything marked `good first issue`
 
-**Before starting a bigger change:** open an issue or ping Chris first to make sure it's aligned with the direction.
+**Before starting a bigger change:** open an issue first to make sure it's aligned with the direction.
 
 ---
 
@@ -105,10 +105,7 @@ clavus/              # main package
   snapshot.py        # Snapshot data model
 
 docs/
-  ARCHITECTURE.md    # system design
   collaborator-quickstart.md  # how collaborators set up
-  postmortems/       # incident reports (useful for understanding failures)
-  bugs/              # bug investigation docs
 
 fixtures/
   gen_fixture.py     # generates test .als files
@@ -147,7 +144,7 @@ Bare `.decode()` crashes on cp1252 with emoji.
 
 ## When Things Break
 
-Check `docs/postmortems/` for similar issues — many real failures are documented there with root causes and fixes.
+Check the issue tracker for similar issues — many real failures are documented there with root causes and fixes.
 
 The most common failure modes:
 1. **Tailscale serve config lost** — rerun `tailscale serve --bg --http 7890 http://localhost:7891`

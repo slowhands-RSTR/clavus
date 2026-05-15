@@ -68,7 +68,7 @@ The wizard asks for:
 - **Projects folder** — where Clavus stores its copy of synced projects (default is fine)
 - **Ableton detection** — it finds Live automatically if it's installed
 
-It also detects your Tailscale MagicDNS name (e.g. `slow-hands-studio-1.tail46b8d9.ts.net`) — this is what you share with collaborators so they can join your relay.
+It also detects your Tailscale MagicDNS name (e.g. `your-machine.tailXXXX.ts.net`) — this is what you share with collaborators so they can join your relay.
 
 ### Step 5 — Open the Dashboard
 
@@ -115,7 +115,7 @@ tailscale serve --bg --http 7890 http://localhost:7891
 curl http://localhost:7891/api/ping
 ```
 
-The second command prints your MagicDNS URL (e.g. `http://slow-hands-studio-1.tail46b8d9.ts.net:7890`). **Share this URL with your collaborator.**
+The second command prints your MagicDNS URL (e.g. `http://your-machine.tailXXXX.ts.net:7890`). **Share this URL with your collaborator.**
 
 > **Cross-account?** If you and your collaborator use different Tailscale accounts, go to [admin.tailscale.com](https://login.tailscale.com/admin/machines) → your machine → Share → their email. They must accept the invite before they can connect. Raw `100.x.x.x` IPs are blocked between different Tailscale accounts.
 
