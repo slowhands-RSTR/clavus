@@ -4060,12 +4060,24 @@ BANNER_LINES = [
 ]
 
 def print_banner():
+    """Print the Clavus banner. Call once at startup, or use --no-banner to suppress."""
     from rich.console import Console
-    from rich.style import Style
-    c = Console()
-    accent = Style(color="#1a9e9e", bold=True)
-    for line in BANNER_LINES:
-        c.print(line, style=accent)
+    from rich.text import Text
+    console = Console()
+    lines = [
+        Text("  ┌─⬡────────────────────────────────────────────────────┐", style="bold #1a9e9e"),
+        Text("  │   ██████╗  ██████╗ ██╗   ██╗██╗      ██████╗ ██╗    ██╗  │", style="bold #1a9e9e"),
+        Text("  │   ██╔══██╗██╔═══██╗██║   ██║██║     ██╔═══██╗██║    ██║  │", style="bold #1a9e9e"),
+        Text("  │   ██████╔╝██║   ██║██║   ██║██║     ██║   ██║██║ █╗ ██║  │", style="bold #1a9e9e"),
+        Text("  │   ██╔══██╗██║   ██║██║   ██║██║     ██║   ██║██║███╗██║  │", style="bold #1a9e9e"),
+        Text("  │   ██║  ██║╚██████╔╝╚██████╔╝███████╗╚██████╔╝╚███╔███╔╝  │", style="bold #1a9e9e"),
+        Text("  │   ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝  ╚══╝╚══╝   │", style="bold #1a9e9e"),
+        Text("  │                                                        │", style="#b8c8c8"),
+        Text("  │   snapshot · sync · collaborate on Ableton Live      │", style="#b8c8c8"),
+        Text("  └───────────────────────────────────────────────────────┘", style="#b8c8c8"),
+    ]
+    for line in lines:
+        console.print(line)
 
 # ─── Main Entry Point ──────────────────────────────────────────────────
 
@@ -4365,7 +4377,7 @@ def main():
             v = version("clavus")
         except ImportError:
             v = "0.1.0-beta"
-        print_banner()
+        # Banner already printed by main() entry point
         print(f"  Version: {v}")
         return
 
