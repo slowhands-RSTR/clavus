@@ -55,9 +55,13 @@ class Snapshot:
     sample_hashes: list[str] = field(default_factory=list)  # SHA256 of referenced audio samples
     sample_paths: dict[str, str] = field(default_factory=dict)  # hash → relative path from project root
     conflict_message: Optional[str] = None  # Remote message that conflicts with local
+    notes: str = ""  # Longer-form session notes (markdown supported)
 
     def short_hash(self, length: int = 8) -> str:
         return self.hash[:length]
+
+    def has_notes(self) -> bool:
+        return bool(self.notes.strip())
 
 
 @dataclass
@@ -259,7 +263,8 @@ class BlobStore:
     # ── Snapshot Storage ──
 
     def save_snapshot(self, project: Project, message: str,
-                      parent: Optional[str] = None, tags: list[str] | None = None) -> Snapshot:
+                      parent: Optional[str] = None, tags: list[str] | None = None,
+                      notes: str = "") -> Snapshot:
         """Serialize a project, hash it, and store as a snapshot.
 
         Snapshot identity = SHA256 of raw .als bytes. ANY save in Ableton
@@ -311,6 +316,7 @@ class BlobStore:
             content_hash=content_hash,
             sample_hashes=sample_hashes,
             sample_paths=sample_paths,
+            notes=notes,
         )
 
         # Store snapshot metadata (indexed by hash).

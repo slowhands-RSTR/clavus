@@ -1364,11 +1364,13 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
                 return
 
     # Create snapshot
+    notes_arg = getattr(args, 'notes', None) or ""
     snap = store.save_snapshot(
         project,
         message=message,
         parent=proj.head,
         tags=args.tag.split(",") if args.tag else [],
+        notes=notes_arg,
     )
 
     # Check if anything actually changed (compare raw .als bytes, not parsed structure)
@@ -1405,6 +1407,10 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
     else:
         print(f"📸 Snapshot: {snap.short_hash()} — '{snap.message}'")
         print(f"   {project.track_count} tracks @ {project.bpm}bpm (initial state)")
+
+    if snap.has_notes():
+        notes_preview = snap.notes[:120] + ("..." if len(snap.notes) > 120 else "")
+        print(f"   📝 Notes: {notes_preview}")
 
     print(f"   📋 Run 'clavus log' to see history.")
 
@@ -1490,6 +1496,9 @@ def cmd_log(args: argparse.Namespace) -> None:
             if args.verbose:
                 print(f"  |    Tracks: {snap.track_count}  BPM: {snap.bpm}")
             print(f"  |    {snap.message[:70]}")
+            if snap.has_notes():
+                note_preview = snap.notes[:60].replace("\n", " ")
+                print(f"  |    📝 {note_preview}...")
 
         if count == 0:
             print("  (no snapshots to show)")
@@ -1522,6 +1531,75 @@ def cmd_log(args: argparse.Namespace) -> None:
             print()
             print(f"  ... and more. Use --limit to show more.")
 
+
+
+def cmd_note(args: argparse.Namespace) -> None:
+    """Read, write, or append session notes on a snapshot."""
+    store, proj = get_store_and_project()
+
+    # Resolve target snapshot
+    target_hash = args.hash or proj.head
+    if not target_hash:
+        print("❌ No snapshot specified and HEAD is empty. Run 'clavus snapshot' first.")
+        sys.exit(1)
+
+    snap = store.load_snapshot(target_hash)
+    if not snap:
+        print(f"❌ Snapshot not found: {target_hash[:8]}")
+        sys.exit(1)
+
+    action = args.action or "read"
+
+    if action == "read":
+        if snap.notes:
+            print(f"─── Session Notes ─ {snap.short_hash()} '{snap.message}' ───")
+            print(snap.notes)
+            print("─" * 50)
+        else:
+            print(f"📝 No notes for snapshot {snap.short_hash()} — '{snap.message}'")
+            print("   Write notes with: clavus note write <text>")
+            print("   Or append:        clavus note append <text>")
+
+    elif action in ("write", "append"):
+        # Gather note text
+        if args.file:
+            try:
+                note_text = Path(args.file).read_text()
+            except Exception as e:
+                print(f"❌ Could not read file '{args.file}': {e}")
+                sys.exit(1)
+        elif args.text:
+            note_text = " ".join(args.text)
+        else:
+            # Interactive
+            print("Type your note (Ctrl+D / Ctrl+C to finish):")
+            try:
+                note_text = sys.stdin.read().strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n❌ Cancelled.")
+                return
+            if not note_text:
+                print("❌ Empty note — cancelled.")
+                return
+
+        # Apply
+        if action == "append" and snap.notes:
+            new_notes = snap.notes + "\n\n" + note_text
+        else:
+            new_notes = note_text
+
+        # Update snapshot metadata in-place
+        meta_path = store.objects_dir / snap.hash[:2] / f"{snap.hash}.meta"
+        data = json.loads(meta_path.read_text())
+        data["notes"] = new_notes
+        meta_path.write_text(json.dumps(data, indent=2, default=str))
+
+        # Also update in-memory copy
+        snap.notes = new_notes
+
+        preview = new_notes[:100].replace("\n", " ")
+        print(f"✅ Note {'appended to' if action == 'append' else 'written for'} snapshot {snap.short_hash()}")
+        print(f"   Preview: {preview}{'...' if len(new_notes) > 100 else ''}")
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
@@ -4027,6 +4105,7 @@ def main():
     p_snap.add_argument("--message", "-m", dest="message_flag", default=None,
                         help="Description of what changed (alternative to positional arg)")
     p_snap.add_argument("--tag", "-t", default="", help="Comma-separated tags")
+    p_snap.add_argument("--notes", help="Longer-form session notes (markdown supported)")
     p_snap.add_argument("--parent", "-p", default=None, help="Override parent snapshot hash")
     p_snap.add_argument("--verbose", "-v", action="store_true", help="Show detailed diff")
     p_snap.add_argument("--allow-frozen", action="store_true", help="Skip frozen track warning (for TUI/non-interactive use)")
@@ -4063,6 +4142,14 @@ def main():
     p_diff.add_argument("hash", nargs="?", default=None, help="Snapshot hash or ref name (default: HEAD)")
     p_diff.add_argument("--verbose", "-v", action="store_true", help="Show unchanged tracks")
     p_diff.add_argument("--visual", action="store_true", help="Show visual timeline diff")
+
+    # Note — read/write session notes on a snapshot
+    p_note = subparsers.add_parser("note", help="Read or write session notes for a snapshot")
+    p_note.add_argument("action", nargs="?", choices=["read", "write", "append"],
+                        help="'read' shows notes, 'write' replaces, 'append' adds (default: read)")
+    p_note.add_argument("text", nargs="*", default=None, help="Note text (for write/append)")
+    p_note.add_argument("--hash", "-n", default=None, help="Snapshot hash (default: HEAD)")
+    p_note.add_argument("--file", "-f", default=None, help="Read note text from file")
 
     # Status
     subparsers.add_parser("status", help="Show current project status")
@@ -4294,6 +4381,7 @@ def main():
         "snapshot": cmd_snapshot,
         "log": cmd_log,
         "diff": cmd_diff,
+        "note": cmd_note,
         "status": cmd_status,
         "watch": cmd_watch,
         "relay": cmd_relay,
