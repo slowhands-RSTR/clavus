@@ -1182,13 +1182,13 @@ def cmd_projects(args: argparse.Namespace) -> None:
         c.print("└─────────────────────────────────────────────────┘", style=accent)
         return
 
-    subhdr = f"│  {'NAME':<30} {'STATUS':<8} {'PATH':<22}  │"
+    subhdr = f"│  {'NAME':<28} {'STATUS':<6} {'PATH':<20}  │"
 
     c.print()
-    c.print(f"  ╭─⬡ CLAVUS PROJECTS ─{'─' * 36}╮", style=accent)
+    c.print(f"  ╭─⬡ CLAVUS PROJECTS ─────────────────────────────────────────╮", style=accent)
     c.print(f"  │")
     c.print(f"  {subhdr}")
-    c.print(f"  │  {'─' * 58 }  │")
+    c.print(f"  │  {'─' * 56 }  │")
     for p in sorted(projects, key=lambda x: x.name):
         als_exists_s = green_s if Path(p.root_als).exists() else red_s
         als_exists_t = "✓" if Path(p.root_als).exists() else "✗"
@@ -4094,11 +4094,10 @@ def main():
     # --no-banner support: check before building argparser to avoid side-effects
     if "--no-banner" in sys.argv:
         sys.argv.remove("--no-banner")
-    else:
-        print_banner()
     parser = argparse.ArgumentParser(
         description="Clavus — snapshot, sync, and collaborate on Ableton Live projects.",
         prog="clavus",
+        add_help=False,  # manual help so we can banner before it
     )
     parser.add_argument("--clavus-dir", help="Override clavus storage directory")
     parser.add_argument("--version", action="store_true", help="Show version and exit")
@@ -4377,7 +4376,21 @@ def main():
     p_repair.add_argument("--set-als", type=str, default="",
                           help="Set .als path for recovered projects (name=/path format or 'all=/path')")
 
+    # Help
+    p_help = subparsers.add_parser("help", help="Show this help message")
+    p_help.add_argument("topic", nargs="?", default="", help="Topic to get help on")
+
     args = parser.parse_args()
+
+    # ── Banner: only on bare invocation (no command), help, or --help ──
+    no_banner = "--no-banner" in sys.argv
+    show_banner = not no_banner and (
+        args.command is None or           # `clavus` with no subcommand
+        args.command == "help" or         # `clavus help`
+        "--help" in sys.argv              # `clavus --help`
+    )
+    if show_banner:
+        print_banner()
 
     if args.version:
         try:
