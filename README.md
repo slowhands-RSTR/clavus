@@ -22,8 +22,7 @@ Work together: push snapshots to a shared relay, pull their changes, resolve con
 | **Diff** | `d` — see exactly what changed between snapshots (tracks, devices, clips) |
 | **Backup** | `clavus backup` — full store archive with auto-rotating index backups |
 
-**Platform:** macOS, Windows (Linux coming)  
-**DAW:** Ableton Live 11+ (Suite/Standard/Intro) — Reaper and Bitwig on the roadmap  
+**Platform:** macOS, Windows · **DAW:** Ableton Live 11+ (Suite/Standard/Intro)  
 **Requirements:** Python 3.10+, [Tailscale](https://tailscale.com/download) (free tier)
 
 ---
@@ -326,23 +325,6 @@ pip install -e .     # Windows: py -m pip install -e .
 **Single relay at a time:** `clavus join` replaces any existing remote. Your snapshots and history stay local regardless.
 
 **No two-person-at-once push protection:** Simultaneous pushes may get a 409. Clavus handles it gracefully — pull first, then push again.
-
----
-
-## Roadmap
-
-**v1.0** (coming)
-- Reaper adapter (`.rpp` — plain text, markers map directly to cue positions)
-- Max for Live integration (snapshot/push/pull from inside Ableton)
-- DAW-agnostic project detection
-- Phone dashboard companion
-- Stem sync hardening (partial transfers, resume)
-
-**v1.5+**
-- Bitwig adapter (`.bwproject`)
-- FL Studio / Logic Pro adapters
-- Web-based diff viewer
-- MIDI Remote Script integration
 
 ---
 

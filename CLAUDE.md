@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Clavus** is a local-first DAW project versioning and collaboration tool. It runs on macOS, Windows, and Linux, supports Ableton Live projects (more DAWs on roadmap), and syncs via Tailscale relay without cloud services or accounts.
+**Clavus** is a local-first DAW project versioning and collaboration tool. It runs on macOS and Windows, supports Ableton Live projects, and syncs via Tailscale relay without cloud services or accounts.
 
 **Key directories:**
 - `clavus/` — main Python package
