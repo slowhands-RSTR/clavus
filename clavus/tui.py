@@ -3255,12 +3255,6 @@ class ClavusApp(App):
                 peer = f"  [{C['yellow']}]○[/]"
             else:
                 peer = ""
-            # Sample materialization counts — only shown when project is open and has samples
-            if self._sample_counts is not None:
-                total, mat = self._sample_counts
-                samples = f"  [{C['dim']}]📦 {mat}/{total}[/]" if total > 0 else ""
-            else:
-                samples = ""
             # Sync activity — spinner during, timestamp after
             sync = ""
             if self._sync_status:
@@ -3275,7 +3269,7 @@ class ClavusApp(App):
             elif self._last_sync:
                 sync = f"  [{C['green']}]{self._last_sync}[/]"
             widget = self.query_one("#header-title", Static)
-            widget.update(f"{logo}{proj}{sep}{peer}{samples}{sync}")
+            widget.update(f"{logo}{proj}{sep}{peer}{sync}")
             widget.refresh()
             # Manage spinner based on sync activity (header-only, no footer cascade)
             if self._sync_status:
@@ -3330,6 +3324,12 @@ class ClavusApp(App):
             # Cues — always show, even 0
             n = len(self.cues)
             parts.append(f"{n} cue{'s' if n != 1 else ''}")
+
+            # Sample materialization count
+            if self._sample_counts is not None:
+                total, mat = self._sample_counts
+                if total > 0:
+                    parts.append(f"📦 {mat}/{total}")
 
             # Snapshot — most recent message
             if self.snaps:
