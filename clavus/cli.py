@@ -3606,6 +3606,28 @@ def cmd_pull(args: argparse.Namespace) -> None:
                 if failed:
                     parts.append(f"{len(failed)} blob(s) failed")
 
+            # Materialize audio samples from store → project folder
+            head_ref = store.read_ref("HEAD")
+            if head_ref:
+                snap = store.load_snapshot(head_ref)
+                if snap and snap.sample_hashes:
+                    out_path = Path(proj.root_als)
+                    base_dir = out_path.parent
+                    base_dir.mkdir(parents=True, exist_ok=True)
+                    (base_dir / "Samples").mkdir(exist_ok=True, parents=True)
+                    written = 0
+                    for sh in snap.sample_hashes:
+                        fname = store.get_sample_filename(sh)
+                        relpath = store.get_sample_relpath(sh) or ""
+                        if fname and store.has_object(sh):
+                            try:
+                                store.materialize_sample(sh, base_dir, fname, relpath)
+                                written += 1
+                            except Exception:
+                                pass
+                    if written:
+                        parts.append(f"{written} sample{'s' if written != 1 else ''}")
+
             # Pull stems for current HEAD
             head = store.read_ref("HEAD")
             if head:
