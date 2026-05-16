@@ -1351,6 +1351,7 @@ class ClavusApp(App):
                 else:
                     self._sync_status = "● snap ok"
                     self._log_event(f"● {snap_hash[:10]} -- '{message}'")
+                    self.notify(f"[ok] snapshot saved", timeout=3.0)
                 status_text = self._sync_status
                 asyncio.create_task(self._delayed_clear_snapshot_status(status_text))
             else:
@@ -2984,6 +2985,7 @@ class ClavusApp(App):
                     self._sync_status = f"-- {time.strftime('%H:%M')} local"
                     self._update_header()
                     await asyncio.sleep(0)
+                    self.notify("-- saved locally -- relay offline", timeout=5.0, severity="warning")
                     self._status("-- saved locally -- relay offline")
                     self._log_event("solo push: saved locally, relay not running")
                     return
