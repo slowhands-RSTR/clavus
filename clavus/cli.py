@@ -104,7 +104,7 @@ def cmd_repair(args: argparse.Namespace) -> None:
                 valid = {k: v for k, v in data.items()
                          if isinstance(v, dict) and "root_als" in v}
                 if valid:
-                    print(f"   [backup] Found backup: {bak.name} ({len(valid)} project(s))")
+                    print(f"Found backup: {bak.name} ({len(valid)} project(s))")
                     recovered.update(valid)
             except (json.JSONDecodeError, OSError):
                 continue
@@ -226,7 +226,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             msg += f" — {detail}"
         warn.append(msg)
 
-    print(f"🔍 Clavus Doctor")
+    print(f"Clavus Doctor")
     print(f"   Store: {store.root}")
     print()
 
@@ -723,15 +723,15 @@ def cmd_setup(args: argparse.Namespace) -> None:
     from clavus.config import ClavusConfig
     from clavus.store import BlobStore
 
-    print("[KEYBOARD] Clavus Setup")
-    print("───")
+    print("Clavus Setup")
+    print("--")
     print()
 
     cfg = ClavusConfig.load()
 
     # 1. Author name
     current = cfg.author or os.environ.get("USER") or os.environ.get("USERNAME") or ""
-    print(f"👤 Author name [{current}]: ", end="")
+    print("Author name [{}]: ".format(current), end="")
     try:
         author = input().strip()
     except (EOFError, KeyboardInterrupt):
@@ -740,10 +740,10 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
     # 2. Role — host, join, or LAN-only
     print()
-    print("🧭  How will you use Clavus?")
-    print("   [1] Host a session     — start a relay, share your URL with collaborators")
-    print("   [2] Join a session     — you've received a relay URL from the host")
-    print("   [3] LAN only           — no internet, same network only")
+    print("How will you use Clavus?")
+    print("   [1] Host a session     -- start a relay, share your URL with collaborators")
+    print("   [2] Join a session     -- you've received a relay URL from the host")
+    print("   [3] LAN only           -- no internet, same network only")
     print()
     role = ""
     try:
@@ -776,7 +776,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
     # 4. Tailscale check
     print()
-    print("[NET] Network discovery...")
+    print(f"Network discovery...")
     ts_ip = ""
     ts_magic_dns = ""
     ts_running = False
@@ -792,9 +792,9 @@ def cmd_setup(args: argparse.Namespace) -> None:
             ts_running = True
             if ts_magic_dns:
                 print(f"   [ok] Tailscale found")
-                print(f"   [NET] MagicDNS: {ts_magic_dns}")
+                print(f"MagicDNS: {ts_magic_dns}")
                 if ts_ip:
-                    print(f"   [radio] Tailscale IP: {ts_ip}")
+                    print(f"Tailscale IP: {ts_ip}")
                 cfg.set("tailscale_ip", ts_ip)
                 cfg.set("tailscale_magic_dns", ts_magic_dns)
             else:
@@ -827,7 +827,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     collab_url = ""
 
     if role == "join":
-        print("[link]  Enter the relay URL from your session host.")
+        print(f"Enter the relay URL from your session host.")
         print("    They ran 'clavus share' and saw a URL like:")
         print("      http://machine-name.tailXXXX.ts.net:7890")
         print()
@@ -852,10 +852,10 @@ def cmd_setup(args: argparse.Namespace) -> None:
                 print(f"   [ok] Added remote '{name}' -> {url}")
                 existing_urls.add(url)
         print()
-        print("   [TIP] Run 'clavus find' to scan the network for active relays.")
+        print("   [TIP] Run 'clavus tui' to open the UI, then press p to pull projects")
     elif role == "host":
         print()
-        print("[radio]  When you run 'clavus share', collaborators will connect to:")
+        print(f"When you run 'clavus share', collaborators will connect to:")
         if ts_magic_dns:
             print(f"      http://{ts_magic_dns}:{port}")
         if ts_ip:
@@ -865,12 +865,12 @@ def cmd_setup(args: argparse.Namespace) -> None:
         print("   Share this URL with your collaborators after running 'clavus share'.")
     elif role == "lan":
         print()
-        print("[radio]  LAN-only mode — collaborators must be on the same network.")
+        print(f"LAN-only mode — collaborators must be on the same network.")
         print("   They'll use your local IP address (e.g. 192.168.x.x)")
 
     # Also add localhost relay if port is in use (already running)
     if not collab_url and in_use:
-        print(f"   [link] Relay detected on port {port} — good!")
+        print(f"Relay detected on port {port} — good!")
         relay_url = f"http://localhost:{port}"
         if relay_url not in existing_urls:
             remotes.append(Remote(name="relay", url=relay_url))
@@ -887,7 +887,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     # Summary
     remotes = load_remotes(store)
     if remotes:
-        print(f"   [radio] {len(remotes)} remote(s) configured")
+        print(f"{len(remotes)} remote(s) configured")
     else:
         print("   [info]  No remotes — use 'clavus remote add' later or 'clavus join http://...'")
 
@@ -895,7 +895,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print()
     from clavus.config import DEFAULT_PROJECTS_DIR
     current_dir = cfg.projects_dir or DEFAULT_PROJECTS_DIR
-    print(f"[folder] Projects folder [{current_dir}]: ", end="")
+    print(f"Projects folder [{current_dir}]: ", end="")
     try:
         pd = input().strip()
         if pd:
@@ -1007,7 +1007,7 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
 
     # Project name from .als filename
     project_name = als_path.stem
-    logs.append(f"[folder] Project: {project_name}")
+    logs.append(f"Project: {project_name}")
 
     # Parse the .als
     project = parse_als(als_path)
@@ -1069,7 +1069,7 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
     snap_loaded = store.load_snapshot(snap.hash)
     sample_count = len(snap_loaded.sample_hashes) if snap_loaded and snap_loaded.sample_hashes else 0
     if sample_count:
-        logs.append(f"   [samples] {sample_count} sample{'s' if sample_count != 1 else ''} indexed")
+        logs.append(f"   {sample_count} sample{'s' if sample_count != 1 else ''} indexed")
     logs.append(f"   ● snapshot {snap.short_hash()}")
     return project_name, logs
 
@@ -1105,9 +1105,9 @@ def cmd_init(args: argparse.Namespace) -> None:
 
         if len(als_files) == 1:
             als_path = als_files[0]
-            print(f"[folder] Found: {als_path.name}")
+            print(f"Found: {als_path.name}")
         else:
-            print("[folder] Found multiple .als files:")
+            print(f"Found multiple .als files:")
             for i, f in enumerate(als_files[:20], 1):
                 print(f"  {i}. {f.name}  ({f.parent})")
             print()
@@ -1139,7 +1139,7 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     # ── Welcome ──
     print("╭──────────────────────────────────────────────╮")
-    print("│  [KEYBOARD]  Clavus — Ableton Live collaboration     │")
+    print("│  Clavus — Ableton Live collaboration            │")
     print("╰──────────────────────────────────────────────╯")
     print()
 
@@ -1154,7 +1154,7 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     # ── Project name ──
     suggested = als_path.stem
-    print(f"[folder] Project: {suggested}")
+    print(f"Project: {suggested}")
     if sys.stdin.isatty():
         name_input = input(f"   Name [{suggested}]: ").strip()
         project_name = name_input if name_input else suggested
@@ -1203,7 +1203,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         print(f"   Use 'clavus project \"{project_name}\"' to switch to it.")
         return
 
-    print(f"[folder] Copying project to {target_dir}...")
+    print(f"Copying project to {target_dir}...")
     source_dir = als_path.parent
     shutil.copytree(
         source_dir, target_dir,
@@ -1278,7 +1278,7 @@ def cmd_projects(args: argparse.Namespace) -> None:
     c.print()
 
     for p in sorted(projects, key=lambda x: x.name.lower()):
-        icon = "[PK]" if not p.shared else "[NET]"
+        icon = "pk" if not p.shared else "net"
         status = "[ok]" if Path(p.root_als).exists() else "[X]"
         c.print("  {} {}".format(icon, p.name), style=dim)
         c.print("     {}  {}".format(status, p.root_als))
@@ -1305,19 +1305,19 @@ def cmd_project(args: argparse.Namespace) -> None:
     # Toggle share/private
     if args.share:
         if proj.shared:
-            print(f"[NET] Project '{args.name}' is already shared.")
+            print(f"Project '{args.name}' is already shared.")
         else:
             proj.shared = True
             store.set_index(proj)
-            print(f"[NET] Project '{args.name}' is now shared — visible to collaborators.")
+            print(f"Project '{args.name}' is now shared — visible to collaborators.")
         return
     if args.private:
         if not proj.shared:
-            print(f"[PK] Project '{args.name}' is already private.")
+            print(f"Project '{args.name}' is already private.")
         else:
             proj.shared = False
             store.set_index(proj)
-            print(f"[PK] Project '{args.name}' is now private — hidden from collaborators.")
+            print(f"Project '{args.name}' is now private — hidden from collaborators.")
         return
 
     store.set_index(proj)
@@ -1328,7 +1328,7 @@ def cmd_project(args: argparse.Namespace) -> None:
     else:
         print(f"   (no snapshots yet)")
     print(f"   Branch: {proj.branch}")
-    print(f"   {'[NET] Shared' if proj.shared else '[PK] Private'}")
+    print(f"   {'Shared' if proj.shared else 'Private'}")
 
 
 def create_snapshot(message: str, allow_frozen: bool = True) -> tuple[Optional[str], list[str]]:
@@ -1783,7 +1783,7 @@ def cmd_status(args: argparse.Namespace) -> None:
 
     c.print()
     c.print("  Branch  {}".format(proj.branch))
-    c.print("  Mode    {}".format("[NET] Shared" if proj.shared else "[PK] Private"))
+    c.print("  Mode    {}".format("Shared" if proj.shared else "Private"))
     c.print()
 
 
@@ -2002,7 +2002,7 @@ def cmd_share(args: argparse.Namespace) -> None:
                     ts_proxy_port = int(proxy_match.group(1))
                     print(f"   [info]  Port {port} is proxied by tailscale serve -> localhost:{ts_proxy_port}")
                     port = 7891
-                    print(f"   [spin] Switched to port 7891 (tailscale serve handles external traffic on 7890)")
+                    print(f"Switched to port 7891 (tailscale serve handles external traffic on 7890)")
         except Exception:
             pass
     # ── End Tailscale serve detection ─────────────────────────────────────────
@@ -2039,7 +2039,7 @@ def cmd_share(args: argparse.Namespace) -> None:
             import httpx
             r = httpx.get(f"http://127.0.0.1:{port}/api/sync/pull", params={"name": "_"}, timeout=2)
             if r.status_code in (200, 404):
-                print(f"   [spin] Restarting stale Clavus relay on port {port}...")
+                print(f"Restarting stale Clavus relay on port {port}...")
                 if platform.system() == "Windows":
                     # Find PID using port and kill it
                     r2 = sp.run(["netstat", "-ano"], capture_output=True, text=True)
@@ -2122,18 +2122,14 @@ def cmd_share(args: argparse.Namespace) -> None:
         serve_ok = False
 
     if not serve_ok:
-        print()
-        print(f"  [WARN]  tailscale serve not configured — MagicDNS URL won't work for collaborators")
-        print(f"  [TIP] Fixing: tailscale serve --bg --http {port} http://localhost:{port}")
         try:
             subprocess.run(
                 ["tailscale", "serve", "--bg", "--http", str(port), f"http://localhost:{port}"],
                 capture_output=True, text=True, timeout=10,
             )
-            print(f"  [ok] tailscale serve enabled")
-        except Exception as e:
-            print(f"  -- Could not enable tailscale serve: {e}")
-        print()
+            print(f"  [ok] MagicDNS relay configured -- collaborators can use the hostname URL")
+        except Exception:
+            print(f"  [WARN] Could not configure MagicDNS relay -- collaborators may not reach you via hostname")
 
     print(f"  >> CLAVUS SHARE")
     print(f"  {'─' * 45}")
@@ -2159,7 +2155,7 @@ def cmd_share(args: argparse.Namespace) -> None:
         save_remotes(store, remotes)
 
     if args.project:
-        print(f"  [PK] Scoped to project: {args.project}")
+        print(f"  scoped to project: {args.project}")
         print()
 
     # Check for --bg / --background flag
@@ -2368,7 +2364,7 @@ def cmd_join(args: argparse.Namespace) -> None:
     print()
 
     # ── Phase 3: Test Connectivity ───────────────────────────────────
-    print(f"[link]  Connecting to {host}:{port}...")
+    print(f"Connecting to {host}:{port}...")
     print()
 
     # 3a. TCP-level reachability test (fast)
@@ -2453,7 +2449,7 @@ def cmd_join(args: argparse.Namespace) -> None:
     if base in existing_urls:
         existing = existing_urls[base]
         if existing.name == remote_name:
-            print(f"    [radio]  Already connected to {remote_name}")
+            print(f"Already connected to {remote_name}")
         else:
             # Same URL, different name — update name (relay may have rebooted)
             remotes = [r for r in remotes if r.url != base]
@@ -2510,7 +2506,7 @@ def cmd_join(args: argparse.Namespace) -> None:
                 print(f"{s} snapshots, {c} cues")
                 blob_count, failed = pull_snapshot_blobs(store, proj_data, Remote(name=remote_name, url=base))
                 if blob_count:
-                    print(f"        [samples] {blob_count} audio blob(s)")
+                    print(f"{blob_count} audio blob(s)")
                 if failed:
                     print(f"        [WARN]  {len(failed)} blob(s) failed — check disk space or network")
 
@@ -2744,12 +2740,12 @@ def cmd_cue_archive(args: argparse.Namespace) -> None:
     if args.cue_id:
         ok = cues.archive(args.cue_id)
         if ok:
-            print(f"[samples] Archived cue {args.cue_id}")
+            print(f"Archived cue {args.cue_id}")
         else:
             print(f"-- Cue '{args.cue_id}' not found.")
     else:
         count = cues.archive_resolved()
-        print(f"[samples] Archived {count} cue(s).")
+        print(f"Archived {count} cue(s).")
 
 
 def cmd_branch(args: argparse.Namespace) -> None:
@@ -2978,7 +2974,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
                         client.close()
                         if resp.status_code == 200:
                             remote_name = r.name
-                            print(f"[radio] Using '{remote_name}' ({r.url})")
+                            print(f"Using '{remote_name}' ({r.url})")
                             break
                     except Exception:
                         continue
@@ -3002,9 +2998,9 @@ def cmd_remote(args: argparse.Namespace) -> None:
             data = r.json()
             projects = data.get("projects", [])
             if not projects:
-                print(f"[radio] No projects on '{remote_name}'")
+                print(f"No projects on '{remote_name}'")
                 return
-            print(f"[radio] Projects on '{remote_name}' ({match.url}):")
+            print(f"Projects on '{remote_name}' ({match.url}):")
             print()
             for p in projects:
                 head_str = f" @ {p.get('head', '?')}" if p.get("head") else " (no snapshots)"
@@ -3032,7 +3028,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
                         client.close()
                         if resp.status_code == 200 and resp.json().get("projects"):
                             remote_name = r.name
-                            print(f"[radio] Using '{remote_name}' ({r.url})")
+                            print(f"Using '{remote_name}' ({r.url})")
                             break
                     except Exception:
                         continue
@@ -3056,12 +3052,12 @@ def cmd_remote(args: argparse.Namespace) -> None:
                 if r.status_code == 200:
                     projects = r.json().get("projects", [])
                     if not projects:
-                        print(f"[radio] No projects on '{remote_name}'")
+                        print(f"No projects on '{remote_name}'")
                         return
                     if len(projects) == 1:
                         remote_project = projects[0]["name"]
                     else:
-                        print(f"[radio] Multiple projects on '{remote_name}':")
+                        print(f"Multiple projects on '{remote_name}':")
                         for p in projects:
                             print(f"  {p.get('name', '?')}")
                         print()
@@ -3173,7 +3169,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
         url = args.url or f"http://{name}.local:7890"
         remotes.append(Remote(name=name, url=url))
         save_remotes(store, remotes)
-        print(f"[NET] Added remote '{name}' -> {url}")
+        print(f"Added remote '{name}' -> {url}")
         return
 
     if remove_name:
@@ -3206,12 +3202,12 @@ def cmd_remote(args: argparse.Namespace) -> None:
 
     # List remotes
     if not remotes:
-        print(f"[radio] No remotes configured.")
+        print(f"No remotes configured.")
         print(f"   Use 'clavus remote add <name> <url>' to add one.")
         return
 
     label = proj.name if proj else "this machine"
-    print(f"[radio] Remotes for {label}")
+    print(f"Remotes for {label}")
     print()
     for r in remotes:
         last_sync = time.strftime("%m/%d %H:%M", time.localtime(r.last_sync)) if r.last_sync else "never"
@@ -3856,7 +3852,7 @@ def cmd_restore(args: argparse.Namespace) -> None:
     bak_path = als_path.with_suffix(".als.bak")
     if not bak_path.exists():
         bak_path.write_bytes(als_path.read_bytes())
-        print(f"   [save] Current .als backed up to: {bak_path}")
+        print(f"Current .als backed up to: {bak_path}")
 
     # Write the restored .als
     als_path.write_bytes(raw_als)
@@ -3999,7 +3995,7 @@ def cmd_backup(args: argparse.Namespace) -> None:
     with Spinner("creating backup..."):
         archive_path = store.backup_store()
     size_mb = archive_path.stat().st_size / (1024 * 1024)
-    print(f"[save] Backup saved: {archive_path}")
+    print(f"Backup saved: {archive_path}")
     print(f"   Size: {size_mb:.1f} MB")
     print(f"   To restore: clavus restore --store {archive_path}")
 
@@ -4013,7 +4009,7 @@ def cmd_list_backups(args: argparse.Namespace) -> None:
         print("  No backups found.")
         print("  Create one with: clavus backup")
         return
-    print(f"  [samples] Available backups:")
+    print(f"Available backups:")
     for b in backups:
         size_kb = b.stat().st_size / 1024
         print(f"     {b.name}  ({size_kb:.0f} KB)")
@@ -4058,7 +4054,7 @@ def cmd_stem_import(args: argparse.Namespace) -> None:
     stem_store.save_manifest(manifest)
 
     file_size_mb = entry.size / (1024 * 1024)
-    print(f"[samples] Imported stem: {entry.track_name} ({entry.file_name})")
+    print(f"Imported stem: {entry.track_name} ({entry.file_name})")
     print(f"   Hash:   {entry.hash[:12]}")
     print(f"   Size:   {file_size_mb:.1f} MB")
     print(f"   Format: {entry.format} / {entry.sample_rate}Hz / {entry.bit_depth}bit / {entry.channels}ch")

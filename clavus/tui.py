@@ -3248,11 +3248,13 @@ class ClavusApp(App):
             proj = f"[bold white]clavus[/]" if not self.project else f"[bold white]clavus  ·  {self.project}[/]"
             # Separator
             sep = f"[{C['muted']}]│[/]" if proj else ""
-            # Connection dot — green = reachable, yellow = offline
+            # Connection dot — green = reachable, yellow = offline, local = dim
             if self._peer_name and self._peer_reachable:
                 peer = f"  [bold {C['green']}]●[/]"
             elif self._peer_name:
                 peer = f"  [{C['yellow']}]○[/]"
+            elif self.project:
+                peer = f"  [{C['muted']}][local][/]"
             else:
                 peer = ""
             # Sync activity — spinner during, timestamp after
@@ -3353,10 +3355,11 @@ class ClavusApp(App):
             welcome.update(
                 f"\n\n"
                 f"    [{C['accent']}]clavus[/]\n\n"
-                f"    [{C['dim']}]cue management for Ableton[/]\n\n"
-                f"    [{C['fg']}]:init <path>[/]  open a project\n"
-                f"    [{C['fg']}]:join <URL>[/]   connect to a relay\n\n"
-                f"    [{C['dim']}]S snapshot  ? help  :cmd[/]\n"
+                f"    [{C['dim']}]Ableton Live cue management[/]\n"
+                f"    [{C['dim']}]snap and sync your ideas across machines[/]\n\n"
+                f"    [{C['fg']}]open a project[/]:  :init <path>\n"
+                f"    [{C['fg']}]join a relay[/]:    :join <URL>\n\n"
+                f"    [{C['dim']}]S  snapshot   p  pull   ?  help[/]\n"
             )
             welcome.styles.display = "block"
             cues_list.styles.display = "none"
