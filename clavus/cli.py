@@ -1953,6 +1953,8 @@ def cmd_share(args: argparse.Namespace) -> None:
                         print(f"   ⚠️  Port {port} proxied but not 7890 — don't know where relay should run")
                         print(f"   ❌ Can't proceed. Stop tailscale serve first: tailscale serve reset")
                         sys.exit(1)
+        except SystemExit:
+            raise  # re-raise sys.exit() from the tailscale serve block
         except Exception:
             pass
         # ── End Tailscale serve check ────────────────────────────────────────
