@@ -2420,7 +2420,7 @@ class ClavusApp(App):
         total = number of sample hashes referenced by HEAD snapshot
         materialized = how many of those hashes have actual blob files in the store
 
-        Shows in header as '📦 N/M' when a project is open.
+        Shows in footer as 'N samples' when a project is open and has samples.
         """
         self._sample_counts = None
         if not self.project:
@@ -2511,7 +2511,7 @@ class ClavusApp(App):
                     pass
 
                 if not relay_live:
-                    self._status("🔄 starting relay...")
+                    self._status("starting relay...")
                     self._log_event("auto-spawning clavus share")
                     import platform, subprocess as sp
                     if platform.system() == "Windows":
@@ -2860,7 +2860,7 @@ class ClavusApp(App):
                     pass
 
                 if not relay_live:
-                    self._status("🔄 starting relay...")
+                    self._status("starting relay...")
                     self._log_event("auto-spawning clavus share")
                     import platform, subprocess as sp
                     if platform.system() == "Windows":
