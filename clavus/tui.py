@@ -2665,14 +2665,22 @@ class ClavusApp(App):
                 self._sync_status = ""
                 self._update_header()
                 await asyncio.sleep(0)
-                self._status("\u274c no remote selected — use :remotes to pick one")
+                self._status("❌ no remote selected — use :remotes to pick one")
+                return
+            # Block push if relay is unreachable — user needs to start clavus share first
+            if not self._peer_reachable:
+                self._sync_status = ""
+                self._update_header()
+                await asyncio.sleep(0)
+                self._status("⚠️ relay unreachable — is 'clavus share' running?")
+                self._log_event("push blocked: relay not reachable — run 'clavus share' first")
                 return
             remote = next((r for r in remotes if r.name == self._peer_name), None)
             if not remote:
                 self._sync_status = ""
                 self._update_header()
                 await asyncio.sleep(0)
-                self._status(f"\u274c remote '{self._peer_name}' not found — use :remotes")
+                self._status(f"❌ remote '{self._peer_name}' not found — use :remotes")
                 return
             # Auto-snapshot local changes before pushing (conflict resolution, cue edits, etc.)
             # This ensures HEAD matches what we're about to send.
