@@ -2590,7 +2590,16 @@ class ClavusApp(App):
             self._update_header()
 
             # Fast path: localhost → data's already on disk, just re-read
+            # Fast path: localhost → data's already on disk, just re-read
             is_localhost = remote.url.startswith("http://localhost") or remote.url.startswith("http://127.0.0.1")
+            relay_live = True
+            if is_localhost:
+                try:
+                    import urllib.request
+                    r = urllib.request.urlopen(f"{remote.url.rstrip('/')}/api/ping", timeout=2)
+                    relay_live = (r.status == 200)
+                except Exception:
+                    relay_live = False
             blobs = 0
             failed: list[str] = []
             if is_localhost:
@@ -2599,8 +2608,11 @@ class ClavusApp(App):
                 cues_n = len(self.cues)
                 snaps_n = len(self.snaps)
                 conflicts_n = sum(1 for c in self.cues if getattr(c, '_conflict', False))
-                # Still pull blobs from relay (they may need materialization)
-                _, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote, _on_blob_progress)
+                # Only pull blobs if relay is running (solo mode: skip entirely)
+                if relay_live:
+                    _, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote, _on_blob_progress)
+                else:
+                    self._log_event("solo pull: relay offline, using local data")
             else:
                 result = await asyncio.to_thread(pull_from_remote, self.store, proj_index, remote)
                 if result.get("error"):
