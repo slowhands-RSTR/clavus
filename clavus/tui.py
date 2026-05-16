@@ -2706,14 +2706,23 @@ class ClavusApp(App):
             except Exception:
                 pass  # best-effort — don't block push on snapshot failure
 
-            # Solo host mode: localhost remote with relay down — save locally only
-            if is_localhost and not self._peer_reachable:
-                self._sync_status = f"💾 {time.strftime('%H:%M')} local"
-                self._update_header()
-                await asyncio.sleep(0)
-                self._status("💾 saved locally — relay offline, no remote sync needed")
-                self._log_event("solo push: saved locally, relay not running")
-                return
+            # Solo host mode: for localhost remote, check relay live right before push
+            relay_live = False
+            if is_localhost:
+                try:
+                    import urllib.request
+                    r = urllib.request.urlopen(f"{remote.url.rstrip('/')}/api/ping", timeout=2)
+                    relay_live = (r.status == 200)
+                except Exception:
+                    pass
+                if not relay_live:
+                    # Relay not running — save locally only
+                    self._sync_status = f"💾 {time.strftime('%H:%M')} local"
+                    self._update_header()
+                    await asyncio.sleep(0)
+                    self._status("💾 saved locally — relay offline")
+                    self._log_event("solo push: saved locally, relay not running")
+                    return
 
             self._sync_status = f"⬆ {time.strftime('%H:%M')} {remote.name}..."
             self._update_header()
