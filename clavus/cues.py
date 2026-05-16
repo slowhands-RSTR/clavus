@@ -168,7 +168,7 @@ class CueStore:
         if note:
             cue.replies.append(CueReply(
                 id="resolve",
-                text=f"✅ Resolved: {note}",
+                text=f"[ok] Resolved: {note}",
                 author="system",
                 timestamp=time.time(),
             ))
@@ -450,7 +450,7 @@ def render_cues_as_markers(cues: list[Cue], output_path: str,
         
         als_path = Path(inject_into_als)
         if not als_path.exists():
-            print(f"❌ .als file not found: {als_path}")
+            print(f"-- .als file not found: {als_path}")
             return ""
         
         # Create backup on first injection (never overwrite existing backup)
@@ -470,7 +470,7 @@ def render_cues_as_markers(cues: list[Cue], output_path: str,
             live_set = root  # Live 9 format
         
         if live_set is None:
-            print("❌ Could not find <LiveSet> in the .als file.")
+            print("-- Could not find <LiveSet> in the .als file.")
             return ""
         
         live_set_parent = root if root.tag != "Ableton" else root
@@ -622,7 +622,7 @@ def add_cue_command(text: str, position: str, track: str = "",
     blobs = store or BlobStore()
     projects = blobs.list_projects()
     if not projects:
-        print("❌ No Clavus project found. Run 'clavus init' first.")
+        print("-- No Clavus project found. Run 'clavus init' first.")
         return None
 
     # Use the active project (respects `clavus project <name>`), not projects[0]
@@ -651,7 +651,7 @@ def format_cue(cue: Cue, verbose: bool = False) -> str:
     time_str = time.strftime("%m/%d %H:%M", time.localtime(cue.timestamp))
     status_icon = {
         "pending": "⏺",
-        "resolved": "✅",
+        "resolved": "[ok]",
         "skipped": "⏭",
         "deferred": "⏳",
     }.get(cue.status, "•")
@@ -697,7 +697,7 @@ def format_cue_list(cues: list[Cue], verbose: bool = False) -> str:
             parts.append(format_cue(cue, verbose))
 
     if verbose and resolved:
-        parts.append(f"\n  ✅ Resolved ({len(resolved)}):")
+        parts.append(f"\n  [ok] Resolved ({len(resolved)}):")
         for cue in resolved:
             parts.append("")
             parts.append(format_cue(cue, verbose))

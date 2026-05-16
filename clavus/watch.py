@@ -152,11 +152,11 @@ def watch(
                     state.pending_snapshot = True
                     state.pending_since = time.time()
                     remaining = cooldown
-                    _print(f"   ✏️  [{proj_name}] Change detected — snapshot in {remaining:.0f}s...")
+                    _print(f"   [edit]  [{proj_name}] Change detected — snapshot in {remaining:.0f}s...")
                 else:
                     remaining = max(0, cooldown - (time.time() - state.pending_since))
                     if remaining > 0:
-                        _print(f"   ✏️  [{proj_name}] Change detected — resetting countdown ({remaining:.0f}s)...")
+                        _print(f"   [edit]  [{proj_name}] Change detected — resetting countdown ({remaining:.0f}s)...")
                         state.pending_since = time.time()
 
             elif state.pending_snapshot:
@@ -237,7 +237,7 @@ def _take_snapshot(
     try:
         project = parse_als(als_path)
     except Exception as e:
-        _log(log_file, f"❌ Failed to parse .als: {e}")
+        _log(log_file, f"-- Failed to parse .als: {e}")
         return None
 
     # Double-check after parsing (in case of transient write)
@@ -331,7 +331,7 @@ def install_service() -> bool:
     elif system == "Linux":
         return _install_systemd()
     else:
-        print(f"❌ Service installation not supported on {system}.")
+        print(f"-- Service installation not supported on {system}.")
         print(f"   Run 'clavus watch' in a terminal multiplexer instead.")
         return False
 
@@ -380,7 +380,7 @@ def _install_launchd() -> bool:
     content = _launchd_plist()
     plist_path.write_text(content)
 
-    print(f"✅ Service installed: {plist_path}")
+    print(f"[ok] Service installed: {plist_path}")
     print(f"   To start now:  launchctl load {plist_path}")
     print(f"   To start on login: already enabled (RunAtLoad)")
     print(f"   Logs: {LOG_FILE}")
@@ -418,7 +418,7 @@ def _install_systemd() -> bool:
     content = _systemd_service()
     service_path.write_text(content)
 
-    print(f"✅ Service installed: {service_path}")
+    print(f"[ok] Service installed: {service_path}")
     print(f"   To start now:  systemctl --user start {SERVICE_NAME}")
     print(f"   To start on login: systemctl --user enable {SERVICE_NAME}")
     print(f"   Logs: {LOG_FILE}")
@@ -431,27 +431,27 @@ def start_service() -> bool:
     if system == "Darwin":
         plist_path = Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_NAME}.plist"
         if not plist_path.exists():
-            print(f"❌ Service not installed. Run: clavus watch install")
+            print(f"-- Service not installed. Run: clavus watch install")
             return False
         import subprocess
         r = subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True, text=True)
         if r.returncode == 0:
-            print(f"✅ Watch service started")
+            print(f"[ok] Watch service started")
             return True
         else:
-            print(f"❌ Failed to start: {r.stderr}")
+            print(f"-- Failed to start: {r.stderr}")
             return False
     elif system == "Linux":
         import subprocess
         r = subprocess.run(["systemctl", "--user", "start", SERVICE_NAME], capture_output=True, text=True)
         if r.returncode == 0:
-            print(f"✅ Watch service started")
+            print(f"[ok] Watch service started")
             return True
         else:
-            print(f"❌ Failed to start: {r.stderr}")
+            print(f"-- Failed to start: {r.stderr}")
             return False
     else:
-        print(f"❌ Not supported on {system}")
+        print(f"-- Not supported on {system}")
         return False
 
 
@@ -461,27 +461,27 @@ def stop_service() -> bool:
     if system == "Darwin":
         plist_path = Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_NAME}.plist"
         if not plist_path.exists():
-            print(f"❌ Service not installed. Run: clavus watch install")
+            print(f"-- Service not installed. Run: clavus watch install")
             return False
         import subprocess
         r = subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True, text=True)
         if r.returncode == 0:
-            print(f"✅ Watch service stopped")
+            print(f"[ok] Watch service stopped")
             return True
         else:
-            print(f"❌ Failed to stop: {r.stderr}")
+            print(f"-- Failed to stop: {r.stderr}")
             return False
     elif system == "Linux":
         import subprocess
         r = subprocess.run(["systemctl", "--user", "stop", SERVICE_NAME], capture_output=True, text=True)
         if r.returncode == 0:
-            print(f"✅ Watch service stopped")
+            print(f"[ok] Watch service stopped")
             return True
         else:
-            print(f"❌ Failed to stop: {r.stderr}")
+            print(f"-- Failed to stop: {r.stderr}")
             return False
     else:
-        print(f"❌ Not supported on {system}")
+        print(f"-- Not supported on {system}")
         return False
 
 

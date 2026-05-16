@@ -78,13 +78,13 @@ def cmd_repair(args: argparse.Namespace) -> None:
         try:
             data = json.loads(index_path.read_text())
             valid = sum(1 for v in data.values() if isinstance(v, dict) and "root_als" in v)
-            print(f"✅ index.json exists with {valid} project(s).")
+            print(f"[ok] index.json exists with {valid} project(s).")
             print("   Use --force to re-scan from scratch.")
             return
         except json.JSONDecodeError:
-            print(f"⚠️  index.json is corrupt (will rebuild).")
+            print(f"[WARN] index.json is corrupt (will rebuild).")
     elif args.force:
-        print("🔨 Force mode: re-scanning from scratch.")
+        print("[build] Force mode: re-scanning from scratch.")
 
     print("🔍 Scanning for recoverable data...")
     recovered = {}
@@ -104,7 +104,7 @@ def cmd_repair(args: argparse.Namespace) -> None:
                 valid = {k: v for k, v in data.items()
                          if isinstance(v, dict) and "root_als" in v}
                 if valid:
-                    print(f"   💾 Found backup: {bak.name} ({len(valid)} project(s))")
+                    print(f"   [backup] Found backup: {bak.name} ({len(valid)} project(s))")
                     recovered.update(valid)
             except (json.JSONDecodeError, OSError):
                 continue
@@ -116,7 +116,7 @@ def cmd_repair(args: argparse.Namespace) -> None:
             if proj_dir.is_dir() and not proj_dir.name.startswith("."):
                 cue_count = len(list(proj_dir.glob("*.json")))
                 if cue_count > 0 and proj_dir.name not in recovered:
-                    print(f"   📋 Found cues for '{proj_dir.name}' ({cue_count} cue(s))")
+                    print(f"   [note] Found cues for '{proj_dir.name}' ({cue_count} cue(s))")
                     proj = ClavusProject(
                         name=proj_dir.name,
                         root_als="",
@@ -126,12 +126,12 @@ def cmd_repair(args: argparse.Namespace) -> None:
                     )
                     recovered[proj.name] = asdict(proj)
                 elif cue_count > 0:
-                    print(f"   📋 Cues for '{proj_dir.name}' ({cue_count} cue(s)) — already in backup")
+                    print(f"   [note] Cues for '{proj_dir.name}' ({cue_count} cue(s)) — already in backup")
                 else:
-                    print(f"   📋 Empty cues dir for '{proj_dir.name}' — skipping")
+                    print(f"   [note] Empty cues dir for '{proj_dir.name}' — skipping")
 
     if not recovered:
-        print("❌ Nothing to recover. No backups, cues, or refs found.")
+        print("-- Nothing to recover. No backups, cues, or refs found.")
         return
 
     # Phase 2: apply --set-als mappings
@@ -147,7 +147,7 @@ def cmd_repair(args: argparse.Namespace) -> None:
                 recovered[name]["root_als"] = path
                 print(f"   🎯 Set .als path for '{name}': {path}")
             else:
-                print(f"   ⚠️  Project '{name}' not found in recovered data.")
+                print(f"   [WARN]  Project '{name}' not found in recovered data.")
 
     # Phase 3: find .als files matching project names
     for proj_name, proj_data in recovered.items():
@@ -168,7 +168,7 @@ def cmd_repair(args: argparse.Namespace) -> None:
     store._backup_index()
     store._write_json(index_path, recovered)
     print()
-    print(f"✅ Recovered {len([k for k in recovered if isinstance(recovered[k], dict)])} project(s) to {index_path}")
+    print(f"[ok] Recovered {len([k for k in recovered if isinstance(recovered[k], dict)])} project(s) to {index_path}")
     print()
     for name, data in recovered.items():
         if not isinstance(data, dict):
@@ -178,10 +178,10 @@ def cmd_repair(args: argparse.Namespace) -> None:
         print(f"   {name:<25} {als}")
     print()
     if any(not data.get("root_als") for data in recovered.values() if isinstance(data, dict)):
-        print("💡 Tip: Set .als paths with: clavus repair --set-als 'ProjectName=/path/to/project.als'")
+        print("[TIP] Tip: Set .als paths with: clavus repair --set-als 'ProjectName=/path/to/project.als'")
         print("   Or for all at once:    clavus repair --set-als 'all=/path/to/ProjectDir/'")
     else:
-        print("✅ All projects have .als paths. Run 'clavus projects' to verify.")
+        print("[ok] All projects have .als paths. Run 'clavus projects' to verify.")
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
@@ -204,7 +204,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     info: list[str] = []
 
     def check(label: str, cond: bool, detail: str = "") -> None:
-        sym = "✅" if cond else "❌"
+        sym = "[ok]" if cond else "--"
         msg = f"  {sym} {label}"
         if detail:
             msg += f" — {detail}"
@@ -214,14 +214,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             fail.append(msg)
 
     def check_info(label: str, detail: str = "") -> None:
-        """Informational check — always shows a ✅ or 💡, never ❌."""
-        msg = f"  💡 {label}"
+        """Informational check — always shows a [ok] or [TIP], never --."""
+        msg = f"  [TIP] {label}"
         if detail:
             msg += f": {detail}"
         info.append(msg)
 
     def warn_check(label: str, detail: str = "") -> None:
-        msg = f"  ⚠️  {label}"
+        msg = f"  [WARN]  {label}"
         if detail:
             msg += f" — {detail}"
         warn.append(msg)
@@ -251,7 +251,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     als = p.get("root_als", "")
                     als_ok = Path(als).exists() if als else False
                     head = (p.get("head") or "")[:12] or "(none)"
-                    sym = "✅" if als_ok else "⚠️"
+                    sym = "[ok]" if als_ok else "[WARN]"
                     status = "file found" if als_ok else "file missing"
                     (ok if als_ok else warn).append(f"  {sym} {name}  @ {head}  {als[:50] if als else '(no path)'}  [{status}]")
         except (json.JSONDecodeError, OSError) as e:
@@ -335,14 +335,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 # Use parsed.hostname (without port) for DNS resolution
                 host = parsed.hostname or parsed.netloc.split(":")[0]
                 addr = socket.gethostbyname(host)
-                ok.append(f"  ✅ '{host}' — {addr}")
+                ok.append(f"  [ok] '{host}' — {addr}")
         except socket.gaierror:
             try:
                 parsed = urllib.parse.urlparse(remote.url)
                 host = parsed.hostname or parsed.netloc.split(":")[0]
-                warn.append(f"  ⚠️  '{host}' — could not resolve")
+                warn.append(f"  [WARN]  '{host}' — could not resolve")
             except Exception:
-                warn.append(f"  ⚠️  remote '{remote.name}' — could not parse URL")
+                warn.append(f"  [WARN]  remote '{remote.name}' — could not parse URL")
 
     # 8. Tailscale serve — the relay's tailnet gateway (informational only)
     print("  tailnet relay proxy:")
@@ -402,11 +402,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 check("MagicDNS proxy", True, f"http://{ts_host}:{port}/ — reachable via tailnet")
         except Exception:
             warn_check("MagicDNS proxy", f"http://{ts_host}:{port}/ — http request failed")
-            warn.append(f"  💡 Verify from another tailnet machine: curl http://{ts_host or '?'}:{port}/api/ping")
+            warn.append(f"  [TIP] Verify from another tailnet machine: curl http://{ts_host or '?'}:{port}/api/ping")
 
     # Summary
     print()
-    print(f"  Summary: {len(ok)} ✅  {len(warn)} ⚠️  {len(fail)} ❌")
+    print(f"  Summary: {len(ok)} [ok]  {len(warn)} [WARN]  {len(fail)} --")
     for line in fail:
         print(line)
     for line in warn:
@@ -415,17 +415,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print(line)
     print()
     if fail:
-        print(f"  💡 Run 'clavus repair' to recover from corruption")
-        print(f"  💡 Run 'clavus restore-store' to restore from backup")
+        print(f"  [TIP] Run 'clavus repair' to recover from corruption")
+        print(f"  [TIP] Run 'clavus restore-store' to restore from backup")
         print()
-        print(f"  ⚠️  Some checks failed — collation may be limited until resolved.")
+        print(f"  [WARN]  Some checks failed — collation may be limited until resolved.")
     elif warn:
-        print(f"  💡 Run 'clavus backup' to create a full backup")
+        print(f"  [TIP] Run 'clavus backup' to create a full backup")
         print()
-        print(f"  ✅ Core system healthy — ready to collab.")
+        print(f"  [ok] Core system healthy — ready to collab.")
     else:
-        print(f"  ✅ Everything looks good!")
-        print(f"  ✅ Ready to collab.")
+        print(f"  [ok] Everything looks good!")
+        print(f"  [ok] Ready to collab.")
 
 
 def cmd_p2p(args: argparse.Namespace) -> None:
@@ -560,7 +560,7 @@ def cmd_p2p(args: argparse.Namespace) -> None:
             print(f"  Peer HEAD: {peer_head[:12] if peer_head else '(none)'}")
             if peer_head and head:
                 if peer_head != head:
-                    print(f"  ⚠ Heads differ — syncing will detect conflicts")
+                    print(f"  [WARN] Heads differ — syncing will detect conflicts")
             r = p2p_sync(
                 sock=sock,
                 store=store,
@@ -613,7 +613,7 @@ def cmd_p2p(args: argparse.Namespace) -> None:
 
         # ── Conflict detected ──────────────────────────────────────────────
         if peer_manifest.project.startswith("CONFLICT:"):
-            print(f"\n  ⚠ Sync Conflict")
+            print(f"\n  [WARN] Sync Conflict")
             print(f"  {peer_manifest.project}")
             print(f"\n  The peer's state has diverged from last sync.")
             print(f"  Sync both machines to the relay first, then try again.")
@@ -630,7 +630,7 @@ def cmd_p2p(args: argparse.Namespace) -> None:
         if peer_manifest.head:
             print(f"  Peer HEAD: {peer_manifest.head[:12]}")
             if head and peer_manifest.head != head:
-                print(f"  ⚠ Heads differ — sync will detect conflicts")
+                print(f"  [WARN] Heads differ — sync will detect conflicts")
 
         peer_blobs = getattr(peer_manifest, "blobs", [])
         peer_has = lambda h: h in set(peer_blobs)
@@ -723,7 +723,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     from clavus.config import ClavusConfig
     from clavus.store import BlobStore
 
-    print("🎹 Clavus Setup")
+    print("[KEYBOARD] Clavus Setup")
     print("───")
     print()
 
@@ -772,11 +772,11 @@ def cmd_setup(args: argparse.Namespace) -> None:
     in_use = sock.connect_ex(("127.0.0.1", port)) == 0
     sock.close()
     if in_use:
-        print(f"   ⚠️  Port {port} in use — choose another: clavus config set port <N>")
+        print(f"   [WARN]  Port {port} in use — choose another: clavus config set port <N>")
 
     # 4. Tailscale check
     print()
-    print("🌐 Network discovery...")
+    print("[NET] Network discovery...")
     ts_ip = ""
     ts_magic_dns = ""
     ts_running = False
@@ -791,14 +791,14 @@ def cmd_setup(args: argparse.Namespace) -> None:
             ts_ip = ts_ips[0] if ts_ips else ""
             ts_running = True
             if ts_magic_dns:
-                print(f"   ✅ Tailscale found")
-                print(f"   🌐 MagicDNS: {ts_magic_dns}")
+                print(f"   [ok] Tailscale found")
+                print(f"   [NET] MagicDNS: {ts_magic_dns}")
                 if ts_ip:
-                    print(f"   📡 Tailscale IP: {ts_ip}")
+                    print(f"   [radio] Tailscale IP: {ts_ip}")
                 cfg.set("tailscale_ip", ts_ip)
                 cfg.set("tailscale_magic_dns", ts_magic_dns)
             else:
-                print("   ✅ Tailscale running (MagicDNS not configured)")
+                print("   [ok] Tailscale running (MagicDNS not configured)")
         else:
             ts_running = False
     except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
@@ -806,14 +806,14 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
     if not ts_running and role == "host":
         print()
-        print("   ⚠️  Tailscale not found — needed to share your relay URL remotely.")
+        print("   [WARN]  Tailscale not found — needed to share your relay URL remotely.")
         print("   Install: https://tailscale.com/download")
         print("   After install, run: clavus setup")
         print()
         print("   For now you can use LAN-only mode (option [3] above).")
         role = "lan"
     elif not ts_running:
-        print("   ℹ️  Tailscale not found — LAN-only collab")
+        print("   [info]  Tailscale not found — LAN-only collab")
 
     # Initialize store (needed for remotes)
     store = BlobStore()
@@ -827,7 +827,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     collab_url = ""
 
     if role == "join":
-        print("🔗  Enter the relay URL from your session host.")
+        print("[link]  Enter the relay URL from your session host.")
         print("    They ran 'clavus share' and saw a URL like:")
         print("      http://machine-name.tailXXXX.ts.net:7890")
         print()
@@ -849,13 +849,13 @@ def cmd_setup(args: argparse.Namespace) -> None:
                 name = host.replace(".", "-")
                 remotes.append(Remote(name=name, url=url))
                 save_remotes(store, remotes)
-                print(f"   ✅ Added remote '{name}' → {url}")
+                print(f"   [ok] Added remote '{name}' → {url}")
                 existing_urls.add(url)
         print()
-        print("   💡 Run 'clavus find' to scan the network for active relays.")
+        print("   [TIP] Run 'clavus find' to scan the network for active relays.")
     elif role == "host":
         print()
-        print("📡  When you run 'clavus share', collaborators will connect to:")
+        print("[radio]  When you run 'clavus share', collaborators will connect to:")
         if ts_magic_dns:
             print(f"      http://{ts_magic_dns}:{port}")
         if ts_ip:
@@ -865,17 +865,17 @@ def cmd_setup(args: argparse.Namespace) -> None:
         print("   Share this URL with your collaborators after running 'clavus share'.")
     elif role == "lan":
         print()
-        print("📡  LAN-only mode — collaborators must be on the same network.")
+        print("[radio]  LAN-only mode — collaborators must be on the same network.")
         print("   They'll use your local IP address (e.g. 192.168.x.x)")
 
     # Also add localhost relay if port is in use (already running)
     if not collab_url and in_use:
-        print(f"   🔗 Relay detected on port {port} — good!")
+        print(f"   [link] Relay detected on port {port} — good!")
         relay_url = f"http://localhost:{port}"
         if relay_url not in existing_urls:
             remotes.append(Remote(name="relay", url=relay_url))
             save_remotes(store, remotes)
-            print(f"   ✅ Added remote 'relay' → {relay_url}")
+            print(f"   [ok] Added remote 'relay' → {relay_url}")
     elif collab_url:
         # Remove any stale localhost remotes — they won't work on this machine
         before = len(remotes)
@@ -887,9 +887,9 @@ def cmd_setup(args: argparse.Namespace) -> None:
     # Summary
     remotes = load_remotes(store)
     if remotes:
-        print(f"   📡 {len(remotes)} remote(s) configured")
+        print(f"   [radio] {len(remotes)} remote(s) configured")
     else:
-        print("   ℹ️  No remotes — use 'clavus remote add' later or 'clavus join http://...'")
+        print("   [info]  No remotes — use 'clavus remote add' later or 'clavus join http://...'")
 
     # 6. Projects folder
     print()
@@ -929,17 +929,17 @@ def cmd_setup(args: argparse.Namespace) -> None:
             pass
 
     if ableton:
-        print(f"   ✅ Ableton: {ableton}")
+        print(f"   [ok] Ableton: {ableton}")
         cfg.set("ableton_path", ableton)
     else:
-        print("   ℹ️  Ableton not auto-detected")
+        print("   [info]  Ableton not auto-detected")
         print("      Set: clavus config set ableton_path /path/to/Ableton")
 
     # Save
     cfg.save()
 
     print()
-    print("✅ Setup complete!")
+    print("[ok] Setup complete!")
     print(f"   Config: {CONFIG_PATH}")
     print(f"   Data:   {store.root}")
 
@@ -957,11 +957,11 @@ def cmd_setup(args: argparse.Namespace) -> None:
                 client.close()
                 if r.status_code == 200:
                     projects = r.json().get("projects", [])
-                    print(f"   ✅ {remote.name} — {len(projects)} project(s) found")
+                    print(f"   [ok] {remote.name} — {len(projects)} project(s) found")
                 else:
-                    print(f"   ⚠️  {remote.name} — relay responded but no projects (run 'clavus init' on host)")
+                    print(f"   [WARN]  {remote.name} — relay responded but no projects (run 'clavus init' on host)")
             except Exception:
-                print(f"   ⚠️  {remote.name} — unreachable (is 'clavus share' running?)")
+                print(f"   [WARN]  {remote.name} — unreachable (is 'clavus share' running?)")
 
     # Smart next-step based on role
     print()
@@ -976,8 +976,8 @@ def cmd_setup(args: argparse.Namespace) -> None:
         print("     clavus init /path/to.als  ← track a local project")
         print("     clavus tui              ← open the dashboard")
     print()
-    print("   💡 Quick start (host):  clavus share")
-    print("   💡 Quick start (join):   clavus pull && clavus tui")
+    print("   [TIP] Quick start (host):  clavus share")
+    print("   [TIP] Quick start (join):   clavus pull && clavus tui")
 
 
 def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Optional[str], list[str]]:
@@ -991,10 +991,10 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
         target = Path(path_str).resolve()
         als_path = find_als_file(target)
         if als_path is None:
-            logs.append(f"❌ No .als file found at {target}")
+            logs.append(f"-- No .als file found at {target}")
             return None, logs
     else:
-        return None, ["❌ No path provided"]
+        return None, ["-- No path provided"]
 
     store = BlobStore()
     store.init()
@@ -1002,7 +1002,7 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
     # Check if already initialized
     existing = store.get_index(als_path.stem)
     if existing:
-        logs.append(f"⚠️  Project '{als_path.stem}' already tracked at {existing.root_als}")
+        logs.append(f"[WARN]  Project '{als_path.stem}' already tracked at {existing.root_als}")
         return existing.name, logs
 
     # Project name from .als filename
@@ -1022,7 +1022,7 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
     target_als = target_dir / f"{project_name}.als"
 
     if target_dir.exists():
-        logs.append(f"⚠️  '{project_name}' already exists in {projects_root}")
+        logs.append(f"[WARN]  '{project_name}' already exists in {projects_root}")
         return project_name, logs
 
     source_dir = als_path.parent
@@ -1031,7 +1031,7 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
         ignore=shutil.ignore_patterns("Backup*", "Ableton Project Info", ".DS_Store"),
         dirs_exist_ok=True,
     )
-    logs.append(f"✅ Copied → {target_dir}")
+    logs.append(f"[ok] Copied → {target_dir}")
 
     # Rename .als to match project name if they differ
     if not target_als.exists():
@@ -1064,12 +1064,12 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
         index["_last_project"] = project_name
         store.index_path.write_text(json.dumps(index, indent=2, default=str))
 
-    logs.append(f"✅ Initialized '{project_name}' — {project.track_count} tracks")
+    logs.append(f"[ok] Initialized '{project_name}' — {project.track_count} tracks")
     # Load the snapshot to report sample count (save_snapshot already stored it)
     snap_loaded = store.load_snapshot(snap.hash)
     sample_count = len(snap_loaded.sample_hashes) if snap_loaded and snap_loaded.sample_hashes else 0
     if sample_count:
-        logs.append(f"   📦 {sample_count} sample{'s' if sample_count != 1 else ''} indexed")
+        logs.append(f"   [samples] {sample_count} sample{'s' if sample_count != 1 else ''} indexed")
     logs.append(f"   ● snapshot {snap.short_hash()}")
     return project_name, logs
 
@@ -1080,7 +1080,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         target = Path(args.path).resolve()
         als_path = find_als_file(target)
         if als_path is None:
-            print(f"❌ No .als file found at {target}")
+            print(f"-- No .als file found at {target}")
             print("   Specify the path to an .als file or a directory containing one.")
             sys.exit(1)
     else:
@@ -1099,7 +1099,7 @@ def cmd_init(args: argparse.Namespace) -> None:
                         als_files.append(f)
 
         if not als_files:
-            print("❌ No .als files found on Desktop, Documents, or Music/Ableton.")
+            print("-- No .als files found on Desktop, Documents, or Music/Ableton.")
             print("   Usage: clavus init /path/to/project.als")
             sys.exit(1)
 
@@ -1117,10 +1117,10 @@ def cmd_init(args: argparse.Namespace) -> None:
                 if 1 <= choice <= len(als_files):
                     als_path = als_files[choice - 1]
                 else:
-                    print("❌ Cancelled.")
+                    print("-- Cancelled.")
                     sys.exit(1)
             except (ValueError, EOFError):
-                print("❌ Cancelled.")
+                print("-- Cancelled.")
                 sys.exit(1)
 
     # ── Config check: prompt for author if not set ──
@@ -1139,7 +1139,7 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     # ── Welcome ──
     print("╭──────────────────────────────────────────────╮")
-    print("│  🎹  Clavus — Ableton Live collaboration     │")
+    print("│  [KEYBOARD]  Clavus — Ableton Live collaboration     │")
     print("╰──────────────────────────────────────────────╯")
     print()
 
@@ -1149,7 +1149,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Check if already initialized
     existing = store.get_index(als_path.stem)
     if existing:
-        print(f"⚠️  Project '{als_path.stem}' already tracked at {existing.root_als}")
+        print(f"[WARN]  Project '{als_path.stem}' already tracked at {existing.root_als}")
         return
 
     # ── Project name ──
@@ -1199,7 +1199,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     target_als = target_dir / f"{project_name}.als"
 
     if target_dir.exists():
-        print(f"⚠️  '{project_name}' already exists in {projects_root}")
+        print(f"[WARN]  '{project_name}' already exists in {projects_root}")
         print(f"   Use 'clavus project \"{project_name}\"' to switch to it.")
         return
 
@@ -1221,7 +1221,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Update als_path to the copy and re-parse
     als_path = target_als
     project.file_path = str(als_path)  # update path in parsed project
-    print(f"   ✅ Copied → {target_dir}")
+    print(f"   [ok] Copied → {target_dir}")
     print()
 
     clavus_proj = ClavusProject(
@@ -1238,7 +1238,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     store.set_index(clavus_proj)
 
     # ── Done ──
-    print(f"✅ Initialized Clavus project '{clavus_proj.name}'")
+    print(f"[ok] Initialized Clavus project '{clavus_proj.name}'")
     print(f"   .als: {als_path}")
     print(f"   Tracks: {project.track_count} @ {project.bpm}bpm")
     print(f"   Snapshot: {snap.short_hash()}")
@@ -1251,7 +1251,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     print(f"     clavus log                       View history")
     print(f"     clavus push                      Share with collaborators")
     print()
-    print(f"   💡 Your original at {source_dir} is untouched.")
+    print(f"   [TIP] Your original at {source_dir} is untouched.")
     print(f"      Work from {target_dir} going forward.")
 
 
@@ -1278,8 +1278,8 @@ def cmd_projects(args: argparse.Namespace) -> None:
     c.print()
 
     for p in sorted(projects, key=lambda x: x.name.lower()):
-        icon = "🔒" if not p.shared else "🌐"
-        status = "✓" if Path(p.root_als).exists() else "✗"
+        icon = "[PK]" if not p.shared else "[NET]"
+        status = "[ok]" if Path(p.root_als).exists() else "[X]"
         c.print("  {} {}".format(icon, p.name), style=dim)
         c.print("     {}  {}".format(status, p.root_als))
 
@@ -1298,37 +1298,37 @@ def cmd_project(args: argparse.Namespace) -> None:
     store = BlobStore()
     proj = store.get_index(args.name)
     if not proj:
-        print(f"❌ Project '{args.name}' not found.")
+        print(f"-- Project '{args.name}' not found.")
         print("   Run 'clavus projects' to see available projects.")
         sys.exit(1)
 
     # Toggle share/private
     if args.share:
         if proj.shared:
-            print(f"🌐 Project '{args.name}' is already shared.")
+            print(f"[NET] Project '{args.name}' is already shared.")
         else:
             proj.shared = True
             store.set_index(proj)
-            print(f"🌐 Project '{args.name}' is now shared — visible to collaborators.")
+            print(f"[NET] Project '{args.name}' is now shared — visible to collaborators.")
         return
     if args.private:
         if not proj.shared:
-            print(f"🔒 Project '{args.name}' is already private.")
+            print(f"[PK] Project '{args.name}' is already private.")
         else:
             proj.shared = False
             store.set_index(proj)
-            print(f"🔒 Project '{args.name}' is now private — hidden from collaborators.")
+            print(f"[PK] Project '{args.name}' is now private — hidden from collaborators.")
         return
 
     store.set_index(proj)
-    print(f"✅ Switched to project '{args.name}'")
+    print(f"[ok] Switched to project '{args.name}'")
     print(f"   Path: {proj.root_als}")
     if proj.head:
         print(f"   HEAD: {proj.head[:8]}")
     else:
         print(f"   (no snapshots yet)")
     print(f"   Branch: {proj.branch}")
-    print(f"   {'🌐 Shared' if proj.shared else '🔒 Private'}")
+    print(f"   {'[NET] Shared' if proj.shared else '[PK] Private'}")
 
 
 def create_snapshot(message: str, allow_frozen: bool = True) -> tuple[Optional[str], list[str]]:
@@ -1346,7 +1346,7 @@ def create_snapshot(message: str, allow_frozen: bool = True) -> tuple[Optional[s
         if candidate.is_file():
             als_path = candidate
         else:
-            logs.append(f"❌ .als file not found: {proj.root_als or 'projects/' + proj.name}")
+            logs.append(f"-- .als file not found: {proj.root_als or 'projects/' + proj.name}")
             # Also try the Project subfolder convention
             candidate2 = get_projects_dir() / proj.name / f"{proj.name} Project" / f"{proj.name}.als"
             if candidate2.is_file():
@@ -1359,10 +1359,10 @@ def create_snapshot(message: str, allow_frozen: bool = True) -> tuple[Optional[s
     frozen_count = sum(1 for t in project.tracks if t.is_frozen) if project else 0
     if frozen_count:
         if not allow_frozen:
-            logs.append(f"  ⚠️  {frozen_count} frozen track(s) — pass allow_frozen=True to skip")
+            logs.append(f"  [WARN]  {frozen_count} frozen track(s) — pass allow_frozen=True to skip")
             return None, logs
         else:
-            logs.append(f"  ⚠️  {frozen_count} frozen track(s) — snapshots may not restore on other platforms")
+            logs.append(f"  [WARN]  {frozen_count} frozen track(s) — snapshots may not restore on other platforms")
 
     snap = store.save_snapshot(
         project, message=message, parent=proj.head, tags=[],
@@ -1370,11 +1370,11 @@ def create_snapshot(message: str, allow_frozen: bool = True) -> tuple[Optional[s
 
     # Warn if snapshot has no .als backup — it cannot restore
     if not snap.als_hash:
-        logs.append(f"  ⚠️  Snapshot saved but .als file has no backup — restore will not be possible")
+        logs.append(f"  [WARN]  Snapshot saved but .als file has no backup — restore will not be possible")
 
     prev = store.load_snapshot(proj.head) if proj.head else None
     if prev and snap.als_hash and snap.als_hash == prev.als_hash:
-        logs.append(f"⚠️  No changes — {proj.name}.als is identical to last snapshot")
+        logs.append(f"[WARN]  No changes — {proj.name}.als is identical to last snapshot")
         return None, logs
 
     store.update_ref("HEAD", snap.hash)
@@ -1406,7 +1406,7 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
         if candidate.is_file():
             als_path = candidate
         else:
-            print(f"❌ .als file not found: {proj.root_als or 'projects/' + proj.name}")
+            print(f"-- .als file not found: {proj.root_als or 'projects/' + proj.name}")
             sys.exit(1)
 
     # Prompt for message if not provided
@@ -1416,10 +1416,10 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
         try:
             message = input("  Snapshot message (or blank to cancel): ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\n❌ Snapshot cancelled.")
+            print("\n-- Snapshot cancelled.")
             return
         if not message:
-            print("❌ Snapshot cancelled.")
+            print("-- Snapshot cancelled.")
             return
 
     # Parse current state
@@ -1429,17 +1429,17 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
     frozen_count = sum(1 for t in project.tracks if t.is_frozen) if project else 0
     if frozen_count:
         if args.allow_frozen:
-            print(f"  ⚠️  {frozen_count} frozen track(s) — proceeding anyway (--allow-frozen)")
+            print(f"  [WARN]  {frozen_count} frozen track(s) — proceeding anyway (--allow-frozen)")
         else:
-            print(f"  ⚠️  {frozen_count} frozen track(s) detected — will crash on other platforms.")
+            print(f"  [WARN]  {frozen_count} frozen track(s) detected — will crash on other platforms.")
             print(f"  Unfreeze tracks in Ableton first for cross-platform compatibility.")
             try:
                 choice = input("  Continue anyway? [y/N]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
-                print("\n❌ Snapshot cancelled.")
+                print("\n-- Snapshot cancelled.")
                 return
             if choice != 'y':
-                print("❌ Snapshot cancelled.")
+                print("-- Snapshot cancelled.")
                 return
 
     # Create snapshot
@@ -1455,7 +1455,7 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
     # Check if anything actually changed (compare raw .als bytes, not parsed structure)
     prev = store.load_snapshot(proj.head) if proj.head else None
     if prev and snap.als_hash and snap.als_hash == prev.als_hash:
-        print(f"⚠️  No changes detected — project state is identical to last snapshot.")
+        print(f"[WARN]  No changes detected — project state is identical to last snapshot.")
         print(f"   Current HEAD: {snap.short_hash()} — '{store.load_snapshot(proj.head).message if store.load_snapshot(proj.head) else ''}'")
         return
 
@@ -1491,7 +1491,7 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
         notes_preview = snap.notes[:120] + ("..." if len(snap.notes) > 120 else "")
         print(f"   📝 Notes: {notes_preview}")
 
-    print(f"   📋 Run 'clavus log' to see history.")
+    print(f"   [note] Run 'clavus log' to see history.")
 
 
 def cmd_log(args: argparse.Namespace) -> None:
@@ -1501,7 +1501,7 @@ def cmd_log(args: argparse.Namespace) -> None:
     count = 0
 
     if not current_hash:
-        print("📋 No snapshots yet. Run 'clavus snapshot' to create one.")
+        print("[note] No snapshots yet. Run 'clavus snapshot' to create one.")
         return
 
     # Collect all branch refs for graph display
@@ -1510,7 +1510,7 @@ def cmd_log(args: argparse.Namespace) -> None:
         for ref_file in store.refs_dir.glob("heads/*"):
             branch_refs[ref_file.name] = ref_file.read_text().strip()
 
-    print(f"📋 Snapshot history for '{proj.branch}'")
+    print(f"[note] Snapshot history for '{proj.branch}'")
     print()
 
     # Build a set of all snapshots for the graph
@@ -1619,12 +1619,12 @@ def cmd_note(args: argparse.Namespace) -> None:
     # Resolve target snapshot
     target_hash = args.hash or proj.head
     if not target_hash:
-        print("❌ No snapshot specified and HEAD is empty. Run 'clavus snapshot' first.")
+        print("-- No snapshot specified and HEAD is empty. Run 'clavus snapshot' first.")
         sys.exit(1)
 
     snap = store.load_snapshot(target_hash)
     if not snap:
-        print(f"❌ Snapshot not found: {target_hash[:8]}")
+        print(f"-- Snapshot not found: {target_hash[:8]}")
         sys.exit(1)
 
     action = args.action or "read"
@@ -1645,7 +1645,7 @@ def cmd_note(args: argparse.Namespace) -> None:
             try:
                 note_text = Path(args.file).read_text()
             except Exception as e:
-                print(f"❌ Could not read file '{args.file}': {e}")
+                print(f"-- Could not read file '{args.file}': {e}")
                 sys.exit(1)
         elif args.text:
             note_text = " ".join(args.text)
@@ -1655,10 +1655,10 @@ def cmd_note(args: argparse.Namespace) -> None:
             try:
                 note_text = sys.stdin.read().strip()
             except (EOFError, KeyboardInterrupt):
-                print("\n❌ Cancelled.")
+                print("\n-- Cancelled.")
                 return
             if not note_text:
-                print("❌ Empty note — cancelled.")
+                print("-- Empty note — cancelled.")
                 return
 
         # Apply
@@ -1677,7 +1677,7 @@ def cmd_note(args: argparse.Namespace) -> None:
         snap.notes = new_notes
 
         preview = new_notes[:100].replace("\n", " ")
-        print(f"✅ Note {'appended to' if action == 'append' else 'written for'} snapshot {snap.short_hash()}")
+        print(f"[ok] Note {'appended to' if action == 'append' else 'written for'} snapshot {snap.short_hash()}")
         print(f"   Preview: {preview}{'...' if len(new_notes) > 100 else ''}")
 
 
@@ -1688,22 +1688,22 @@ def cmd_diff(args: argparse.Namespace) -> None:
     if args.hash:
         hash_str = resolve_snapshot(store, args.hash)
         if not hash_str:
-            print(f"❌ Could not resolve '{args.hash}'")
+            print(f"-- Could not resolve '{args.hash}'")
             sys.exit(1)
     else:
         hash_str = store.read_ref("HEAD")
         if not hash_str:
-            print("📋 No snapshots yet.")
+            print("[note] No snapshots yet.")
             return
 
     snap = store.load_snapshot(hash_str)
     if not snap:
-        print(f"❌ Snapshot not found (resolved: '{hash_str}', meta: {store.objects_dir / hash_str[:2] / (hash_str + '.meta')})")
+        print(f"-- Snapshot not found (resolved: '{hash_str}', meta: {store.objects_dir / hash_str[:2] / (hash_str + '.meta')})")
         return
 
     current_project = store.load_project(hash_str)
     if not current_project:
-        print(f"❌ Could not load project data for {hash_str}")
+        print(f"-- Could not load project data for {hash_str}")
         return
 
     if snap.parent:
@@ -1760,10 +1760,10 @@ def cmd_status(args: argparse.Namespace) -> None:
 
     if als_exists:
         c.print("  Status  ", end="")
-        c.print("✓ exists", style=green)
+        c.print("[ok] exists", style=green)
     else:
         c.print("  Status  ", end="")
-        c.print("✗ missing", style=red)
+        c.print("[X] missing", style=red)
 
     if last_snap:
         msg = last_snap.message or "(no message)"
@@ -1774,16 +1774,16 @@ def cmd_status(args: argparse.Namespace) -> None:
                 diff = diff_projects(project, parse_als(str(als_path)))
                 if diff.summary != "No changes":
                     c.print("  Warning ", end="")
-                    c.print("⚠ Unsaved changes — {}".format(diff.summary), style=orange)
+                    c.print("[WARN] Unsaved changes — {}".format(diff.summary), style=orange)
                 else:
                     c.print("  Sync    ", end="")
-                    c.print("✓ up to date", style=green)
+                    c.print("[ok] up to date", style=green)
     else:
         c.print("  HEAD    (no snapshots yet)")
 
     c.print()
     c.print("  Branch  {}".format(proj.branch))
-    c.print("  Mode    {}".format("🌐 Shared" if proj.shared else "🔒 Private"))
+    c.print("  Mode    {}".format("[NET] Shared" if proj.shared else "[PK] Private"))
     c.print()
 
 
@@ -1824,9 +1824,9 @@ def cmd_watch(args: argparse.Namespace) -> None:
         from clavus.watch import service_status
         status = service_status()
         if status:
-            print(f'✅ Watch service: {status}')
+            print(f'[ok] Watch service: {status}')
         else:
-            print(f'⚠️  Service status not available on this platform')
+            print(f'[WARN]  Service status not available on this platform')
         return
     else:
         # Default: run the daemon. No store/proj args — reads from index.json each poll.
@@ -1853,7 +1853,7 @@ def cmd_relay(args: argparse.Namespace) -> None:
     try:
         from clavus.web import run_relay_server
     except ImportError:
-        print("❌ Relay server requires fastapi and uvicorn.")
+        print("-- Relay server requires fastapi and uvicorn.")
         print("   Install with: pip install fastapi uvicorn")
         sys.exit(1)
     cfg = ClavusConfig.load()
@@ -1884,7 +1884,7 @@ def cmd_relay(args: argparse.Namespace) -> None:
             try:
                 old_pid = int(pid_path.read_text().strip())
                 os.kill(old_pid, 0)
-                print(f'⚠️  Relay already running (PID {old_pid}). Use --kill to stop.')
+                print(f'[WARN]  Relay already running (PID {old_pid}). Use --kill to stop.')
                 return
             except (ProcessLookupError, ValueError):
                 pid_path.unlink()
@@ -1923,12 +1923,12 @@ def cmd_relay(args: argparse.Namespace) -> None:
             import httpx
             r = httpx.get(f'http://127.0.0.1:{port}/api/ping', timeout=3)
             if r.status_code == 200:
-                print(f'✅ Relay running in background (PID {pid})')
+                print(f'[ok] Relay running in background (PID {pid})')
                 print(f'   Share URL: http://127.0.0.1:{port}')
                 return
         except Exception:
             pass
-        print(f'⚠️  Relay started (PID {pid}) but not responding — logs: ~/.clavus/relay.log')
+        print(f'[WARN]  Relay started (PID {pid}) but not responding — logs: ~/.clavus/relay.log')
         return
     
     # Check for --kill flag
@@ -1939,7 +1939,7 @@ def cmd_relay(args: argparse.Namespace) -> None:
                 pid = int(pid_path.read_text().strip())
                 os.kill(pid, 9)
                 pid_path.unlink()
-                print(f'✅ Relay (PID {pid}) stopped.')
+                print(f'[ok] Relay (PID {pid}) stopped.')
             except ProcessLookupError:
                 pid_path.unlink()
                 print('Relay was not running.')
@@ -1962,7 +1962,7 @@ def cmd_share(args: argparse.Namespace) -> None:
     try:
         from clavus.web import run_relay_server
     except ImportError:
-        print("❌ Relay server requires fastapi and uvicorn.")
+        print("-- Relay server requires fastapi and uvicorn.")
         print("   Install with: pip install fastapi uvicorn")
         sys.exit(1)
 
@@ -2000,9 +2000,9 @@ def cmd_share(args: argparse.Namespace) -> None:
                 proxy_match = re.search(rf"proxy\s+http://localhost:(\d+)", ts_output)
                 if port_match and proxy_match:
                     ts_proxy_port = int(proxy_match.group(1))
-                    print(f"   ℹ️  Port {port} is proxied by tailscale serve → localhost:{ts_proxy_port}")
+                    print(f"   [info]  Port {port} is proxied by tailscale serve → localhost:{ts_proxy_port}")
                     port = 7891
-                    print(f"   🔄 Switched to port 7891 (tailscale serve handles external traffic on 7890)")
+                    print(f"   [spin] Switched to port 7891 (tailscale serve handles external traffic on 7890)")
         except Exception:
             pass
     # ── End Tailscale serve detection ─────────────────────────────────────────
@@ -2039,7 +2039,7 @@ def cmd_share(args: argparse.Namespace) -> None:
             import httpx
             r = httpx.get(f"http://127.0.0.1:{port}/api/sync/pull", params={"name": "_"}, timeout=2)
             if r.status_code in (200, 404):
-                print(f"   🔄 Restarting stale Clavus relay on port {port}...")
+                print(f"   [spin] Restarting stale Clavus relay on port {port}...")
                 if platform.system() == "Windows":
                     # Find PID using port and kill it
                     r2 = sp.run(["netstat", "-ano"], capture_output=True, text=True)
@@ -2073,7 +2073,7 @@ def cmd_share(args: argparse.Namespace) -> None:
             if attempt < 5:
                 time.sleep(0.5)
         else:
-            print(f"   ❌ Port {port} still in use. Stop the other relay first:")
+            print(f"   -- Port {port} still in use. Stop the other relay first:")
             print(f"      clavus share --kill" if platform.system() != "Windows" else f"      taskkill /f /im python.exe")
             sys.exit(1)
     else:
@@ -2123,19 +2123,19 @@ def cmd_share(args: argparse.Namespace) -> None:
 
     if not serve_ok:
         print()
-        print(f"  ⚠️  tailscale serve not configured — MagicDNS URL won't work for collaborators")
-        print(f"  💡 Fixing: tailscale serve --bg --http {port} http://localhost:{port}")
+        print(f"  [WARN]  tailscale serve not configured — MagicDNS URL won't work for collaborators")
+        print(f"  [TIP] Fixing: tailscale serve --bg --http {port} http://localhost:{port}")
         try:
             subprocess.run(
                 ["tailscale", "serve", "--bg", "--http", str(port), f"http://localhost:{port}"],
                 capture_output=True, text=True, timeout=10,
             )
-            print(f"  ✅ tailscale serve enabled")
+            print(f"  [ok] tailscale serve enabled")
         except Exception as e:
-            print(f"  ❌ Could not enable tailscale serve: {e}")
+            print(f"  -- Could not enable tailscale serve: {e}")
         print()
 
-    print(f"  🎹 Clavus Share")
+    print(f"  [KEYBOARD] Clavus Share")
     print(f"  {'─' * 45}")
     if ts_url:
         print()
@@ -2159,7 +2159,7 @@ def cmd_share(args: argparse.Namespace) -> None:
         save_remotes(store, remotes)
 
     if args.project:
-        print(f"  🔒 Scoped to project: {args.project}")
+        print(f"  [PK] Scoped to project: {args.project}")
         print()
 
     # Check for --bg / --background flag
@@ -2173,7 +2173,7 @@ def cmd_share(args: argparse.Namespace) -> None:
             try:
                 old_pid = int(pid_path.read_text().strip())
                 os.kill(old_pid, 0)
-                print(f'⚠️  Relay already running (PID {old_pid}). Use --kill to stop.')
+                print(f'[WARN]  Relay already running (PID {old_pid}). Use --kill to stop.')
                 return
             except (ProcessLookupError, ValueError):
                 pid_path.unlink()
@@ -2212,12 +2212,12 @@ def cmd_share(args: argparse.Namespace) -> None:
             import httpx
             r = httpx.get(f'http://127.0.0.1:{port}/api/ping', timeout=3)
             if r.status_code == 200:
-                print(f'✅ Relay running in background (PID {pid})')
+                print(f'[ok] Relay running in background (PID {pid})')
                 print(f'   Share URL: http://127.0.0.1:{port}')
                 return
         except Exception:
             pass
-        print(f'⚠️  Relay started (PID {pid}) but not responding — logs: ~/.clavus/relay.log')
+        print(f'[WARN]  Relay started (PID {pid}) but not responding — logs: ~/.clavus/relay.log')
         return
     
     # Check for --kill flag
@@ -2228,7 +2228,7 @@ def cmd_share(args: argparse.Namespace) -> None:
                 pid = int(pid_path.read_text().strip())
                 os.kill(pid, 9)
                 pid_path.unlink()
-                print(f'✅ Relay (PID {pid}) stopped.')
+                print(f'[ok] Relay (PID {pid}) stopped.')
             except ProcessLookupError:
                 pid_path.unlink()
                 print('Relay was not running.')
@@ -2256,7 +2256,7 @@ def cmd_join(args: argparse.Namespace) -> None:
 
     # ── Welcome ──────────────────────────────────────────────────────
     print()
-    print("🎹  Clavus — Join a Collaboration Session")
+    print("[KEYBOARD]  Clavus — Join a Collaboration Session")
     print("═" * 48)
     print()
 
@@ -2271,7 +2271,7 @@ def cmd_join(args: argparse.Namespace) -> None:
         print("    Then run:")
         print("      clavus join http://machine-name.tailXXXX.ts.net:7890")
         print()
-        print("    💡  You can also scan your network for active relays:")
+        print("    [TIP]  You can also scan your network for active relays:")
         print("      clavus find             — LAN discovery")
         print("      clavus find --tailscale — Tailscale discovery")
         print()
@@ -2301,7 +2301,7 @@ def cmd_join(args: argparse.Namespace) -> None:
         v = version("clavus")
     except ImportError:
         v = "dev"
-    print(f"    ✅  Clavus {v}")
+    print(f"    [ok]  Clavus {v}")
 
     # 2b. Ableton detection (for :open in TUI)
     ableton = None
@@ -2328,9 +2328,9 @@ def cmd_join(args: argparse.Namespace) -> None:
             pass
 
     if ableton:
-        print(f"    ✅  Ableton detected")
+        print(f"    [ok]  Ableton detected")
     else:
-        print(f"    ⚠️  Ableton not auto-detected — sync still works,")
+        print(f"    [WARN]  Ableton not auto-detected — sync still works,")
         print(f"        but :open in the TUI won't launch Ableton.")
 
     # 2c. Tailscale check
@@ -2350,25 +2350,25 @@ def cmd_join(args: argparse.Namespace) -> None:
         pass
 
     if ts_running:
-        print(f"    ✅  Tailscale running ({ts_ip})")
+        print(f"    [ok]  Tailscale running ({ts_ip})")
     elif is_tailscale_addr:
-        print(f"    ❌  Tailscale required — not installed or not running")
+        print(f"    --  Tailscale required — not installed or not running")
         print(f"        Download: https://tailscale.com/download")
         print(f"        Start it: tailscale up")
         print()
-        print(f"    ⚠️  Fix this, then re-run: clavus join {raw}")
+        print(f"    [WARN]  Fix this, then re-run: clavus join {raw}")
         return
     else:
-        print(f"    ℹ️  Tailscale not detected — LAN-only collaboration")
+        print(f"    [info]  Tailscale not detected — LAN-only collaboration")
 
     # 2d. Storage init
     store = BlobStore()
     store.init()
-    print(f"    ✅  Storage ready")
+    print(f"    [ok]  Storage ready")
     print()
 
     # ── Phase 3: Test Connectivity ───────────────────────────────────
-    print(f"🔗  Connecting to {host}:{port}...")
+    print(f"[link]  Connecting to {host}:{port}...")
     print()
 
     # 3a. TCP-level reachability test (fast)
@@ -2386,13 +2386,13 @@ def cmd_join(args: argparse.Namespace) -> None:
 
     if dns_error or not tcp_ok:
         if dns_error and not is_tailscale_addr:
-            print(f"    ❌  Cannot resolve '{host}' — hostname not found on your network")
+            print(f"    --  Cannot resolve '{host}' — hostname not found on your network")
             print()
             print(f"    Check the hostname and try again. If this is a Tailscale")
             print(f"    MagicDNS address, make sure Tailscale is running:")
             print(f"      tailscale status")
         elif is_tailscale_addr:
-            print(f"    ❌  Cannot reach {host}:{port}")
+            print(f"    --  Cannot reach {host}:{port}")
             print()
             print(f"    This address uses Tailscale MagicDNS. Check:")
             print(f"    1. Is Tailscale running?        → tailscale status")
@@ -2403,7 +2403,7 @@ def cmd_join(args: argparse.Namespace) -> None:
             if ts_running:
                 print(f"    5. Try the Tailscale IP direct:  → clavus join <100.x.x.x>:{port}")
         else:
-            print(f"    ❌  Cannot reach {host}:{port} (TCP connection refused)")
+            print(f"    --  Cannot reach {host}:{port} (TCP connection refused)")
             print()
             print(f"    Check:")
             print(f"    • Both machines on the same network or Tailscale?")
@@ -2419,22 +2419,22 @@ def cmd_join(args: argparse.Namespace) -> None:
         client = SyncClient(base)
         r = client.client.get(f"{base}/api/ping", timeout=8)
         if r.status_code != 200:
-            print(f"    ⚠️  Port {port} is open, but it's not a Clavus relay.")
+            print(f"    [WARN]  Port {port} is open, but it's not a Clavus relay.")
             print(f"       Make sure the host is running 'clavus share', not another service.")
             return
 
         projects_resp = client.client.get(f"{base}/api/projects", timeout=8)
         if projects_resp.status_code == 200:
             info = projects_resp.json()
-        print(f"    ✅  Connected — relay is online")
+        print(f"    [ok]  Connected — relay is online")
     except Exception as e:
         err = str(e)
         if "timed out" in err.lower() or "timeout" in err.lower():
-            print(f"    ❌  Connection timed out")
+            print(f"    --  Connection timed out")
             print(f"       Port {port} is reachable but the relay isn't responding.")
             print(f"       The host may have stopped 'clavus share' or crashed.")
         else:
-            print(f"    ❌  Connection error: {e}")
+            print(f"    --  Connection error: {e}")
         return
     finally:
         if client:
@@ -2453,34 +2453,34 @@ def cmd_join(args: argparse.Namespace) -> None:
     if base in existing_urls:
         existing = existing_urls[base]
         if existing.name == remote_name:
-            print(f"    📡  Already connected to {remote_name}")
+            print(f"    [radio]  Already connected to {remote_name}")
         else:
             # Same URL, different name — update name (relay may have rebooted)
             remotes = [r for r in remotes if r.url != base]
             remotes.append(Remote(name=remote_name, url=base))
             save_remotes(store, remotes)
-            print(f"    ✅  Updated remote name: {remote_name}")
+            print(f"    [ok]  Updated remote name: {remote_name}")
     else:
         if remotes:
             # Already have a different remote — warn before replacing
             current = remotes[0]
-            print(f"    ⚠️  You already have a remote configured: {current.name}")
+            print(f"    [WARN]  You already have a remote configured: {current.name}")
             print(f"       Replacing it with {remote_name} (single remote at a time).")
             print()
             remotes = [Remote(name=remote_name, url=base)]
             save_remotes(store, remotes)
-            print(f"    ✅  Switched to: {remote_name}")
+            print(f"    [ok]  Switched to: {remote_name}")
         else:
             remotes.append(Remote(name=remote_name, url=base))
             save_remotes(store, remotes)
-            print(f"    ✅  Saved remote: {remote_name}")
+            print(f"    [ok]  Saved remote: {remote_name}")
 
     # ── Phase 5: Pull Existing Projects ──────────────────────────────
     projects = info.get("projects", [])
 
     if not projects:
         print()
-        print(f"    ℹ️  No projects on relay yet")
+        print(f"    [info]  No projects on relay yet")
         print(f"       The host hasn't pushed any projects. You can share yours:")
         print(f"         clavus init /path/to/your-project.als")
         print(f"         clavus push")
@@ -2503,21 +2503,21 @@ def cmd_join(args: argparse.Namespace) -> None:
             print(f"      📥 {pname}...", end=" ", flush=True)
             result = pull_from_remote(store, proj_data, Remote(name=remote_name, url=base))
             if result.get("error"):
-                print(f"❌ {result['error']}")
+                print(f"-- {result['error']}")
             else:
                 s = result.get("snapshots", 0)
                 c = result.get("cues", 0)
                 print(f"{s} snapshots, {c} cues")
                 blob_count, failed = pull_snapshot_blobs(store, proj_data, Remote(name=remote_name, url=base))
                 if blob_count:
-                    print(f"        📦 {blob_count} audio blob(s)")
+                    print(f"        [samples] {blob_count} audio blob(s)")
                 if failed:
-                    print(f"        ⚠️  {len(failed)} blob(s) failed — check disk space or network")
+                    print(f"        [WARN]  {len(failed)} blob(s) failed — check disk space or network")
 
     # ── Phase 6: Next Steps ──────────────────────────────────────────
     print()
     print("═" * 48)
-    print("✅  You're all set!")
+    print("[ok]  You're all set!")
     print()
     print("    Next steps:")
     print(f"      clavus tui       — Open the dashboard (recommended)")
@@ -2525,10 +2525,10 @@ def cmd_join(args: argparse.Namespace) -> None:
         print(f"      clavus init ...  — Share one of YOUR projects with the group")
         print(f"      clavus push      — Push it to the relay")
         print()
-        print(f"    💡  Quick start:  clavus init /path/to/song.als && clavus push && clavus tui")
+        print(f"    [TIP]  Quick start:  clavus init /path/to/song.als && clavus push && clavus tui")
     else:
         print()
-        print(f"    💡  Run 'clavus tui' — you'll see your projects, cues, and history.")
+        print(f"    [TIP]  Run 'clavus tui' — you'll see your projects, cues, and history.")
     print()
 
 
@@ -2537,7 +2537,7 @@ def cmd_tui(args: argparse.Namespace) -> None:
     try:
         from clavus.tui import run_tui
     except ImportError:
-        print("❌ TUI requires textual and httpx.")
+        print("-- TUI requires textual and httpx.")
         print("   Install with: pip install textual httpx")
         sys.exit(1)
     cfg = ClavusConfig.load()
@@ -2569,7 +2569,7 @@ def cmd_cue(args: argparse.Namespace) -> None:
         except (ValueError, TypeError):
             return False
     if position != "0.0.0" and not _pos_is_ok(position):
-        print(f"  ⚠ Invalid position '{position}' — using 0.0.0 instead")
+        print(f"  [WARN] Invalid position '{position}' — using 0.0.0 instead")
         position = "0.0.0"
 
     cue = add_cue_command(
@@ -2588,7 +2588,7 @@ def cmd_cue(args: argparse.Namespace) -> None:
             print(f"   Track: {args.track}")
         if args.author:
             print(f"   Author: {args.author}")
-        print(f"   📋 Reply: clavus cue reply {cue.id} \"your response\"")
+        print(f"   [note] Reply: clavus cue reply {cue.id} \"your response\"")
 
 
 def cmd_cue_reply(args: argparse.Namespace) -> None:
@@ -2602,7 +2602,7 @@ def cmd_cue_reply(args: argparse.Namespace) -> None:
         print(f"💬 Reply added to cue {args.cue_id}")
         print(f"   \"{args.text}\"")
     else:
-        print(f"❌ Cue '{args.cue_id}' not found.")
+        print(f"-- Cue '{args.cue_id}' not found.")
 
 
 def cmd_cue_resolve(args: argparse.Namespace) -> None:
@@ -2612,11 +2612,11 @@ def cmd_cue_resolve(args: argparse.Namespace) -> None:
 
     cue = cues.resolve(args.cue_id, note=args.note or "")
     if cue:
-        print(f"✅ Cue {args.cue_id} resolved")
+        print(f"[ok] Cue {args.cue_id} resolved")
         if args.note:
             print(f"   \"{args.note}\"")
     else:
-        print(f"❌ Cue '{args.cue_id}' not found.")
+        print(f"-- Cue '{args.cue_id}' not found.")
 
 
 def cmd_cue_skip(args: argparse.Namespace) -> None:
@@ -2630,7 +2630,7 @@ def cmd_cue_skip(args: argparse.Namespace) -> None:
         if args.reason:
             print(f"   \"{args.reason}\"")
     else:
-        print(f"❌ Cue '{args.cue_id}' not found.")
+        print(f"-- Cue '{args.cue_id}' not found.")
 
 
 def cmd_cues(args: argparse.Namespace) -> None:
@@ -2656,12 +2656,12 @@ def cmd_config(args: argparse.Namespace) -> None:
     if args.key and args.value is not None:
         valid_keys = {"author", "port", "host", "default_server", "default_project"}
         if args.key not in valid_keys:
-            print(f"❌ Unknown setting '{args.key}'.")
+            print(f"-- Unknown setting '{args.key}'.")
             print(f"   Valid keys: {', '.join(sorted(valid_keys))}")
             return
         setattr(cfg, args.key, args.value)
         cfg.save()
-        print(f"✅ {args.key} = {args.value}")
+        print(f"[ok] {args.key} = {args.value}")
         return
 
     # ── Show single value ──
@@ -2690,7 +2690,7 @@ def cmd_cue_assign(args: argparse.Namespace) -> None:
     if result:
         print(f"👤 {args.name} assigned to cue {args.cue_id}")
     else:
-        print(f"❌ Cue '{args.cue_id}' not found.")
+        print(f"-- Cue '{args.cue_id}' not found.")
 
 
 def cmd_cue_unassign(args: argparse.Namespace) -> None:
@@ -2701,7 +2701,7 @@ def cmd_cue_unassign(args: argparse.Namespace) -> None:
     if result:
         print(f"👤 Unassigned cue {args.cue_id}")
     else:
-        print(f"❌ Cue '{args.cue_id}' not found.")
+        print(f"-- Cue '{args.cue_id}' not found.")
 
 
 def cmd_cue_start(args: argparse.Namespace) -> None:
@@ -2712,7 +2712,7 @@ def cmd_cue_start(args: argparse.Namespace) -> None:
     if result:
         print(f"▶ Cue {args.cue_id} marked as in-progress")
     else:
-        print(f"❌ Cue '{args.cue_id}' not found.")
+        print(f"-- Cue '{args.cue_id}' not found.")
 
 
 def cmd_cue_stop(args: argparse.Namespace) -> None:
@@ -2723,7 +2723,7 @@ def cmd_cue_stop(args: argparse.Namespace) -> None:
     if result:
         print(f"⏸ Cue {args.cue_id} no longer in-progress")
     else:
-        print(f"❌ Cue '{args.cue_id}' not found.")
+        print(f"-- Cue '{args.cue_id}' not found.")
 
 
 def cmd_cue_delete(args: argparse.Namespace) -> None:
@@ -2733,7 +2733,7 @@ def cmd_cue_delete(args: argparse.Namespace) -> None:
     if cues.delete(args.cue_id):
         print(f"🗑 Deleted cue {args.cue_id}")
     else:
-        print(f"❌ Cue '{args.cue_id}' not found.")
+        print(f"-- Cue '{args.cue_id}' not found.")
 
 
 def cmd_cue_archive(args: argparse.Namespace) -> None:
@@ -2744,12 +2744,12 @@ def cmd_cue_archive(args: argparse.Namespace) -> None:
     if args.cue_id:
         ok = cues.archive(args.cue_id)
         if ok:
-            print(f"📦 Archived cue {args.cue_id}")
+            print(f"[samples] Archived cue {args.cue_id}")
         else:
-            print(f"❌ Cue '{args.cue_id}' not found.")
+            print(f"-- Cue '{args.cue_id}' not found.")
     else:
         count = cues.archive_resolved()
-        print(f"📦 Archived {count} cue(s).")
+        print(f"[samples] Archived {count} cue(s).")
 
 
 def cmd_branch(args: argparse.Namespace) -> None:
@@ -2761,10 +2761,10 @@ def cmd_branch(args: argparse.Namespace) -> None:
         branch_ref = f"heads/{args.delete}"
         existing = store.read_ref(branch_ref)
         if not existing:
-            print(f"❌ Branch '{args.delete}' not found.")
+            print(f"-- Branch '{args.delete}' not found.")
             return
         if args.delete == proj.branch:
-            print(f"❌ Cannot delete the current branch '{args.delete}'.")
+            print(f"-- Cannot delete the current branch '{args.delete}'.")
             return
         store.delete_ref(branch_ref)
         print(f"🗑 Deleted branch '{args.delete}'")
@@ -2791,13 +2791,13 @@ def cmd_branch(args: argparse.Namespace) -> None:
     branch_ref = f"heads/{args.name}"
     head = store.read_ref("HEAD")
     if not head:
-        print(f"❌ No snapshots yet. Create one first with 'clavus snapshot'.")
+        print(f"-- No snapshots yet. Create one first with 'clavus snapshot'.")
         return
 
     # Check if branch already exists
     existing = store.read_ref(branch_ref)
     if existing:
-        print(f"⚠️  Branch '{args.name}' already exists (at {existing[:8]})")
+        print(f"[WARN]  Branch '{args.name}' already exists (at {existing[:8]})")
         return
 
     store.update_ref(branch_ref, head)
@@ -2813,14 +2813,14 @@ def cmd_checkout(args: argparse.Namespace) -> None:
         # Create and switch
         head = store.read_ref("HEAD")
         if not head:
-            print(f"❌ No snapshots yet.")
+            print(f"-- No snapshots yet.")
             return
         store.update_ref(f"heads/{args.name}", head)
 
     branch_ref = f"heads/{args.name}"
     branch_head = store.read_ref(branch_ref)
     if not branch_head:
-        print(f"❌ Branch '{args.name}' not found.")
+        print(f"-- Branch '{args.name}' not found.")
         print(f"   Available: {[f.stem for f in store.refs_dir.glob('heads/*')]}")
         return
 
@@ -2832,7 +2832,7 @@ def cmd_checkout(args: argparse.Namespace) -> None:
 
     snap = store.load_snapshot(branch_head)
     msg = f" — '{snap.message}'" if snap else ""
-    print(f"✅ Switched to branch '{args.name}' at {branch_head[:8]}{msg}")
+    print(f"[ok] Switched to branch '{args.name}' at {branch_head[:8]}{msg}")
 
 
 def cmd_merge(args: argparse.Namespace) -> None:
@@ -2842,18 +2842,18 @@ def cmd_merge(args: argparse.Namespace) -> None:
     # Get current HEAD
     current_head = store.read_ref("HEAD")
     if not current_head:
-        print(f"❌ No snapshots on current branch.")
+        print(f"-- No snapshots on current branch.")
         return
 
     # Get the branch to merge
     merge_ref = f"heads/{args.branch}"
     merge_head = store.read_ref(merge_ref)
     if not merge_head:
-        print(f"❌ Branch '{args.branch}' not found.")
+        print(f"-- Branch '{args.branch}' not found.")
         return
 
     if merge_head == current_head:
-        print(f"✅ Already up to date — branches are at the same snapshot.")
+        print(f"[ok] Already up to date — branches are at the same snapshot.")
         return
 
     current_snap = store.load_snapshot(current_head)
@@ -2879,12 +2879,12 @@ def cmd_merge(args: argparse.Namespace) -> None:
             break
 
     if merge_base is None:
-        print(f"⚠️  No common ancestor found. Branches have diverged completely.")
+        print(f"[WARN]  No common ancestor found. Branches have diverged completely.")
         return
 
     if merge_base == merge_head:
         # Fast-forward: merge_branch is ancestor of current
-        print(f"✅ Already up to date — '{args.branch}' is behind current branch.")
+        print(f"[ok] Already up to date — '{args.branch}' is behind current branch.")
         return
 
     if merge_base == current_head:
@@ -2907,7 +2907,7 @@ def cmd_merge(args: argparse.Namespace) -> None:
         project = parse_als(als_path)
 
     if project is None:
-        print(f"❌ Could not parse .als file: {proj.root_als}")
+        print(f"-- Could not parse .als file: {proj.root_als}")
         return
 
     # Save snapshot with TWO parents
@@ -2978,18 +2978,18 @@ def cmd_remote(args: argparse.Namespace) -> None:
                         client.close()
                         if resp.status_code == 200:
                             remote_name = r.name
-                            print(f"📡 Using '{remote_name}' ({r.url})")
+                            print(f"[radio] Using '{remote_name}' ({r.url})")
                             break
                     except Exception:
                         continue
                 if not remote_name:
-                    print("❌ Specify a remote name: clavus remote projects <name>")
+                    print("-- Specify a remote name: clavus remote projects <name>")
                     if remotes:
                         print(f"   Available: {', '.join(r.name for r in remotes)}")
                     return
         match = next((r for r in remotes if r.name == remote_name), None)
         if not match:
-            print(f"❌ Remote '{remote_name}' not found.")
+            print(f"-- Remote '{remote_name}' not found.")
             return
 
         from clavus.sync import SyncClient
@@ -2997,14 +2997,14 @@ def cmd_remote(args: argparse.Namespace) -> None:
         try:
             r = client.client.get(f"{match.url}/api/projects", timeout=10)
             if r.status_code != 200:
-                print(f"❌ Could not reach remote '{remote_name}' at {match.url}")
+                print(f"-- Could not reach remote '{remote_name}' at {match.url}")
                 return
             data = r.json()
             projects = data.get("projects", [])
             if not projects:
-                print(f"📡 No projects on '{remote_name}'")
+                print(f"[radio] No projects on '{remote_name}'")
                 return
-            print(f"📡 Projects on '{remote_name}' ({match.url}):")
+            print(f"[radio] Projects on '{remote_name}' ({match.url}):")
             print()
             for p in projects:
                 head_str = f" @ {p.get('head', '?')}" if p.get("head") else " (no snapshots)"
@@ -3032,19 +3032,19 @@ def cmd_remote(args: argparse.Namespace) -> None:
                         client.close()
                         if resp.status_code == 200 and resp.json().get("projects"):
                             remote_name = r.name
-                            print(f"📡 Using '{remote_name}' ({r.url})")
+                            print(f"[radio] Using '{remote_name}' ({r.url})")
                             break
                     except Exception:
                         continue
                 if not remote_name:
-                    print("❌ Specify a remote name: clavus remote pull <name> [project]")
+                    print("-- Specify a remote name: clavus remote pull <name> [project]")
                     if remotes:
                         print(f"   Available: {', '.join(r.name for r in remotes)}")
                     return
 
         match = next((r for r in remotes if r.name == remote_name), None)
         if not match:
-            print(f"❌ Remote '{remote_name}' not found.")
+            print(f"-- Remote '{remote_name}' not found.")
             return
 
         client = SyncClient(match.url)
@@ -3056,12 +3056,12 @@ def cmd_remote(args: argparse.Namespace) -> None:
                 if r.status_code == 200:
                     projects = r.json().get("projects", [])
                     if not projects:
-                        print(f"📡 No projects on '{remote_name}'")
+                        print(f"[radio] No projects on '{remote_name}'")
                         return
                     if len(projects) == 1:
                         remote_project = projects[0]["name"]
                     else:
-                        print(f"📡 Multiple projects on '{remote_name}':")
+                        print(f"[radio] Multiple projects on '{remote_name}':")
                         for p in projects:
                             print(f"  {p.get('name', '?')}")
                         print()
@@ -3071,7 +3071,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
                 pass
 
         if not remote_project:
-            print("❌ No project specified and couldn't auto-detect.")
+            print("-- No project specified and couldn't auto-detect.")
             return
 
         print(f"📥 Pulling project '{remote_project}' from '{remote_name}'...")
@@ -3088,7 +3088,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
                     timeout=30,
                 )
                 if r.status_code != 200:
-                    print(f"❌ Project '{remote_project}' not found on remote.")
+                    print(f"-- Project '{remote_project}' not found on remote.")
                     return
                 data = r.json()
                 remote_info = data.get("project", {})
@@ -3106,7 +3106,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
                 # Switch to the new project
                 proj = new_proj
             except Exception as e:
-                print(f"❌ Failed to get remote project info: {e}")
+                print(f"-- Failed to get remote project info: {e}")
                 return
         else:
             # Switch to existing project
@@ -3135,7 +3135,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
         else:
             print(f"   Already up to date")
 
-        print(f"✅ Synced '{remote_project}' from '{remote_name}'")
+        print(f"[ok] Synced '{remote_project}' from '{remote_name}'")
         print(f"   Switch to it: clavus project '{remote_project}'")
         print(f"   Pull again:   clavus remote pull {remote_name} {remote_project}")
         client.close()
@@ -3146,14 +3146,14 @@ def cmd_remote(args: argparse.Namespace) -> None:
         old_name = args.name
         new_name = args.url
         if not old_name or not new_name:
-            print("❌ Usage: clavus remote rename <old-name> <new-name>")
+            print("-- Usage: clavus remote rename <old-name> <new-name>")
             return
         match = next((r for r in remotes if r.name == old_name), None)
         if not match:
-            print(f"❌ Remote '{old_name}' not found.")
+            print(f"-- Remote '{old_name}' not found.")
             return
         if any(r.name == new_name for r in remotes):
-            print(f"❌ Remote '{new_name}' already exists.")
+            print(f"-- Remote '{new_name}' already exists.")
             return
         match.name = new_name
         save_remotes(store, remotes)
@@ -3168,12 +3168,12 @@ def cmd_remote(args: argparse.Namespace) -> None:
         # Add a remote
         for r in remotes:
             if r.name == name:
-                print(f"⚠️  Remote '{name}' already exists")
+                print(f"[WARN]  Remote '{name}' already exists")
                 return
         url = args.url or f"http://{name}.local:7890"
         remotes.append(Remote(name=name, url=url))
         save_remotes(store, remotes)
-        print(f"🌐 Added remote '{name}' → {url}")
+        print(f"[NET] Added remote '{name}' → {url}")
         return
 
     if remove_name:
@@ -3187,17 +3187,17 @@ def cmd_remote(args: argparse.Namespace) -> None:
         old_name = args.name
         new_name = args.url  # argparse puts 3rd positional into url
         if not old_name or not new_name:
-            print("❌ Usage: clavus remote rename <old_name> <new_name>")
+            print("-- Usage: clavus remote rename <old_name> <new_name>")
             return
         match = next((r for r in remotes if r.name.lower() == old_name.lower()), None)
         if not match:
-            print(f"❌ Remote '{old_name}' not found.")
+            print(f"-- Remote '{old_name}' not found.")
             if remotes:
                 print(f"   Available: {', '.join(r.name for r in remotes)}")
             return
         old = match.name
         if any(r.name.lower() == new_name.lower() and r.name != old for r in remotes):
-            print(f"❌ Remote '{new_name}' already exists.")
+            print(f"-- Remote '{new_name}' already exists.")
             return
         match.name = new_name
         save_remotes(store, remotes)
@@ -3206,12 +3206,12 @@ def cmd_remote(args: argparse.Namespace) -> None:
 
     # List remotes
     if not remotes:
-        print(f"📡 No remotes configured.")
+        print(f"[radio] No remotes configured.")
         print(f"   Use 'clavus remote add <name> <url>' to add one.")
         return
 
     label = proj.name if proj else "this machine"
-    print(f"📡 Remotes for {label}")
+    print(f"[radio] Remotes for {label}")
     print()
     for r in remotes:
         last_sync = time.strftime("%m/%d %H:%M", time.localtime(r.last_sync)) if r.last_sync else "never"
@@ -3242,7 +3242,7 @@ def cmd_find(args: argparse.Namespace) -> None:
         try:
             from clavus.discovery import discover_peers
         except ImportError:
-            print("❌ LAN discovery requires zeroconf. Install: pip install zeroconf")
+            print("-- LAN discovery requires zeroconf. Install: pip install zeroconf")
             return
 
         print(f"[SCAN] Scanning for Clavus servers on LAN ({args.timeout}s)...")
@@ -3285,7 +3285,7 @@ def cmd_find(args: argparse.Namespace) -> None:
     if args.pair:
         matches = [p for p in peers if p.name.lower() == args.pair.lower()]
         if not matches:
-            print(f"  ❌ No server found with hostname '{args.pair}'")
+            print(f"  -- No server found with hostname '{args.pair}'")
             return
         peer = matches[0]
         from clavus.store import BlobStore
@@ -3294,11 +3294,11 @@ def cmd_find(args: argparse.Namespace) -> None:
         remotes = load_remotes(store)
         for r in remotes:
             if r.name == peer.name:
-                print(f"  ⚠️  Remote '{peer.name}' already exists")
+                print(f"  [WARN]  Remote '{peer.name}' already exists")
                 return
         remotes.append(Remote(name=peer.name, url=peer.url))
         save_remotes(store, remotes)
-        print(f"  ✅ Paired with '{peer.name}' → {peer.url}")
+        print(f"  [ok] Paired with '{peer.name}' → {peer.url}")
     print()
 
 def cmd_push(args: argparse.Namespace) -> None:
@@ -3316,7 +3316,7 @@ def cmd_push(args: argparse.Namespace) -> None:
         if alt:
             remotes = [alt]
         else:
-            print(f"❌ No remotes configured.")
+            print(f"-- No remotes configured.")
             print(f"   Use 'clavus remote add <name> <url>' first.")
             return
 
@@ -3324,7 +3324,7 @@ def cmd_push(args: argparse.Namespace) -> None:
     if args.remote:
         remotes = [r for r in remotes if r.name == args.remote]
         if not remotes:
-            print(f"❌ Remote '{args.remote}' not found.")
+            print(f"-- Remote '{args.remote}' not found.")
             return
 
     force = getattr(args, 'force', False)
@@ -3360,9 +3360,9 @@ def cmd_push(args: argparse.Namespace) -> None:
             result = push_to_remote(store, proj, remote, force=force)
 
         if result.get("error"):
-            print(f"  ❌ {result['error']}")
+            print(f"  -- {result['error']}")
         else:
-            parts = [f"✅ {result.get('cues', 0)} cues, {result.get('snapshots', 0)} snapshots"]
+            parts = [f"[ok] {result.get('cues', 0)} cues, {result.get('snapshots', 0)} snapshots"]
 
             # Push snapshot content blobs + .als backups
             with Spinner("syncing blobs..."):
@@ -3407,7 +3407,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
     remotes = load_remotes(store)
 
     if not remotes:
-        print(f"❌ No remotes configured.")
+        print(f"-- No remotes configured.")
         print(f"   Add one with: clavus remote add <name> <url>")
         return
 
@@ -3431,7 +3431,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
                 target_project = args.remote
                 # Still need a remote to pull from
                 if len(remotes) == 0:
-                    print(f"❌ No remotes configured.")
+                    print(f"-- No remotes configured.")
                     return
                 # Try all remotes, pick the first with this project
                 for r in remotes:
@@ -3447,7 +3447,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
                     except Exception:
                         continue
                 if len(candidates) == len(remotes):
-                    print(f"❌ Project '{target_project}' not found on any remote.")
+                    print(f"-- Project '{target_project}' not found on any remote.")
                     return
 
         pulled_any = False
@@ -3520,7 +3520,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
                 client.close()
 
         if not pulled_any:
-            print("❌ No projects found on any remote.")
+            print("-- No projects found on any remote.")
             print("   Make sure the relay is running: clavus relay")
         return
 
@@ -3531,7 +3531,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
     if args.remote:
         remotes = [r for r in remotes if r.name == args.remote]
         if not remotes:
-            print(f"❌ Remote '{args.remote}' not found.")
+            print(f"-- Remote '{args.remote}' not found.")
             return
 
     # Deduplicate remotes by URL (same relay shouldn't be pulled twice)
@@ -3599,9 +3599,9 @@ def cmd_pull(args: argparse.Namespace) -> None:
             result = pull_from_remote(store, proj, remote, output_dir=args.output)
         parts = []
         if result.get("error"):
-            parts = [f"❌ {result['error']}"]
+            parts = [f"-- {result['error']}"]
         else:
-            parts = [f"✅ {result['cues']} cues, {result['snapshots']} snapshots"]
+            parts = [f"[ok] {result['cues']} cues, {result['snapshots']} snapshots"]
 
             # Pull snapshot content blobs + .als backups
             with Spinner("syncing blobs..."):
@@ -3683,7 +3683,7 @@ def cmd_pull_all(args: argparse.Namespace) -> None:
     remotes = load_remotes(store)
 
     if not remotes:
-        print(f"❌ No remotes configured.")
+        print(f"-- No remotes configured.")
         print(f"   Add one with: clavus remote add <name> <url>")
         return
 
@@ -3696,7 +3696,7 @@ def cmd_pull_all(args: argparse.Namespace) -> None:
     if not active_remote:
         active_remote = remotes[0] if remotes else None
     if not active_remote:
-        print("❌ No remote to pull from.")
+        print("-- No remote to pull from.")
         return
 
     with Spinner(f"fetching projects from '{active_remote.name}'..."):
@@ -3705,7 +3705,7 @@ def cmd_pull_all(args: argparse.Namespace) -> None:
         try:
             resp = _probe.client.get(f"{active_remote.url}/api/projects", timeout=10)
             if resp.status_code != 200:
-                print(f"❌ Remote '{active_remote.name}' unreachable.")
+                print(f"-- Remote '{active_remote.name}' unreachable.")
                 return
             remote_projects = resp.json().get("projects", [])
         finally:
@@ -3743,7 +3743,7 @@ def cmd_pull_all(args: argparse.Namespace) -> None:
             finally:
                 _pull_client.close()
         pulled += 1
-        status(f"  ✅ '{pname}' — {result.get('snapshots', 0)} snapshots")
+        status(f"  [ok] '{pname}' — {result.get('snapshots', 0)} snapshots")
 
     print(f"  Done: {pulled} pulled, {skipped} already local")
 
@@ -3754,7 +3754,7 @@ def cmd_sync(args: argparse.Namespace) -> None:
     remotes = load_remotes(store)
 
     if not remotes:
-        print(f"❌ No remotes configured.")
+        print(f"-- No remotes configured.")
         print(f"   Use 'clavus remote add <name> <url>' first.")
         print(f"   Then 'clavus push' to sync manually, or 'clavus sync' for auto.")
         return
@@ -3805,62 +3805,62 @@ def cmd_restore(args: argparse.Namespace) -> None:
     if args.hash:
         hash_str = resolve_snapshot(store, args.hash)
         if not hash_str:
-            print(f"❌ Could not resolve '{args.hash}'")
+            print(f"-- Could not resolve '{args.hash}'")
             sys.exit(1)
     else:
         hash_str = store.read_ref("HEAD")
         if not hash_str:
-            print("❌ No snapshots to restore from.")
+            print("-- No snapshots to restore from.")
             sys.exit(1)
 
     snap = store.load_snapshot(hash_str)
     if not snap:
-        print(f"❌ Snapshot not found: {hash_str}")
+        print(f"-- Snapshot not found: {hash_str}")
         sys.exit(1)
 
     if not snap.als_hash:
-        print(f"❌ Snapshot {snap.short_hash()} has no raw .als backup.")
+        print(f"-- Snapshot {snap.short_hash()} has no raw .als backup.")
         print("   Only snapshots created *after* the restore feature was built")
         print("   store raw .als data. Create a fresh snapshot first.")
         sys.exit(1)
 
     raw_als = store.get_object(snap.als_hash)
     if not raw_als:
-        print(f"❌ Raw .als data missing for snapshot {snap.short_hash()}.")
+        print(f"-- Raw .als data missing for snapshot {snap.short_hash()}.")
         print(f"   Looked for blob: {snap.als_hash[:16]}...")
         sys.exit(1)
 
     als_path = Path(proj.root_als)
     if not als_path.exists():
-        print(f"❌ Project .als file not found at {als_path}")
+        print(f"-- Project .als file not found at {als_path}")
         sys.exit(1)
 
     # Confirmation
     snap_time = time.strftime("%Y-%m-%d %H:%M", time.localtime(snap.timestamp))
-    print(f"📋 Restore snapshot: {snap.short_hash()}")
+    print(f"[note] Restore snapshot: {snap.short_hash()}")
     print(f"   Message: {snap.message}")
     print(f"   Captured: {snap_time}")
     print(f"   Tracks: {snap.track_count}  BPM: {snap.bpm}")
     print(f"   Will overwrite: {als_path}")
     print()
-    print(f"⚠️  This will overwrite your current .als file. A backup will be saved as:")
+    print(f"[WARN]  This will overwrite your current .als file. A backup will be saved as:")
     print(f"   {als_path}.bak (if one doesn't already exist)")
     print()
     if not args.yes:
         confirm = input("  Continue? (y/N): ").strip().lower()
         if confirm != "y":
-            print("❌ Restore cancelled.")
+            print("-- Restore cancelled.")
             return
 
     # Backup existing .als (only first time)
     bak_path = als_path.with_suffix(".als.bak")
     if not bak_path.exists():
         bak_path.write_bytes(als_path.read_bytes())
-        print(f"   💾 Current .als backed up to: {bak_path}")
+        print(f"   [save] Current .als backed up to: {bak_path}")
 
     # Write the restored .als
     als_path.write_bytes(raw_als)
-    print(f"✅ Restored {als_path.name} to snapshot {snap.short_hash()}")
+    print(f"[ok] Restored {als_path.name} to snapshot {snap.short_hash()}")
     print(f"   '{snap.message}' — from {snap_time}")
 
     # Update HEAD to point at this snapshot
@@ -3881,26 +3881,26 @@ def cmd_open(args: argparse.Namespace) -> None:
     if args.hash:
         hash_str = resolve_snapshot(store, args.hash)
         if not hash_str:
-            print(f"❌ Could not resolve '{args.hash}'")
+            print(f"-- Could not resolve '{args.hash}'")
             sys.exit(1)
     else:
         hash_str = proj.head
         if not hash_str:
-            print("❌ No snapshots. Push from another machine or take a snapshot first.")
+            print("-- No snapshots. Push from another machine or take a snapshot first.")
             sys.exit(1)
 
     snap = store.load_snapshot(hash_str)
     if not snap:
-        print(f"❌ Snapshot not found: {hash_str}")
+        print(f"-- Snapshot not found: {hash_str}")
         sys.exit(1)
 
     if not snap.als_hash:
-        print(f"❌ Snapshot {snap.short_hash()} has no .als backup.")
+        print(f"-- Snapshot {snap.short_hash()} has no .als backup.")
         sys.exit(1)
 
     raw_als = store.get_object(snap.als_hash)
     if not raw_als:
-        print(f"❌ .als blob missing. Try pulling again to fetch it.")
+        print(f"-- .als blob missing. Try pulling again to fetch it.")
         sys.exit(1)
 
     # Determine output path — Ableton project folder convention:
@@ -3952,7 +3952,7 @@ def cmd_open(args: argparse.Namespace) -> None:
     # raw_als = rewrite_als_sample_paths(raw_als, out_path.parent)
 
     out_path.write_bytes(raw_als)
-    print(f"✅ {project_name}.als → {out_path}")
+    print(f"[ok] {project_name}.als → {out_path}")
     print(f"   Snapshot: {snap.short_hash()} — {snap.message or '(no message)'}")
     print(f"   {snap.track_count} tracks, {snap.bpm} BPM")
     if sample_written:
@@ -3968,23 +3968,23 @@ def cmd_open(args: argparse.Namespace) -> None:
         if ableton_path:
             result = sp.run(["open", "-a", ableton_path, str(out_path)])
             if result.returncode == 0:
-                print(f"   🎹 Launched Ableton Live")
+                print(f"   [KEYBOARD] Launched Ableton Live")
             else:
-                print(f"   ⚠️  Ableton Live returned exit code {result.returncode}")
+                print(f"   [WARN]  Ableton Live returned exit code {result.returncode}")
                 print(f"      Try opening manually: {out_path}")
         else:
-            print(f"   ⚠️  Ableton Live not found in /Applications")
+            print(f"   [WARN]  Ableton Live not found in /Applications")
             print(f"      Install Ableton Live, then run: open {out_path}")
     elif system == "Windows":
         sp.run(["start", "", str(out_path)], shell=True)
-        print(f"   🎹 Opened .als with default app")
+        print(f"   [KEYBOARD] Opened .als with default app")
     else:
-        print(f"   ℹ️  Open manually: {out_path}")
+        print(f"   [info]  Open manually: {out_path}")
 
     # Helpful tip for first-open sample resolution
     if sample_written:
         print()
-        print("   💡 If samples show as offline, point Ableton at any one —")
+        print("   [TIP] If samples show as offline, point Ableton at any one —")
         print("      all others will resolve automatically.")
 
 
@@ -3999,7 +3999,7 @@ def cmd_backup(args: argparse.Namespace) -> None:
     with Spinner("creating backup..."):
         archive_path = store.backup_store()
     size_mb = archive_path.stat().st_size / (1024 * 1024)
-    print(f"💾 Backup saved: {archive_path}")
+    print(f"[save] Backup saved: {archive_path}")
     print(f"   Size: {size_mb:.1f} MB")
     print(f"   To restore: clavus restore --store {archive_path}")
 
@@ -4013,7 +4013,7 @@ def cmd_list_backups(args: argparse.Namespace) -> None:
         print("  No backups found.")
         print("  Create one with: clavus backup")
         return
-    print(f"  📦 Available backups:")
+    print(f"  [samples] Available backups:")
     for b in backups:
         size_kb = b.stat().st_size / 1024
         print(f"     {b.name}  ({size_kb:.0f} KB)")
@@ -4026,7 +4026,7 @@ def cmd_restore_store(args: argparse.Namespace) -> None:
     if not args.archive:
         backups = store.list_backups()
         if not backups:
-            print("❌ No backups found. Run 'clavus backup' first.")
+            print("-- No backups found. Run 'clavus backup' first.")
             return
         archive_path = backups[0]
         print(f"  Using latest backup: {archive_path.name}")
@@ -4045,7 +4045,7 @@ def cmd_stem_import(args: argparse.Namespace) -> None:
     head = store.read_ref("HEAD")
 
     if not head:
-        print("❌ No snapshot yet. Run 'clavus snapshot' first.")
+        print("-- No snapshot yet. Run 'clavus snapshot' first.")
         return
 
     entry = stem_store.store_stem_file(args.file, args.track)
@@ -4058,7 +4058,7 @@ def cmd_stem_import(args: argparse.Namespace) -> None:
     stem_store.save_manifest(manifest)
 
     file_size_mb = entry.size / (1024 * 1024)
-    print(f"📦 Imported stem: {entry.track_name} ({entry.file_name})")
+    print(f"[samples] Imported stem: {entry.track_name} ({entry.file_name})")
     print(f"   Hash:   {entry.hash[:12]}")
     print(f"   Size:   {file_size_mb:.1f} MB")
     print(f"   Format: {entry.format} / {entry.sample_rate}Hz / {entry.bit_depth}bit / {entry.channels}ch")
@@ -4074,17 +4074,17 @@ def cmd_stem_import_folder(args: argparse.Namespace) -> None:
     head = store.read_ref("HEAD")
 
     if not head:
-        print("❌ No snapshot yet. Run 'clavus snapshot' first.")
+        print("-- No snapshot yet. Run 'clavus snapshot' first.")
         return
 
     folder = Path(args.folder).expanduser().resolve()
     if not folder.is_dir():
-        print(f"❌ Not a directory: {folder}")
+        print(f"-- Not a directory: {folder}")
         return
 
     wavs = sorted(set(folder.glob("*.wav")) | set(folder.glob("*.WAV")))
     if not wavs:
-        print(f"❌ No .wav files found in {folder}")
+        print(f"-- No .wav files found in {folder}")
         return
 
     manifest = stem_store.get_manifest(head) or StemManifest(snapshot_hash=head)
@@ -4098,7 +4098,7 @@ def cmd_stem_import_folder(args: argparse.Namespace) -> None:
         try:
             entry = stem_store.store_stem_file(str(wav_path), track_name)
         except Exception as e:
-            print(f"  ✗ {wav_path.name}: {e}")
+            print(f"  [X] {wav_path.name}: {e}")
             skipped += 1
             continue
 
@@ -4116,9 +4116,9 @@ def cmd_stem_import_folder(args: argparse.Namespace) -> None:
     stem_store.save_manifest(manifest)
 
     total_mb = total_size / (1024 * 1024)
-    print(f"\n  ✅ Imported {imported} stem(s)")
+    print(f"\n  [ok] Imported {imported} stem(s)")
     if skipped:
-        print(f"  ⚠  Skipped {skipped}")
+        print(f"  [WARN]  Skipped {skipped}")
     print(f"  Total: {total_mb:.1f} MB across {len(manifest.stems)} stems")
     print(f"  Snapshot: {head[:12]}")
     print(f"\n  Ready to push: clavus stem push")
@@ -4131,7 +4131,7 @@ def cmd_stem_list(args: argparse.Namespace) -> None:
     head = args.snapshot or store.read_ref("HEAD")
 
     if not head:
-        print("❌ No snapshot to show stems for.")
+        print("-- No snapshot to show stems for.")
         return
 
     manifest = stem_store.get_manifest(head)
@@ -4156,12 +4156,12 @@ def cmd_stem_pull(args: argparse.Namespace) -> None:
     remotes = load_remotes(store)
 
     if not remotes:
-        print("❌ No remotes configured. Use 'clavus remote add' first.")
+        print("-- No remotes configured. Use 'clavus remote add' first.")
         return
 
     head = store.read_ref("HEAD")
     if not head:
-        print("❌ No snapshot yet.")
+        print("-- No snapshot yet.")
         return
 
     # Fetch stems from remotes via the sync extension
@@ -4192,12 +4192,12 @@ def cmd_stem_push(args: argparse.Namespace) -> None:
     remotes = load_remotes(store)
 
     if not remotes:
-        print("❌ No remotes configured.")
+        print("-- No remotes configured.")
         return
 
     head = store.read_ref("HEAD")
     if not head:
-        print("❌ No snapshot yet.")
+        print("-- No snapshot yet.")
         return
 
     manifest = stem_store.get_manifest(head)

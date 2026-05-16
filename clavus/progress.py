@@ -48,13 +48,13 @@ class Spinner:
     Usage:
         with Spinner("connecting to relay..."):
             do_slow_thing()
-        # → "✅ connecting to relay..." printed on exit
+        # → "[ok] connecting to relay..." printed on exit
 
     Or manually:
         spinner = Spinner("working")
         spinner.start()
         do_work()
-        spinner.stop("✅ done")
+        spinner.stop("[ok] done")
     """
 
     def __init__(
@@ -106,13 +106,13 @@ class Spinner:
             self._thread.join(0.5)
         elapsed = time.monotonic() - self._start_time if self._start_time else 0
         elapsed_str = f"  ({elapsed:.0f}s)" if elapsed > 0.5 else ""
-        final = message or self._final_message or f"✅ {self._message}"
+        final = message or self._final_message or f"[ok] {self._message}"
         # Clear the spinner line and write final
         self._write(f"\r{' ' * (_terminal_width() - 1)}\r{final}{elapsed_str}\n")
 
     def fail(self, message: Optional[str] = None):
         """Stop the spinner with a failure message."""
-        self.stop(message or f"❌ {self._message}")
+        self.stop(message or f"-- {self._message}")
 
     def _write(self, text: str):
         """Write to stderr, flushing immediately."""
@@ -167,7 +167,7 @@ class ProgressBar:
         for i in range(10):
             do_step(i)
             bar.update(1)
-        bar.stop("✅ Done")
+        bar.stop("[ok] Done")
     """
 
     def __init__(
@@ -250,14 +250,14 @@ class ProgressBar:
             self._tqdm_bar = None
         elapsed = time.monotonic() - self._start_time if self._start_time else 0
         elapsed_str = f"  ({elapsed:.0f}s)" if elapsed > 0.5 else ""
-        final = message or self._final_message or f"✅ {self.desc}"
+        final = message or self._final_message or f"[ok] {self.desc}"
         if self.enabled:
             self.stream.write(f"\r{' ' * (_terminal_width() - 1)}\r{final}{elapsed_str}\n")
             self.stream.flush()
 
     def fail(self, message: Optional[str] = None):
         """Finalize the bar with a failure message."""
-        self.stop(message or f"❌ {self.desc}")
+        self.stop(message or f"-- {self.desc}")
 
     def __enter__(self):
         self.start()
