@@ -2562,6 +2562,25 @@ class ClavusApp(App):
                             remote_ref = remote
                             result = await asyncio.to_thread(pull_from_remote, self.store, proj_index, remote_ref)
                             blob_count, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote_ref)
+
+                            # Materialize audio samples from store → project folder
+                            head_ref = self.store.read_ref("HEAD")
+                            if head_ref:
+                                snap = self.store.load_snapshot(head_ref)
+                                if snap and snap.sample_hashes:
+                                    out_path = Path(proj_index.root_als)
+                                    base_dir = out_path.parent
+                                    base_dir.mkdir(parents=True, exist_ok=True)
+                                    (base_dir / "Samples").mkdir(exist_ok=True, parents=True)
+                                    for sh in snap.sample_hashes:
+                                        fname = self.store.get_sample_filename(sh)
+                                        relpath = self.store.get_sample_relpath(sh) or ""
+                                        if fname and self.store.has_object(sh):
+                                            try:
+                                                self.store.materialize_sample(sh, base_dir, fname, relpath)
+                                            except Exception:
+                                                pass
+
                             parts = []
                             if result.get("cues"): parts.append(f"{result['cues']}c")
                             if result.get("snapshots"): parts.append(f"{result['snapshots']}s")
@@ -2696,6 +2715,29 @@ class ClavusApp(App):
                 snaps_n = result.get("snapshots", 0)
                 conflicts_n = result.get("conflicts", 0)
                 blobs, failed = pull_snapshot_blobs(self.store, proj_index, remote, _on_blob_progress)
+
+            # Materialize audio samples from store → project folder
+            head_ref = self.store.read_ref("HEAD")
+            if head_ref:
+                snap = self.store.load_snapshot(head_ref)
+                if snap and snap.sample_hashes:
+                    out_path = Path(proj_index.root_als)
+                    base_dir = out_path.parent
+                    base_dir.mkdir(parents=True, exist_ok=True)
+                    (base_dir / "Samples").mkdir(exist_ok=True, parents=True)
+                    written = 0
+                    for sh in snap.sample_hashes:
+                        fname = self.store.get_sample_filename(sh)
+                        relpath = self.store.get_sample_relpath(sh) or ""
+                        if fname and self.store.has_object(sh):
+                            try:
+                                self.store.materialize_sample(sh, base_dir, fname, relpath)
+                                written += 1
+                            except Exception:
+                                pass
+                    if written:
+                        self._log_event(f"  🎵 {written} sample{'s' if written != 1 else ''}")
+
             self._sync_status = f"⇊ {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "") + (f" ⚠{len(failed)}" if failed else "")
             if conflicts_n:
                 self._sync_status += f"  \u26a0{conflicts_n}"
