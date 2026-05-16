@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clavus — Ableton Project Sync</title>
+  <style>
+    :root {
+      --bg: #0b1418;
+      --surface: #131c20;
+      --border: #1e2c32;
+      --text: #e8e6e3;
+      --text-muted: #7a8f96;
+      --teal: #1a9e9e;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    a { color: var(--teal); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 4rem 1.5rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+
+    .logo {
+      display: inline-block;
+      width: 64px;
+      height: 64px;
+      background: var(--teal);
+      border-radius: 16px;
+      line-height: 64px;
+      font-size: 2rem;
+      color: var(--bg);
+      margin-bottom: 1.5rem;
+      font-weight: 700;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+
+    .tagline { color: var(--text-muted); font-size: 1.125rem; }
+
+    section { margin-bottom: 3rem; }
+
+    h2 { font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; color: var(--text-muted); }
+    p { margin-bottom: 1rem; }
+    p:last-child { margin-bottom: 0; }
+
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .feature {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+
+    .feature-icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .feature h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .feature p { font-size: 0.875rem; color: var(--text-muted); margin: 0; }
+
+    .support {
+      border-top: 1px solid var(--border);
+      padding-top: 2rem;
+      margin-top: 2rem;
+    }
+
+    .support p { font-size: 0.9rem; color: var(--text-muted); }
+
+    .support-links {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 0.75rem;
+    }
+
+    .support-links a {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.4rem 0.75rem;
+      transition: border-color 0.15s;
+    }
+
+    .support-links a:hover {
+      text-decoration: none;
+      border-color: var(--text-muted);
+    }
+
+    .cta-links {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+
+    .btn:hover { text-decoration: none; opacity: 0.85; }
+    .btn-primary { background: var(--teal); color: var(--bg); }
+    .btn-secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+
+    footer {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 560px) {
+      .features { grid-template-columns: 1fr; }
+      h1 { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <div class="logo">⬡</div>
+      <h1>Clavus</h1>
+      <p class="tagline">Sync Ableton projects across machines — no cloud, no subscription.<br>Your always-on relay. Your samples. Your music.</p>
+    </header>
+
+    <section>
+      <div class="features">
+        <div class="feature">
+          <div class="feature-icon">🔄</div>
+          <h3>Real-time Sync</h3>
+          <p>Push and pull snapshots across machines via a personal Tailscale relay. No uploading to a third party.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">🧬</div>
+          <h3>Content-Addressed</h3>
+          <p>Samples and audio are deduplicated globally. Same sample on both machines? Stored once, referenced everywhere.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">📸</div>
+          <h3>Snapshot &amp; Restore</h3>
+          <p>Save checkpoints before big changes. Restore any previous snapshot instantly. Diff two versions side by side.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">🤝</div>
+          <h3>Collaborate</h3>
+          <p>Share your relay URL with a collaborator. They join, pull your project, push changes back. Live collaboration.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="support">
+      <p>Clavus is free and open source. If it's useful to you, support is appreciated.</p>
+      <div class="support-links">
+        <a href="https://cash.app/$slowhandschris" target="_blank" rel="noopener">Cash App</a>
+        <a href="https://venmo.com/u/chrisandcarr" target="_blank" rel="noopener">Venmo</a>
+      </div>
+    </div>
+
+    <section>
+      <div class="cta-links">
+        <a href="https://github.com/castle-queenside/clavus" class="btn btn-primary">View on GitHub</a>
+        <a href="https://github.com/castle-queenside/clavus/blob/main/README.md" class="btn btn-secondary">Get Started</a>
+      </div>
+    </section>
+
+    <footer>
+      <p>Built by <a href="https://github.com/castle-queenside">@castle-queenside</a> · MIT License</p>
+    </footer>
+
+  </div>
+</body>
+</html>
