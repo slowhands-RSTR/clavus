@@ -2574,7 +2574,8 @@ class ClavusApp(App):
                                     base_dir.mkdir(parents=True, exist_ok=True)
                                     samples_dir = base_dir / "Samples"
                                     samples_dir.mkdir(exist_ok=True, parents=True)
-                                    for sh in snap.sample_hashes:
+                                    total_s = len(snap.sample_hashes)
+                                    for i, sh in enumerate(snap.sample_hashes):
                                         fname = self.store.get_sample_filename(sh)
                                         relpath = self.store.get_sample_relpath(sh) or ""
                                         if fname and self.store.has_object(sh):
@@ -2587,6 +2588,10 @@ class ClavusApp(App):
                                                 self.store.materialize_sample(sh, out_dir, fname, relpath)
                                             except Exception:
                                                 pass
+                                        # Update header every 5 samples or on last
+                                        if i % 5 == 0 or i == total_s - 1:
+                                            self._sync_status = f"\u2b07 samples {i+1}/{total_s}"
+                                            self._update_header()
 
                             parts = []
                             if result.get("cues"): parts.append(f"{result['cues']}c")
@@ -2733,8 +2738,8 @@ class ClavusApp(App):
                     base_dir.mkdir(parents=True, exist_ok=True)
                     samples_dir = base_dir / "Samples"
                     samples_dir.mkdir(exist_ok=True, parents=True)
-                    written = 0
-                    for sh in snap.sample_hashes:
+                    total_s = len(snap.sample_hashes)
+                    for i, sh in enumerate(snap.sample_hashes):
                         fname = self.store.get_sample_filename(sh)
                         relpath = self.store.get_sample_relpath(sh) or ""
                         if fname and self.store.has_object(sh):
@@ -2746,11 +2751,12 @@ class ClavusApp(App):
                                     out_dir = samples_dir
                                 out_dir.mkdir(parents=True, exist_ok=True)
                                 self.store.materialize_sample(sh, out_dir, fname, relpath)
-                                written += 1
                             except Exception:
                                 pass
-                    if written:
-                        self._log_event(f"  🎵 {written} sample{'s' if written != 1 else ''}")
+                        # Update header every 5 samples or on last
+                        if i % 5 == 0 or i == total_s - 1:
+                            self._sync_status = f"\u2b07 samples {i+1}/{total_s}"
+                            self._update_header()
 
             self._sync_status = f"⇊ {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "") + (f" ⚠{len(failed)}" if failed else "")
             if conflicts_n:
