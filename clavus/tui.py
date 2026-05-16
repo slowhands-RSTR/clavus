@@ -2666,21 +2666,21 @@ class ClavusApp(App):
                 self._update_header()
                 await asyncio.sleep(0)
                 self._status("❌ no remote selected — use :remotes to pick one")
-                return
-            # Block push if relay is unreachable — user needs to start clavus share first
-            if not self._peer_reachable:
-                self._sync_status = ""
-                self._update_header()
-                await asyncio.sleep(0)
-                self._status("⚠️ relay unreachable — is 'clavus share' running?")
-                self._log_event("push blocked: relay not reachable — run 'clavus share' first")
-                return
             remote = next((r for r in remotes if r.name == self._peer_name), None)
             if not remote:
                 self._sync_status = ""
                 self._update_header()
                 await asyncio.sleep(0)
                 self._status(f"❌ remote '{self._peer_name}' not found — use :remotes")
+                return
+            # Allow localhost (solo host mode) to work without relay
+            is_localhost = remote.url.startswith("http://localhost")
+            if not self._peer_reachable and not is_localhost:
+                self._sync_status = ""
+                self._update_header()
+                await asyncio.sleep(0)
+                self._status("⚠️ relay unreachable — is 'clavus share' running?")
+                self._log_event("push blocked: relay not reachable — run 'clavus share' first")
                 return
             # Auto-snapshot local changes before pushing (conflict resolution, cue edits, etc.)
             # This ensures HEAD matches what we're about to send.
@@ -2705,6 +2705,16 @@ class ClavusApp(App):
                                 self._log_event(f"● auto-snapshot {snap.hash[:8]} (local changes saved)")
             except Exception:
                 pass  # best-effort — don't block push on snapshot failure
+
+            # Solo host mode: localhost remote with relay down — save locally only
+            if is_localhost and not self._peer_reachable:
+                self._sync_status = f"💾 {time.strftime('%H:%M')} local"
+                self._update_header()
+                await asyncio.sleep(0)
+                self._status("💾 saved locally — relay offline, no remote sync needed")
+                self._log_event("solo push: saved locally, relay not running")
+                return
+
             self._sync_status = f"⬆ {time.strftime('%H:%M')} {remote.name}..."
             self._update_header()
             await asyncio.sleep(0)
