@@ -3614,14 +3614,20 @@ def cmd_pull(args: argparse.Namespace) -> None:
                     out_path = Path(proj.root_als)
                     base_dir = out_path.parent
                     base_dir.mkdir(parents=True, exist_ok=True)
-                    (base_dir / "Samples").mkdir(exist_ok=True, parents=True)
+                    samples_dir = base_dir / "Samples"
+                    samples_dir.mkdir(exist_ok=True, parents=True)
                     written = 0
                     for sh in snap.sample_hashes:
                         fname = store.get_sample_filename(sh)
                         relpath = store.get_sample_relpath(sh) or ""
                         if fname and store.has_object(sh):
                             try:
-                                store.materialize_sample(sh, base_dir, fname, relpath)
+                                if relpath and relpath.count("/") > 0:
+                                    out_dir = base_dir / Path(relpath).parent
+                                else:
+                                    out_dir = samples_dir
+                                out_dir.mkdir(parents=True, exist_ok=True)
+                                store.materialize_sample(sh, out_dir, fname, relpath)
                                 written += 1
                             except Exception:
                                 pass

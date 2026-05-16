@@ -2571,13 +2571,19 @@ class ClavusApp(App):
                                     out_path = Path(proj_index.root_als)
                                     base_dir = out_path.parent
                                     base_dir.mkdir(parents=True, exist_ok=True)
-                                    (base_dir / "Samples").mkdir(exist_ok=True, parents=True)
+                                    samples_dir = base_dir / "Samples"
+                                    samples_dir.mkdir(exist_ok=True, parents=True)
                                     for sh in snap.sample_hashes:
                                         fname = self.store.get_sample_filename(sh)
                                         relpath = self.store.get_sample_relpath(sh) or ""
                                         if fname and self.store.has_object(sh):
                                             try:
-                                                self.store.materialize_sample(sh, base_dir, fname, relpath)
+                                                if relpath and relpath.count("/") > 0:
+                                                    out_dir = base_dir / Path(relpath).parent
+                                                else:
+                                                    out_dir = samples_dir
+                                                out_dir.mkdir(parents=True, exist_ok=True)
+                                                self.store.materialize_sample(sh, out_dir, fname, relpath)
                                             except Exception:
                                                 pass
 
@@ -2724,14 +2730,21 @@ class ClavusApp(App):
                     out_path = Path(proj_index.root_als)
                     base_dir = out_path.parent
                     base_dir.mkdir(parents=True, exist_ok=True)
-                    (base_dir / "Samples").mkdir(exist_ok=True, parents=True)
+                    samples_dir = base_dir / "Samples"
+                    samples_dir.mkdir(exist_ok=True, parents=True)
                     written = 0
                     for sh in snap.sample_hashes:
                         fname = self.store.get_sample_filename(sh)
                         relpath = self.store.get_sample_relpath(sh) or ""
                         if fname and self.store.has_object(sh):
                             try:
-                                self.store.materialize_sample(sh, base_dir, fname, relpath)
+                                # Use relpath if it has subdir structure, else write to Samples/
+                                if relpath and relpath.count("/") > 0:
+                                    out_dir = base_dir / Path(relpath).parent
+                                else:
+                                    out_dir = samples_dir
+                                out_dir.mkdir(parents=True, exist_ok=True)
+                                self.store.materialize_sample(sh, out_dir, fname, relpath)
                                 written += 1
                             except Exception:
                                 pass
