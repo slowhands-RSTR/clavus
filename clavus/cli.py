@@ -1920,11 +1920,33 @@ def cmd_share(args: argparse.Namespace) -> None:
             pass
         pid_path.unlink()
 
-    # Check if port is already in use — try to kill stale Clavus relay
+    # Check if port is in use — try to kill stale Clavus relay
     import socket, platform, signal, subprocess as sp, time
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if sock.connect_ex(("127.0.0.1", port)) == 0:
-        sock.close()
+
+    # Get Tailscale IP to check if Tailscale serve owns the port
+    ts_ip = None
+    try:
+        ts_result = sp.run(
+            ["tailscale", "status", "--self", "--json"], capture_output=True, text=True, timeout=5
+        )
+        import json as json_mod
+        ts_data = json_mod.loads(ts_result.stdout)
+        ts_ips = ts_data.get("Self", {}).get("TailNetIPs", [])
+        if ts_ips:
+            ts_ip = ts_ips[0]
+    except Exception:
+        pass
+
+    # Check 127.0.0.1 AND Tailscale IP — Tailscale serve binds to Tailscale IP, not localhost
+    port_open = False
+    for check_host in ["127.0.0.1"] + ([ts_ip] if ts_ip else []):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if sock.connect_ex((check_host, port)) == 0:
+            sock.close()
+            port_open = True
+            break
+
+    if port_open:
         
         # ── Check if Tailscale serve owns this port ──────────────────────────
         # Tailscale serve proxies :PORT → localhost:PORT — if we kill it the proxy dies.
