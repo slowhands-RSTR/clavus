@@ -114,7 +114,7 @@ def watch(
                 store, proj, proj_name = _get_active_project()
                 if proj_name != current_proj_name:
                     if proj_name:
-                        _print(f"   → Switching to project: {proj_name}")
+                        _print(f"   -> Switching to project: {proj_name}")
                     current_proj_name = proj_name
 
             if not current_proj_name:

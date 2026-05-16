@@ -849,7 +849,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
                 name = host.replace(".", "-")
                 remotes.append(Remote(name=name, url=url))
                 save_remotes(store, remotes)
-                print(f"   [ok] Added remote '{name}' → {url}")
+                print(f"   [ok] Added remote '{name}' -> {url}")
                 existing_urls.add(url)
         print()
         print("   [TIP] Run 'clavus find' to scan the network for active relays.")
@@ -875,14 +875,14 @@ def cmd_setup(args: argparse.Namespace) -> None:
         if relay_url not in existing_urls:
             remotes.append(Remote(name="relay", url=relay_url))
             save_remotes(store, remotes)
-            print(f"   [ok] Added remote 'relay' → {relay_url}")
+            print(f"   [ok] Added remote 'relay' -> {relay_url}")
     elif collab_url:
         # Remove any stale localhost remotes — they won't work on this machine
         before = len(remotes)
         remotes = [r for r in remotes if "localhost" not in r.url and "127.0.0.1" not in r.url]
         if len(remotes) < before:
             save_remotes(store, remotes)
-            print(f"   🧹 Removed {before - len(remotes)} stale localhost remote(s)")
+            print(f"   [sweep] Removed {before - len(remotes)} stale localhost remote(s)")
 
     # Summary
     remotes = load_remotes(store)
@@ -895,7 +895,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print()
     from clavus.config import DEFAULT_PROJECTS_DIR
     current_dir = cfg.projects_dir or DEFAULT_PROJECTS_DIR
-    print(f"📁 Projects folder [{current_dir}]: ", end="")
+    print(f"[folder] Projects folder [{current_dir}]: ", end="")
     try:
         pd = input().strip()
         if pd:
@@ -967,14 +967,14 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print()
     print("   Next steps:")
     if role == "host":
-        print("     clavus share            ← start relay and get your share URL")
-        print("     clavus init /path/to.als  ← track your first project")
+        print("     clavus share            <- start relay and get your share URL")
+        print("     clavus init /path/to.als  <- track your first project")
     elif role == "join":
-        print("     clavus pull             ← pull projects from the host")
-        print("     clavus tui              ← open the dashboard (press p to pull)")
+        print("     clavus pull             <- pull projects from the host")
+        print("     clavus tui              <- open the dashboard (press p to pull)")
     else:
-        print("     clavus init /path/to.als  ← track a local project")
-        print("     clavus tui              ← open the dashboard")
+        print("     clavus init /path/to.als  <- track a local project")
+        print("     clavus tui              <- open the dashboard")
     print()
     print("   [TIP] Quick start (host):  clavus share")
     print("   [TIP] Quick start (join):   clavus pull && clavus tui")
@@ -1007,7 +1007,7 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
 
     # Project name from .als filename
     project_name = als_path.stem
-    logs.append(f"📁 Project: {project_name}")
+    logs.append(f"[folder] Project: {project_name}")
 
     # Parse the .als
     project = parse_als(als_path)
@@ -1031,14 +1031,14 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
         ignore=shutil.ignore_patterns("Backup*", "Ableton Project Info", ".DS_Store"),
         dirs_exist_ok=True,
     )
-    logs.append(f"[ok] Copied → {target_dir}")
+    logs.append(f"[ok] Copied -> {target_dir}")
 
     # Rename .als to match project name if they differ
     if not target_als.exists():
         existing = list(target_dir.glob("*.als"))
         if existing:
             existing[0].rename(target_als)
-            logs.append(f"📛 Renamed {existing[0].name} → {target_als.name}")
+            logs.append(f"📛 Renamed {existing[0].name} -> {target_als.name}")
 
     # Update als_path to the copy
     als_path = target_als
@@ -1105,9 +1105,9 @@ def cmd_init(args: argparse.Namespace) -> None:
 
         if len(als_files) == 1:
             als_path = als_files[0]
-            print(f"📁 Found: {als_path.name}")
+            print(f"[folder] Found: {als_path.name}")
         else:
-            print("📁 Found multiple .als files:")
+            print("[folder] Found multiple .als files:")
             for i, f in enumerate(als_files[:20], 1):
                 print(f"  {i}. {f.name}  ({f.parent})")
             print()
@@ -1154,7 +1154,7 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     # ── Project name ──
     suggested = als_path.stem
-    print(f"📁 Project: {suggested}")
+    print(f"[folder] Project: {suggested}")
     if sys.stdin.isatty():
         name_input = input(f"   Name [{suggested}]: ").strip()
         project_name = name_input if name_input else suggested
@@ -1203,7 +1203,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         print(f"   Use 'clavus project \"{project_name}\"' to switch to it.")
         return
 
-    print(f"📁 Copying project to {target_dir}...")
+    print(f"[folder] Copying project to {target_dir}...")
     source_dir = als_path.parent
     shutil.copytree(
         source_dir, target_dir,
@@ -1216,12 +1216,12 @@ def cmd_init(args: argparse.Namespace) -> None:
         existing = list(target_dir.glob("*.als"))
         if existing:
             existing[0].rename(target_als)
-            print(f"   📛 Renamed {existing[0].name} → {target_als.name}")
+            print(f"   📛 Renamed {existing[0].name} -> {target_als.name}")
 
     # Update als_path to the copy and re-parse
     als_path = target_als
     project.file_path = str(als_path)  # update path in parsed project
-    print(f"   [ok] Copied → {target_dir}")
+    print(f"   [ok] Copied -> {target_dir}")
     print()
 
     clavus_proj = ClavusProject(
@@ -2000,7 +2000,7 @@ def cmd_share(args: argparse.Namespace) -> None:
                 proxy_match = re.search(rf"proxy\s+http://localhost:(\d+)", ts_output)
                 if port_match and proxy_match:
                     ts_proxy_port = int(proxy_match.group(1))
-                    print(f"   [info]  Port {port} is proxied by tailscale serve → localhost:{ts_proxy_port}")
+                    print(f"   [info]  Port {port} is proxied by tailscale serve -> localhost:{ts_proxy_port}")
                     port = 7891
                     print(f"   [spin] Switched to port 7891 (tailscale serve handles external traffic on 7890)")
         except Exception:
@@ -2135,7 +2135,7 @@ def cmd_share(args: argparse.Namespace) -> None:
             print(f"  -- Could not enable tailscale serve: {e}")
         print()
 
-    print(f"  [KEYBOARD] Clavus Share")
+    print(f"  >> CLAVUS SHARE")
     print(f"  {'─' * 45}")
     if ts_url:
         print()
@@ -2395,13 +2395,13 @@ def cmd_join(args: argparse.Namespace) -> None:
             print(f"    --  Cannot reach {host}:{port}")
             print()
             print(f"    This address uses Tailscale MagicDNS. Check:")
-            print(f"    1. Is Tailscale running?        → tailscale status")
-            print(f"    2. On the same tailnet?         → tailscale status")
-            print(f"    3. Host shared their machine?   → ask the host to check")
-            print(f"       tailscale.com → Machines → (their machine) → Share")
-            print(f"    4. Is the relay running?        → host: clavus share")
+            print(f"    1. Is Tailscale running?        -> tailscale status")
+            print(f"    2. On the same tailnet?         -> tailscale status")
+            print(f"    3. Host shared their machine?   -> ask the host to check")
+            print(f"       tailscale.com -> Machines -> (their machine) -> Share")
+            print(f"    4. Is the relay running?        -> host: clavus share")
             if ts_running:
-                print(f"    5. Try the Tailscale IP direct:  → clavus join <100.x.x.x>:{port}")
+                print(f"    5. Try the Tailscale IP direct:  -> clavus join <100.x.x.x>:{port}")
         else:
             print(f"    --  Cannot reach {host}:{port} (TCP connection refused)")
             print()
@@ -3157,7 +3157,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
             return
         match.name = new_name
         save_remotes(store, remotes)
-        print(f"✏️ Renamed remote '{old_name}' → '{new_name}'")
+        print(f"[edit] Renamed remote '{old_name}' -> '{new_name}'")
         return
 
     # ── Existing behavior: add / remove / list ──
@@ -3173,7 +3173,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
         url = args.url or f"http://{name}.local:7890"
         remotes.append(Remote(name=name, url=url))
         save_remotes(store, remotes)
-        print(f"[NET] Added remote '{name}' → {url}")
+        print(f"[NET] Added remote '{name}' -> {url}")
         return
 
     if remove_name:
@@ -3201,7 +3201,7 @@ def cmd_remote(args: argparse.Namespace) -> None:
             return
         match.name = new_name
         save_remotes(store, remotes)
-        print(f"✏️  Renamed '{old}' → '{new_name}'")
+        print(f"[edit]  Renamed '{old}' -> '{new_name}'")
         return
 
     # List remotes
@@ -3298,7 +3298,7 @@ def cmd_find(args: argparse.Namespace) -> None:
                 return
         remotes.append(Remote(name=peer.name, url=peer.url))
         save_remotes(store, remotes)
-        print(f"  [ok] Paired with '{peer.name}' → {peer.url}")
+        print(f"  [ok] Paired with '{peer.name}' -> {peer.url}")
     print()
 
 def cmd_push(args: argparse.Namespace) -> None:
@@ -3612,7 +3612,7 @@ def cmd_pull(args: argparse.Namespace) -> None:
                 if failed:
                     parts.append(f"{len(failed)} blob(s) failed")
 
-            # Materialize audio samples from store → project folder
+            # Materialize audio samples from store -> project folder
             head_ref = store.read_ref("HEAD")
             if head_ref:
                 snap = store.load_snapshot(head_ref)
@@ -3924,7 +3924,7 @@ def cmd_open(args: argparse.Namespace) -> None:
     # Materialize audio samples into the project folder first (so they exist)
     sample_written = 0
     if snap.sample_hashes:
-        # Extract filename → RelativePath mapping from the original .als
+        # Extract filename -> RelativePath mapping from the original .als
         import gzip as _gzip, re as _re
         _xml = _gzip.decompress(raw_als).decode("utf-8", errors="replace")
         _als_relpaths: dict[str, str] = {}
@@ -3952,11 +3952,11 @@ def cmd_open(args: argparse.Namespace) -> None:
     # raw_als = rewrite_als_sample_paths(raw_als, out_path.parent)
 
     out_path.write_bytes(raw_als)
-    print(f"[ok] {project_name}.als → {out_path}")
+    print(f"[ok] {project_name}.als -> {out_path}")
     print(f"   Snapshot: {snap.short_hash()} — {snap.message or '(no message)'}")
     print(f"   {snap.track_count} tracks, {snap.bpm} BPM")
     if sample_written:
-        print(f"   🎵 {sample_written} audio sample{'s' if sample_written != 1 else ''} → {base_dir}")
+        print(f"   🎵 {sample_written} audio sample{'s' if sample_written != 1 else ''} -> {base_dir}")
 
     # Launch Ableton
     system = platform.system()

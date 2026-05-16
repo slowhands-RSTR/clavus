@@ -379,7 +379,7 @@ class ClavusApp(App):
         self._remote_list: list = []  # Remote objects for picker
         self._relay_proc = None
         self._busy: bool = False
-        self._last_sync: str = ""     # "⬆ ✓ 12:34" or "⬇ ✓ 12:34" — last completed sync
+        self._last_sync: str = ""     # "⬆ [ok] 12:34" or "⬇ [ok] 12:34" — last completed sync
         self._last_snap_time: float = 0.0  # unix timestamp of last auto-snapshot
         self._sync_status: str = ""    # Live sync progress: "⬆ pushing...", "⬇ pulling..."
         self._sync_progress: str = ""  # Per-category: "c:3/10 a:1/5 s:5/20"
@@ -734,7 +734,7 @@ class ClavusApp(App):
                         [sys.executable, "-m", "clavus", "p2p", "--connect", arg],
                         capture_output=True, text=True, encoding='utf-8', timeout=60)
                     out = (_p.stdout or "") + (_p.stderr or "")
-                    self._log_event(f":p2p-connect {arg} → {out.strip()[:200]}")
+                    self._log_event(f":p2p-connect {arg} -> {out.strip()[:200]}")
                     # Parse output for a clear summary
                     lines = [l.strip() for l in out.split("\n") if l.strip()]
                     if "CONFLICT" in out:
@@ -786,7 +786,7 @@ class ClavusApp(App):
                     capture_output=True, text=True, encoding='utf-8', timeout=15,
                     env=_env)
                 out = (_p.stdout or "") + (_p.stderr or "")
-                self._log_event(f":find → {out.strip()[:300]}")
+                self._log_event(f":find -> {out.strip()[:300]}")
                 # Show the actual output to the user
                 summary = out.strip().split("\n")[-1][:80] if out.strip() else "no output"
                 if "No Clavus servers" in out or "no peers" in out.lower():
@@ -805,7 +805,7 @@ class ClavusApp(App):
                     [sys.executable, "-m", "clavus", "repair"],
                     capture_output=True, text=True, encoding='utf-8', timeout=30)
                 out = (_p.stdout or "") + (_p.stderr or "")
-                self._log_event(f":repair → {out.strip()[:300]}")
+                self._log_event(f":repair -> {out.strip()[:300]}")
                 self.notify("[ok] Store repair complete", timeout=5.0)
                 self._status("repair done")
                 self._connect()  # reload
@@ -902,9 +902,9 @@ class ClavusApp(App):
         """Import a project from a filesystem path — blocking I/O offloaded to thread."""
         import asyncio
         # Clean up pasted paths from Finder/Explorer:
-        #   "~/some/path"  → strip quotes + expand tilde
-        #   ~'/some/path'  → Finder prefill + quotes
-        #   /absolute/path → use as-is
+        #   "~/some/path"  -> strip quotes + expand tilde
+        #   ~'/some/path'  -> Finder prefill + quotes
+        #   /absolute/path -> use as-is
         path = path.strip()
         # Strip any quoting (Finder wraps paths with spaces in single quotes)
         for q in ("'", '"'):
@@ -1086,7 +1086,7 @@ class ClavusApp(App):
         proj.root_als = str(out)
         self.store.set_index(proj)
 
-        msg = f"restored {self.project}.als ← snapshot {resolved[:10]}"
+        msg = f"restored {self.project}.als <- snapshot {resolved[:10]}"
         self._log_event(msg)
 
         # Launch in Ableton
@@ -1185,9 +1185,9 @@ class ClavusApp(App):
         """Manage remotes: list, add, remove, rename.
         
         Smart rename:
-          :remote rename Relay       → renames connected remote to "Relay"
-          :remote rename mac Studio  → renames remote "mac" to "mac Studio"
-          :remote rename "mac studio"→ renames connected remote to "mac studio"
+          :remote rename Relay       -> renames connected remote to "Relay"
+          :remote rename mac Studio  -> renames remote "mac" to "mac Studio"
+          :remote rename "mac studio"-> renames connected remote to "mac studio"
         """
         import subprocess, sys
         try:
@@ -1196,15 +1196,15 @@ class ClavusApp(App):
                 parts = action.split()
                 if parts[0] == "rename" and len(parts) >= 2:
                     if len(parts) == 2:
-                        # :remote rename Relay → rename connected remote
+                        # :remote rename Relay -> rename connected remote
                         if self._peer_name:
                             cmd.extend(["rename", self._peer_name, parts[1]])
-                            self._log_event(f"renaming '{self._peer_name}' → '{parts[1]}'")
+                            self._log_event(f"renaming '{self._peer_name}' -> '{parts[1]}'")
                         else:
                             self._status("no connected remote -- use :remote rename <old> <new>")
                             return
                     else:
-                        # :remote rename mac Studio → is "mac" an existing remote?
+                        # :remote rename mac Studio -> is "mac" an existing remote?
                         from clavus.sync import load_remotes
                         remotes = load_remotes(self.store)
                         first = parts[1]
@@ -1212,12 +1212,12 @@ class ClavusApp(App):
                         new_name = " ".join(parts[2:])
                         if match:
                             cmd.extend(["rename", match.name, new_name])
-                            self._log_event(f"renaming '{match.name}' → '{new_name}'")
+                            self._log_event(f"renaming '{match.name}' -> '{new_name}'")
                         elif self._peer_name:
-                            # First word isn't a remote → treat all as new name
+                            # First word isn't a remote -> treat all as new name
                             full = " ".join(parts[1:])
                             cmd.extend(["rename", self._peer_name, full])
-                            self._log_event(f"renaming '{self._peer_name}' → '{full}'")
+                            self._log_event(f"renaming '{self._peer_name}' -> '{full}'")
                         else:
                             self._status(f"remote '{first}' not found -- use :remote rename <old> <new>")
                             return
@@ -1462,7 +1462,7 @@ class ClavusApp(App):
             self._load_snapshots_from_disk()
             self._render()
             self._status(f"snapshot renamed: '{text[:40]}'")
-            self._log_event(f"renamed snapshot {full[:12]}: {old_msg[:30]} → {text[:30]}")
+            self._log_event(f"renamed snapshot {full[:12]}: {old_msg[:30]} -> {text[:30]}")
         except Exception as e:
             self._status(f"edit failed: {e}")
             self._log_event(f"snapshot edit failed: {e}")
@@ -2251,7 +2251,7 @@ class ClavusApp(App):
             if cue_changed or head_changed:
                 prev_head = getattr(self, '_last_auto_head', None)
                 self._last_auto_head = current_head
-                self._log_event(f"auto-refresh: cues {len(self.cues)}→{active_count}, head {str(prev_head or '?')[:8]}→{str(current_head or '?')[:8]}")
+                self._log_event(f"auto-refresh: cues {len(self.cues)}->{active_count}, head {str(prev_head or '?')[:8]}->{str(current_head or '?')[:8]}")
                 
                 # If HEAD moved, pull missing blobs and reconstruct .als on disk
                 if head_changed and current_head and remote:
@@ -2605,7 +2605,7 @@ class ClavusApp(App):
                             result = await asyncio.to_thread(pull_from_remote, self.store, proj_index, remote_ref)
                             blob_count, failed = await asyncio.to_thread(pull_snapshot_blobs, self.store, proj_index, remote_ref)
 
-                            # Materialize audio samples from store → project folder
+                            # Materialize audio samples from store -> project folder
                             head_ref = self.store.read_ref("HEAD")
                             if head_ref:
                                 snap = self.store.load_snapshot(head_ref)
@@ -2730,8 +2730,8 @@ class ClavusApp(App):
             self._sync_progress = ""
             self._update_header()
 
-            # Fast path: localhost → data's already on disk, just re-read
-            # Fast path: localhost → data's already on disk, just re-read
+            # Fast path: localhost -> data's already on disk, just re-read
+            # Fast path: localhost -> data's already on disk, just re-read
             is_localhost = remote.url.startswith("http://localhost") or remote.url.startswith("http://127.0.0.1")
             relay_live = True
             if is_localhost:
@@ -2771,7 +2771,7 @@ class ClavusApp(App):
                 conflicts_n = result.get("conflicts", 0)
                 blobs, failed = pull_snapshot_blobs(self.store, proj_index, remote, _on_blob_progress)
 
-            # Materialize audio samples from store → project folder
+            # Materialize audio samples from store -> project folder
             head_ref = self.store.read_ref("HEAD")
             if head_ref:
                 snap = self.store.load_snapshot(head_ref)
@@ -3444,7 +3444,7 @@ class ClavusApp(App):
         for i, c in enumerate(self.cues):
             color = C["yellow"] if c.status == "pending" else (
                 C["green"] if c.status == "resolved" else C["muted"])
-            dot = "✓" if c.status == "resolved" else "●"
+            dot = "[ok]" if c.status == "resolved" else "●"
             rc = f" [{C['dim']}]{len(c.replies)}r[/]" if c.replies else ""
             assignee_part = f"  👤 {c.assignee}" if c.assignee else ""
             in_prog = f" [{C['yellow']}]▶[/]" if c.in_progress else ""
@@ -3557,9 +3557,9 @@ class ShareModal(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         join_url = f"http://{self.tailscale_ip or self.lan_ip}:{self.port}"
-        scope_note = f" 🔒 scoped to: {self.project}" if self.project else " (all projects)"
+        scope_note = f" [PK] scoped to: {self.project}" if self.project else " (all projects)"
         with Vertical(id="share-box"):
-            yield Static(f"🎹  Clavus Share — relay running{scope_note}", id="share-title")
+            yield Static(f"[kbd]  Clavus Share — relay running{scope_note}", id="share-title")
             yield Static(f"  {join_url}  ", id="share-url")
             yield Static(
                 "Collaborator runs:  clavus join " + join_url,

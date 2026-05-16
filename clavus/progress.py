@@ -48,7 +48,7 @@ class Spinner:
     Usage:
         with Spinner("connecting to relay..."):
             do_slow_thing()
-        # → "[ok] connecting to relay..." printed on exit
+        # -> "[ok] connecting to relay..." printed on exit
 
     Or manually:
         spinner = Spinner("working")
