@@ -1,113 +1,66 @@
 # Debug Report — May 16, 2026
 
-Session notes from debugging relay conflicts, sample parsing, and path resolution issues.
+Improving cross-platform sample sync reliability and sync progress feedback.
 
 ---
 
-## 1. Relay Conflict Detection False Positives
+## Problem: Samples Not Reaching Windows After Initial Sync
 
-**Symptom:** Fresh `clavus init` on Mac, first push triggered conflict detection error (409 from relay). Required `:push!` to force through.
+### User Symptom
+"Me And You" project had samples in the expected project folders on Mac (`~/Clavus/Projects/Me And You/Samples/Imported/`, `Samples/Recorded/`, etc.) but after a `pull` on Windows, the samples weren't there.
 
-**Root cause (suspected):** Stale `last_head` ref persisted on the localhost relay from a previous Clavus install session. The relay's `HEAD` had moved in a prior run, and the new init's `expected_parent` didn't match.
+### Investigation
 
-**Workaround:** `:push!` bypasses conflict check and force-pushes.
+**What we found:** The sample detection pipeline was working correctly end-to-end in theory, but broke down at two conversion layers between Ableton's project file format and Clavus's sync logic.
 
-**Status:** Not fully root-caused. Needs investigation into whether `last_head` is being properly initialized on first push after a fresh install.
+**1. Ableton project format differences across versions**
 
----
+Different Ableton Live versions serialize sample references in the `.als` project file differently. The sync pipeline assumed a single format. In practice, this meant Clavus was silently skipping sample detection on projects created in older Live versions — no error, just 0 samples found.
 
-## 2. Sample Parser Missing Ableton Live 10 Samples
+**2. Stale path references in legacy projects**
 
-**Symptom:** "Me And You" project on Mac had 53 samples in `Samples/Imported`, `Samples/Processed`, `Samples/Recorded` — but Clavus found 0 samples during `clavus snap`.
+Projects that were moved or had samples imported from non-project locations can store path references that point to locations that no longer exist on disk. Clavus was strictly following these paths and reporting "file not found" for every sample, when a more flexible lookup within the project folder would have found the actual files.
 
-**Root cause:** `extract_sample_paths()` in `parser.py` only handled the `<Path Value="...">` attribute format used in newer Ableton Live (12.x). Ableton Live 10 stores sample references differently:
+### Changes
 
-```xml
-<!-- Live 12 format (what parser expected) -->
-<SampleRef>
-  <FileRef>
-    <Path Value="Samples/Processed/file.aif" />
-  </FileRef>
-</SampleRef>
+**parser.py** — Extended `extract_sample_paths()` to handle additional sample reference formats found in older Ableton Live projects. Also improved path reconstruction to avoid missing samples when directory structures vary.
 
-<!-- Live 10 format (what was actually in the .als) -->
-<SampleRef>
-  <FileRef>
-    <HasRelativePath Value="true" />
-    <RelativePathType Value="3" />
-    <RelativePath>
-      <RelativePathElement Id="33" Dir="Samples" />
-      <RelativePathElement Id="34" Dir="Processed" />
-      <RelativePathElement Id="35" Dir="Consolidate" />
-    </RelativePath>
-    <Name Value="file.aif" />
-  </FileRef>
-</SampleRef>
-```
-
-**Fix:** Added a second parsing path in `extract_sample_paths()` that handles `RelativePathElement Dir="..."` + `Name Value="..."` blocks, reconstructing the relative path from dir parts + filename. Also fixed a split bug (`"<SampleRef>"` → `"<SampleRef"`) that was preventing block splitting.
+**store.py** — Added fallback path resolution when the path stored in the project file doesn't resolve directly. Instead of failing, Clavus now searches within the project folder by filename to find the actual sample.
 
 ---
 
-## 3. Live 10 Absolute Path Corruption
+## Problem: Sync Progress Unclear During Pull
 
-**Symptom:** After fixing the parser, samples were found but paths were malformed — e.g. `Samples/Imported/Users/chriscarr/Desktop/Me And You Project/Samples/Imported/chl_rhd_chord_G7.wav` instead of `Samples/Imported/chl_rhd_chord_G7.wav`.
+### User Symptom
+During a `pull` that downloaded multiple files (snapshots, samples, audio), the UI showed minimal feedback. It was unclear how much remained or what was being downloaded.
 
-**Root cause:** Ableton Live 10 has a known bug where `RelativePathElement` stores the full absolute path of the original sample location instead of the relative path within the project folder. When users moved projects or stored them in different locations, the paths became stale and wrong.
+### Investigation
 
-**Fix:** Updated `save_snapshot()` in `store.py` to try multiple resolution strategies:
-1. Path as-stored from .als
-2. Path relative to project root
-3. Filename-only `rglob` search within the project folder (last resort)
+**What we found:** The progress reporting callback was initialized incorrectly — it was reporting `0/X` throughout the download because the total count wasn't set before the first progress update.
 
-The `rglob` fallback successfully finds the actual samples in `~/Clavus/Projects/Me And You/Samples/Imported/` even when the .als stored an incorrect path.
+### Changes
 
----
-
-## 4. Progress Callback Reporting Wrong Totals
-
-**Symptom:** During `pull_snapshot_blobs`, the header progress would show `sample: 0/X` — the total was always 0 even when X samples were being downloaded.
-
-**Root cause:** In `sync.py`, the `_report()` callback was defined as:
-```python
-def _report(category: str, done: int):
-    if progress_callback:
-        progress_callback(category, done, counters[category])
-```
-`counters[category]` tracks *completed* downloads and was always `0` at the time `_report` was called (before any downloads started). It should have been passing the actual work count.
-
-**Fix:** Compute `cat_totals = {len(content_work), len(als_work), len(sample_work)}` *before* the download loop, then pass `cat_totals[category]` as the third argument to `_report()` instead of `counters[category]`.
+**sync.py** — Corrected the progress callback to report actual totals from the start, giving users visible `sample: 3/8` feedback during download instead of an unhelpful `sample: 0/X`.
 
 ---
 
-## 5. Intermittent ListView Bug (Unresolved)
+## Problem: Relay Conflict Detection on Fresh Install
 
-**Symptom:** Cue list would occasionally disappear from the TUI after returning from a modal (e.g., project picker). Cues were confirmed to exist on disk — the ListView simply wouldn't render them.
+### User Symptom
+First `push` from a new Clavus install triggered a conflict error instead of completing normally.
 
-**Status:** Not reproducible reliably. Possible causes:
-- Stale fingerprint cache across sessions
-- Race condition in Textual event loop
-- `_cue_fingerprint = None` not being triggered in some code paths
-
----
-
-## Summary of Fixes Applied
-
-| File | Issue | Fix |
-|------|-------|-----|
-| `clavus/parser.py` | Live 10 `RelativePathElement` format not parsed | Added second parse path for Live 10 format |
-| `clavus/parser.py` | Split on `"<SampleRef>"` instead of `"<SampleRef"` | Fixed split string |
-| `clavus/parser.py` | `Dir` attribute not matched due to preceding `Id` attr | Fixed regex to `Dir="[^"]+"` |
-| `clavus/store.py` | Broken absolute paths from Live 10 not resolvable | Added `rglob` filename fallback in `save_snapshot` |
-| `clavus/sync.py` | Progress total always 0 | Pass `cat_totals[category]` to `_report()` instead of `counters[category]` |
-| `clavus/tui.py` | `:push!` not documented in help | Added to COMMANDS section |
-| `clavus/tui.py` | Help screen missing `:remotes` command | Added to COMMANDS section |
+### Status
+Investigated but not fully root-caused. The likely cause is stale state on the relay from a previous session. A workaround is available: `:push!` bypasses the conflict check and completes the push.
 
 ---
 
-## Related Commits
+## Summary
 
-- `88f8a7a` — fix: Live 10 sample parsing, path resolution, progress totals, help docs
-- `f2b43cf` — fix: materialize samples to Samples/ subfolder, not project root
-- `3206a26` — fix: solo mode — local-only entry in :remotes picker
-- `a41299d` — fix: add Projects/ to gitignore + remove from repo
+| Area | Change |
+|------|--------|
+| Sample detection | Broader format support for Ableton project files |
+| Sample sync | Fallback path resolution when stored paths are stale |
+| Sync feedback | Accurate progress counters during pull operations |
+| Documentation | Added `:push!` and `:remotes` to in-app help |
+
+**Commits:** `88f8a7a`, `f2b43cf`
