@@ -2452,11 +2452,56 @@ class ClavusApp(App):
             proj_index = self.store.get_index(self.project) if self.project else None
             remotes = load_remotes(self.store)
             if not remotes:
-                self._sync_status = ""
-                self._update_header()
-                await asyncio.sleep(0)
-                self._status("\u274c no remotes — use :join http://...")
-                return
+                # Auto-launch relay if no remotes configured
+                relay_port = self._cfg.port if self._cfg.port else 7891
+                relay_url = f"http://localhost:{relay_port}"
+                relay_live = False
+                try:
+                    import urllib.request
+                    r = urllib.request.urlopen(f"{relay_url}/api/ping", timeout=1)
+                    relay_live = (r.status == 200)
+                except Exception:
+                    pass
+
+                if not relay_live:
+                    self._status("🔄 starting relay...")
+                    self._log_event("auto-spawning clavus share")
+                    import platform, subprocess as sp
+                    if platform.system() == "Windows":
+                        sp.Popen(["py", "-m", "clavus", "share"],
+                                 stdout=sp.DEVNULL, stderr=sp.DEVNULL,
+                                 creationflags=getattr(sp, "CREATE_NEW_PROCESS_GROUP", 0))
+                    else:
+                        sp.Popen(["python", "-m", "clavus", "share"],
+                                 stdout=sp.DEVNULL, stderr=sp.DEVNULL,
+                                 start_new_session=True)
+                    for _ in range(30):
+                        await asyncio.sleep(0.2)
+                        try:
+                            r = urllib.request.urlopen(f"{relay_url}/api/ping", timeout=1)
+                            if r.status == 200:
+                                relay_live = True
+                                break
+                        except Exception:
+                            continue
+
+                if relay_live:
+                    from clavus.sync import save_remotes
+                    local_remote = next((r for r in remotes if r.url == relay_url), None)
+                    if not local_remote:
+                        from clavus.sync import Remote
+                        local_remote = Remote(name="localhost", url=relay_url, last_head="", last_sync=0)
+                        remotes.append(local_remote)
+                        save_remotes(self.store, remotes)
+                        self._log_event("created localhost remote entry")
+                    self._peer_name = local_remote.name
+                    self._peer_reachable = True
+                else:
+                    self._sync_status = ""
+                    self._update_header()
+                    await asyncio.sleep(0)
+                    self._status("❌ relay failed to start — run 'clavus share' manually")
+                    return
             self._sync_status = f"\u2b07 {time.strftime('%H:%M')} pulling..."
             self._update_header()
             await asyncio.sleep(0)
@@ -2690,6 +2735,52 @@ class ClavusApp(App):
                 self._status("\u274c no project")
                 return
             remotes = load_remotes(self.store)
+            # Auto-launch relay if no remotes configured
+            if not remotes:
+                relay_port = self._cfg.port if self._cfg.port else 7891
+                relay_url = f"http://localhost:{relay_port}"
+                relay_live = False
+                try:
+                    import urllib.request
+                    r = urllib.request.urlopen(f"{relay_url}/api/ping", timeout=1)
+                    relay_live = (r.status == 200)
+                except Exception:
+                    pass
+
+                if not relay_live:
+                    self._status("🔄 starting relay...")
+                    self._log_event("auto-spawning clavus share")
+                    import platform, subprocess as sp
+                    if platform.system() == "Windows":
+                        sp.Popen(["py", "-m", "clavus", "share"],
+                                 stdout=sp.DEVNULL, stderr=sp.DEVNULL,
+                                 creationflags=getattr(sp, "CREATE_NEW_PROCESS_GROUP", 0))
+                    else:
+                        sp.Popen(["python", "-m", "clavus", "share"],
+                                 stdout=sp.DEVNULL, stderr=sp.DEVNULL,
+                                 start_new_session=True)
+                    for _ in range(30):
+                        await asyncio.sleep(0.2)
+                        try:
+                            r = urllib.request.urlopen(f"{relay_url}/api/ping", timeout=1)
+                            if r.status == 200:
+                                relay_live = True
+                                break
+                        except Exception:
+                            continue
+
+                if relay_live:
+                    from clavus.sync import save_remotes, Remote
+                    local_remote = next((r for r in remotes if r.url == relay_url), None)
+                    if not local_remote:
+                        local_remote = Remote(name="localhost", url=relay_url, last_head="", last_sync=0)
+                        remotes.append(local_remote)
+                        save_remotes(self.store, remotes)
+                        self._log_event("created localhost remote entry")
+                    self._peer_name = local_remote.name
+                    self._peer_reachable = True
+                # If relay failed to start, fall through to solo mode below
+
             if not self._peer_name:
                 self._sync_status = ""
                 self._update_header()
