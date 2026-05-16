@@ -23,5 +23,9 @@ venv/
 # User data directory (snapshots, projects, sample blobs)
 .clavus/
 
+# User's Ableton projects — stored outside the repo
+# Clavus syncs with this folder but it stays on the user's machine
+/Projects/
+
 # Log files
 *.log
