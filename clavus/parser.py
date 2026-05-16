@@ -402,8 +402,15 @@ def _parse_return_tracks(root: ET.Element, project: Project) -> None:
 def extract_sample_paths(als_path: str | Path) -> list[str]:
     """Extract all referenced audio sample paths from a .als file.
 
-    Parses the gzip-compressed XML and finds all SampleRef > FileRef > Path
-    elements. Returns absolute paths (deduplicated).
+    Parses the gzip-compressed XML and finds all SampleRef > FileRef paths.
+    Handles two formats used by different Live versions:
+
+    Newer Live (12.1+):    <Path Value="Samples/Processed/file.wav" />
+
+    Older Live (RelativePathElement tree):
+        <RelativePathElement Dir="Samples" />
+        <RelativePathElement Dir="Processed" />
+        <Name Value="file.wav" />
 
     Only works on 'Collected' projects where samples are in the project folder.
     """
@@ -414,14 +421,32 @@ def extract_sample_paths(als_path: str | Path) -> list[str]:
         data = gzip.decompress(f.read())
 
     text = data.decode("utf-8", errors="replace")
+    return _parse_sample_paths_from_text(text)
+
+
+def _parse_sample_paths_from_text(text: str) -> list[str]:
+    """Parse sample paths from raw .als XML text. Handles both path formats."""
+    import re
+
     paths: set[str] = set()
 
     for block in text.split("<SampleRef")[1:]:
         end = block.find("</SampleRef>")
         if end > 0:
             block = block[:end]
+
+        # Format 1: <Path Value="relative/path/file.wav" /> (Live 12.1+)
         for match in re.finditer(r'<Path\s+Value="([^"]+)"', block):
             paths.add(match.group(1))
+
+        # Format 2: <RelativePathElement Id="N" Dir="folder" /> + <Name Value="file.wav" /> (older Live)
+        dir_parts: list[str] = []
+        for dir_match in re.finditer(r'<RelativePathElement[^>]*\sDir="([^"]+)"', block):
+            dir_parts.append(dir_match.group(1))
+        name_match = re.search(r'<Name\s+Value="([^"]+)"', block)
+        if dir_parts and name_match:
+            rel_path = "/".join(dir_parts) + "/" + name_match.group(1)
+            paths.add(rel_path)
 
     return sorted(paths)
 
@@ -429,20 +454,9 @@ def extract_sample_paths(als_path: str | Path) -> list[str]:
 def extract_sample_paths_from_bytes(raw_als: bytes) -> list[str]:
     """Extract sample paths from raw .als bytes (already decompressed)."""
     import gzip
-    import re
 
-    data = gzip.decompress(raw_als)
-    text = data.decode("utf-8", errors="replace")
-    paths: set[str] = set()
-
-    for block in text.split("<SampleRef")[1:]:
-        end = block.find("</SampleRef>")
-        if end > 0:
-            block = block[:end]
-        for match in re.finditer(r'<Path\s+Value="([^"]+)"', block):
-            paths.add(match.group(1))
-
-    return sorted(paths)
+    text = gzip.decompress(raw_als).decode("utf-8", errors="replace")
+    return _parse_sample_paths_from_text(text)
 
 def project_summary(project: Project) -> str:
     """Return a human-readable summary of the parsed project."""

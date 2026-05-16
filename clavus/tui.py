@@ -152,6 +152,7 @@ class HelpScreen(Screen):
             yield Static("COMMANDS ([dim]:[/])", classes="help-section")
             yield Static(f"  :snapshot <msg>  Create snapshot     :project <name>  Switch project")
             yield Static(f"  :open [path]     Open in Ableton     :pull / :push    Manual sync")
+            yield Static(f"  :push!           Force push (bypass lock — use when :push blocks)")
             yield Static(f"  :stem push/pull  Stem file sync      :init <path>     Init project")
             yield Static(f"  :p2p-host        Start P2P host      :p2p-connect <dns>  P2P sync")
             yield Static(f"  :find            Discover peers      :repair          Fix store")

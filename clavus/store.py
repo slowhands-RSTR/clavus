@@ -291,12 +291,28 @@ class BlobStore:
             sample_path_list = extract_sample_paths(project.file_path)
             project_root = Path(project.file_path).parent
             for sp in sample_path_list:
-                if Path(sp).exists():
+                # Try multiple path resolution strategies for Live 10 compatibility
+                candidates: list[Path] = [
+                    Path(sp),                          # as-is from .als
+                    project_root / sp,                 # relative to project folder
+                ]
+                # Live 10 bug: stores absolute paths with wrong prefix (old Desktop path).
+                # Fall back to filename-only search in project folder.
+                filename = Path(sp).name
+                candidates.extend(project_root.rglob(filename))
+
+                resolved: Optional[Path] = None
+                for candidate in candidates:
+                    if candidate.exists() and candidate.is_file():
+                        resolved = candidate
+                        break
+
+                if resolved:
                     try:
-                        rel = str(Path(sp).relative_to(project_root))
+                        rel = str(resolved.relative_to(project_root))
                     except ValueError:
-                        rel = Path(sp).name
-                    sh, _ = self.store_sample(sp, relative_path=rel)
+                        rel = resolved.name
+                    sh, _ = self.store_sample(str(resolved), relative_path=rel)
                     sample_hashes.append(sh)
                     sample_paths[sh] = rel
         except Exception:

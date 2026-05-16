@@ -474,9 +474,9 @@ def pull_snapshot_blobs(
     counters = {"content": 0, "als": 0, "sample": 0}
     total_missing = 0
 
-    def _report(category: str, done: int):
+    def _report(category: str, done: int, total: int):
         if progress_callback:
-            progress_callback(category, done, counters[category])
+            progress_callback(category, done, total)
 
     def _mark_downloaded(h: str) -> bool:
         with dl_lock:
@@ -504,7 +504,7 @@ def pull_snapshot_blobs(
                     store.put_object(r.content, h)
                     downloaded.add(h)
                     counters[category] += 1
-                _report(category, counters[category])
+                _report(category, counters[category], cat_totals[category])
                 return (h, True)
         except Exception:
             pass
@@ -579,10 +579,15 @@ def pull_snapshot_blobs(
         MAX_WORKERS = 8
 
         # Report totals before starting
+        cat_totals = {
+            "content": len(content_work),
+            "als": len(als_work),
+            "sample": len(sample_work),
+        }
         for cat, work in [("content", content_work), ("als", als_work), ("sample", sample_work)]:
             if work:
                 counters[cat] = 0
-                _report(cat, 0)
+                _report(cat, 0, cat_totals[cat])
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
             futures = {
