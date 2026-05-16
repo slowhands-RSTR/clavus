@@ -533,8 +533,20 @@ class ClavusApp(App):
                 self._run_switch_project(proj.name)
         elif self._remote_picker_active:
             event.stop()
-            if event.index is not None and event.index < len(self._remote_list):
-                remote = self._remote_list[event.index]
+            idx = event.index
+            if idx == 0:
+                # Local-only mode selected (index 0 is always the local-only entry)
+                self._cancel_remote_picker()
+                self._peer_name = ""
+                self._peer_reachable = False
+                proj_index = self.store.get_index(self.project)
+                if proj_index:
+                    proj_index.active_remote = ""
+                    self.store.set_index(proj_index)
+                self._update_header()
+                self._render()
+            elif idx is not None and idx - 1 < len(self._remote_list):
+                remote = self._remote_list[idx - 1]
                 self._cancel_remote_picker()
                 self._peer_name = remote.name
                 # Save to project so it persists across sessions
@@ -573,6 +585,11 @@ class ClavusApp(App):
         self._remote_picker_active = True
         lv = self.query_one("#clv", ListView)
         lv.clear()
+        # Index 0 is always "local only" — selected when _peer_name is ""
+        is_active = self._peer_name == ""
+        active_mark = " ◀" if is_active else ""
+        reachable_mark = "●" if is_active else "○"
+        lv.append(ListItem(Label(f"  {reachable_mark} local only{active_mark}", classes="project-picker-item")))
         for r in remotes:
             active = " ◀" if r.name == self._peer_name else ""
             reachable = "●" if self._peer_reachable and r.name == self._peer_name else "○"
@@ -2677,7 +2694,39 @@ class ClavusApp(App):
                 self._sync_status = ""
                 self._update_header()
                 await asyncio.sleep(0)
-                self._status("❌ no remote selected — use :remotes to pick one")
+                als_path = Path(proj_index.root_als)
+                if als_path.exists():
+                    try:
+                        raw_als = als_path.read_bytes()
+                        current_hash = hashlib.sha256(raw_als).hexdigest()
+                        if current_hash != (proj_index.head or ""):
+                            from clavus import parse_als
+                            project = parse_als(als_path)
+                            if project:
+                                snap = self.store.save_snapshot(
+                                    project,
+                                    message="local snapshot",
+                                    parent=proj_index.head,
+                                )
+                                if snap.hash != proj_index.head:
+                                    self.store.update_ref("HEAD", snap.hash)
+                                    proj_index.head = snap.hash
+                                    self.store.set_index(proj_index)
+                                    self._log_event(f"● local snapshot {snap.hash[:8]}")
+                                    self._last_sync = f"● {time.strftime('%H:%M')}"
+                                    self._status(f"📦 snapshot saved locally — use :remotes to pick a remote before pushing")
+                                else:
+                                    self._status(f"✓ up to date — use :remotes to pick a remote before pushing")
+                            else:
+                                self._status(f"✓ up to date — use :remotes to pick a remote before pushing")
+                        else:
+                            self._last_sync = f"● {time.strftime('%H:%M')}"
+                            self._status(f"✓ up to date — use :remotes to pick a remote before pushing")
+                    except Exception as e:
+                        self._status(f"✓ working locally (snapshot failed: {e}) — use :remotes to push")
+                else:
+                    self._status(f"✓ no .als found — use :remotes to pick a remote before pushing")
+                return
             remote = next((r for r in remotes if r.name == self._peer_name), None)
             if not remote:
                 self._sync_status = ""
