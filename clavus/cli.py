@@ -1064,7 +1064,13 @@ def init_project(path_str: str | None, auto_confirm: bool = False) -> tuple[Opti
         index["_last_project"] = project_name
         store.index_path.write_text(json.dumps(index, indent=2, default=str))
 
-    logs.append(f"✅ Initialized '{project_name}' — {project.track_count} tracks, snapshot {snap.short_hash()}")
+    logs.append(f"✅ Initialized '{project_name}' — {project.track_count} tracks")
+    # Load the snapshot to report sample count (save_snapshot already stored it)
+    snap_loaded = store.load_snapshot(snap.hash)
+    sample_count = len(snap_loaded.sample_hashes) if snap_loaded and snap_loaded.sample_hashes else 0
+    if sample_count:
+        logs.append(f"   📦 {sample_count} sample{'s' if sample_count != 1 else ''} indexed")
+    logs.append(f"   ● snapshot {snap.short_hash()}")
     return project_name, logs
 
 

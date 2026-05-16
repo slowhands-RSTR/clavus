@@ -937,9 +937,15 @@ class ClavusApp(App):
             self._sync_status = ""
             self._update_header()
             self._footer_toast(f"[{C['green']}]✓ imported: {name}[/] — loading...", 5.0)
-            self._log_event(f"✓ project '{name}' ready")
-            # Reload from disk
+            # Reload from disk — this sets self.project and loads cues/snaps
             self._connect()
+            # After connect: if remotes exist and none selected, prompt to pick one
+            from clavus.sync import load_remotes
+            remotes = load_remotes(self.store)
+            if remotes and not self._peer_name:
+                self._status(f"{name} ready — pick a remote to sync")
+                # _run_list_remotes is @work — calling it directly starts the background worker
+                self._run_list_remotes()
         except Exception as e:
             self._sync_status = ""
             self._update_header()
