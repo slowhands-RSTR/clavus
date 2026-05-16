@@ -400,6 +400,7 @@ class ClavusApp(App):
         self._header_title: Optional[Static] = None
         self._footer_stats: Optional[Static] = None
         self._sticky_error: str = ""  # persistent error shown in footer
+        self._sample_counts: tuple[int, int] | None = None  # (total, materialized) from HEAD snapshot
 
     def _load_config(self) -> str:
         from clavus.config import ClavusConfig
@@ -2137,6 +2138,15 @@ class ClavusApp(App):
             self._update_header()
             self.refresh()
 
+    def refresh_materialized_count(self):
+        """Re-read sample counts from HEAD snapshot and update header.
+
+        Call this after stem pull/materialize completes so the header
+        reflects the new materialized state immediately.
+        """
+        self._load_sample_counts()
+        self._update_header()
+
     @work
     async def action_force_push(self):
         """Force push — skip optimistic lock, overwrite relay state."""
@@ -2402,6 +2412,31 @@ class ClavusApp(App):
             self._last_snap_time = self.snaps[0].timestamp
         self._snap_fingerprint = None  # invalidate render cache
         self._render_history()
+        self._load_sample_counts()  # update header sample counts
+
+    def _load_sample_counts(self):
+        """Load (total, materialized) sample counts from HEAD snapshot.
+
+        total = number of sample hashes referenced by HEAD snapshot
+        materialized = how many of those hashes have actual blob files in the store
+
+        Shows in header as '📦 N/M' when a project is open.
+        """
+        self._sample_counts = None
+        if not self.project:
+            return
+        try:
+            proj = self.store.get_index(self.project)
+            if not proj or not proj.head:
+                return
+            snap = self.store.load_snapshot(proj.head)
+            if not snap or not snap.sample_hashes:
+                return
+            total = len(snap.sample_hashes)
+            materialized = sum(1 for sh in snap.sample_hashes if self.store.has_object(sh))
+            self._sample_counts = (total, materialized)
+        except Exception:
+            pass
 
     def _ensure_initial_snapshot(self):
         """Auto-create a snapshot if this project has none — baseline to restore from."""
@@ -2598,6 +2633,8 @@ class ClavusApp(App):
                                         if i % 5 == 0 or i == total_s - 1:
                                             self._sync_status = f"\u2b07 samples {i+1}/{total_s}"
                                             self._update_header()
+                                    # Refresh sample counts in header after materialize completes
+                                    self.refresh_materialized_count()
 
                             parts = []
                             if result.get("cues"): parts.append(f"{result['cues']}c")
@@ -2763,6 +2800,8 @@ class ClavusApp(App):
                         if i % 5 == 0 or i == total_s - 1:
                             self._sync_status = f"\u2b07 samples {i+1}/{total_s}"
                             self._update_header()
+                    # Refresh sample counts in header after materialize completes
+                    self.refresh_materialized_count()
 
             self._sync_status = f"⇊ {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "") + (f" ⚠{len(failed)}" if failed else "")
             if conflicts_n:
@@ -3216,6 +3255,12 @@ class ClavusApp(App):
                 peer = f"  [{C['yellow']}]○[/]"
             else:
                 peer = ""
+            # Sample materialization counts — only shown when project is open and has samples
+            if self._sample_counts is not None:
+                total, mat = self._sample_counts
+                samples = f"  [{C['dim']}]📦 {mat}/{total}[/]" if total > 0 else ""
+            else:
+                samples = ""
             # Sync activity — spinner during, timestamp after
             sync = ""
             if self._sync_status:
@@ -3230,7 +3275,7 @@ class ClavusApp(App):
             elif self._last_sync:
                 sync = f"  [{C['green']}]{self._last_sync}[/]"
             widget = self.query_one("#header-title", Static)
-            widget.update(f"{logo}{proj}{sep}{peer}{sync}")
+            widget.update(f"{logo}{proj}{sep}{peer}{samples}{sync}")
             widget.refresh()
             # Manage spinner based on sync activity (header-only, no footer cascade)
             if self._sync_status:
