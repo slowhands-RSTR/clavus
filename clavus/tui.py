@@ -3329,7 +3329,7 @@ class ClavusApp(App):
             if self._sample_counts is not None:
                 total, mat = self._sample_counts
                 if total > 0:
-                    parts.append(f"📦 {mat}/{total}")
+                    parts.append(f"[b]/s[/b] {mat}/{total}")
 
             # Snapshot — most recent message
             if self.snaps:
