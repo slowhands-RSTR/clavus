@@ -342,8 +342,7 @@ pip install -e .     # Windows: py -m pip install -e .
 If Clavus saves you time, frustration, or a lost arrangement, consider tossing a few dollars our way.
 
 - [GitHub Sponsors](https://github.com/sponsors/castle-queenside)
-- Cash App: `$YOUR_CASH_TAG`
-- Venmo: `@YOUR_VENMO`
+- Cash App: `$slowhandschris`
 
 No tiers, no rewards, no subscriptions. Just a donation if you find it useful.
 
