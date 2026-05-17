@@ -56,6 +56,32 @@ app = FastAPI(title="Clavus Web", version="0.2.0")
 # Module-level project filter (set via --project flag on relay/share start)
 _relay_allowed_projects: list[str] | None = None
 
+# Peer tracking — IPs that have recently pushed/pulled on this relay
+# {ip: {"last_seen": float, "projects": list[str]}}
+_peers: dict[str, dict] = {}
+_PEER_STALE = 300  # 5 min timeout
+
+
+def _record_peer(request: Request = None, project: str = "") -> None:
+    """Record a peer that just touched the relay (push/pull/etc)."""
+    if request is None or not request.client:
+        return
+    ip = request.client.host
+    _peers[ip] = {
+        "last_seen": time.time(),
+        "hostname": request.headers.get("host", ""),
+    }
+    if project:
+        projects = _peers[ip].get("projects", [])
+        if project not in projects:
+            projects.append(project)
+        _peers[ip]["projects"] = projects
+    # Clean stale entries
+    now = time.time()
+    stale = [k for k, v in _peers.items() if now - v["last_seen"] > _PEER_STALE]
+    for k in stale:
+        _peers.pop(k, None)
+
 
 def set_allowed_projects(projects: list[str] | None) -> None:
     """Scope the relay to only serve specific projects. None = all projects."""
@@ -202,6 +228,28 @@ class SyncPushBody(BaseModel):
 @app.get("/api/ping")
 async def ping():
     return {"status": "ok", "app": "clavus-web", "version": "0.2.0"}
+
+
+@app.get("/api/peers")
+async def get_peers(request: Request):
+    """Return recently active peers (pushed/pulled within last 5 min)."""
+    # Clean stale first
+    now = time.time()
+    stale = [k for k, v in _peers.items() if now - v["last_seen"] > _PEER_STALE]
+    for k in stale:
+        _peers.pop(k, None)
+    # Build response — exclude localhost
+    result = []
+    for ip, info in _peers.items():
+        if ip in ("127.0.0.1", "::1", "localhost"):
+            continue
+        result.append({
+            "ip": ip,
+            "projects": info.get("projects", []),
+            "last_seen": info["last_seen"],
+            "age": round(now - info["last_seen"], 1),
+        })
+    return {"peers": result, "count": len(result)}
 
 
 @app.get("/api/projects")
@@ -1025,9 +1073,10 @@ async def receive_stem_blob(stem_hash: str, request: Request):
 
 
 @app.get("/api/sync/pull")
-async def sync_pull(name: str = Query(..., description="Project name")):
+async def sync_pull(name: str = Query(..., description="Project name"), request: Request = None):
     """Pull all cues and snapshot history for a project."""
     _check_project_access(name)
+    _record_peer(request, project=name)
     try:
         store, proj = _get_project(name)
     except HTTPException:
@@ -1103,9 +1152,10 @@ async def sync_get_head(project: str):
 
 
 @app.post("/api/sync/push")
-async def sync_push(body: SyncPushBody, name: str = Query(..., description="Project name")):
+async def sync_push(body: SyncPushBody, name: str = Query(..., description="Project name"), request: Request = None):
     """Push (merge) cues into a project using last-write-wins."""
     store = BlobStore()
+    _record_peer(request, project=name)
     try:
         _, proj = _get_project(name)
     except HTTPException:

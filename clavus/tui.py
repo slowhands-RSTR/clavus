@@ -155,7 +155,7 @@ class HelpScreen(Screen):
             yield Static(f"  :push!           Force push (bypass lock — use when :push blocks)")
             yield Static(f"  :stem push/pull  Stem file sync      :init <path>     Init project")
             yield Static(f"  :p2p-host        Start P2P host      :p2p-connect <dns>  P2P sync")
-            yield Static(f"  :find            Discover peers      :repair          Fix store")
+            yield Static(f"  :peers           Show connected peers :find            Discover relays")
             yield Static(f"  :remote rename <name>               :remote add <name> <url>")
             yield Static("")
             yield Static(f"[dim]╚{'═' * 50}╝[/]", classes="help-dim")
@@ -622,6 +622,43 @@ class ClavusApp(App):
         self._update_footer()
         self._render()
 
+    async def _run_peers(self):
+        """Query the relay for recently connected peers."""
+        from clavus.sync import load_remotes
+        import urllib.request, json as j
+        remotes = load_remotes(self.store)
+        relay_url = None
+        if self._peer_name:
+            match = next((r for r in remotes if r.name == self._peer_name), None)
+            if match:
+                relay_url = match.url.rstrip("/")
+        if not relay_url:
+            self._status("no relay connected -- use :remotes to pick a remote first")
+            return
+        try:
+            r = urllib.request.urlopen(f"{relay_url}/api/peers", timeout=5)
+            data = j.loads(r.read())
+            peers = data.get("peers", [])
+            if not peers:
+                self._status("no other peers connected to the relay")
+                return
+            lines = []
+            for p in peers:
+                ip = p["ip"]
+                proj = ", ".join(p.get("projects", [])) or "?"
+                age = p.get("age", 0)
+                age_str = f"{age}s ago" if age < 60 else f"{age/60:.0f}m ago"
+                lines.append(f"  {ip}  ({proj})  {age_str}")
+            self._log_event(f"peers ({data['count']}):\n" + "\n".join(lines))
+            for p in peers:
+                ip = p["ip"]
+                if not any(r.url.endswith(ip) or ip in r.url for r in remotes):
+                    self._status(f"peer {ip} not in remotes -- use :remote add <name> http://{ip}:7890")
+                    return
+            self._status(f"all {data['count']} peer(s) already in remotes")
+        except Exception as e:
+            self._status(f"peers failed: {e}")
+
     # ─── Command mode ──────────────────────────────────────────────────
 
     def action_command(self):
@@ -720,6 +757,8 @@ class ClavusApp(App):
                 self._run_join_url(arg)
             else:
                 self._status("use :join http://IP:PORT -- get URL from 'clavus share' on host")
+        elif cmd == "peers":
+            asyncio.create_task(self._run_peers())
         elif cmd in ("help", "h", "?"):
             self.push_screen(HelpScreen())
         elif cmd == "p2p-host":
