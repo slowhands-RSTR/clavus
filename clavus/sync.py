@@ -1439,6 +1439,18 @@ def pull_stems_from_remote(
         needed = [s for s in stems if not stem_store.has_stem(s["hash"])]
 
         if not needed:
+            # Ensure local manifest exists under the correct snapshot hash
+            stem_snap = manifest_data.get("snapshot_hash", head) if manifest_data else head
+            if not stem_store.get_manifest(stem_snap):
+                from clavus.store import StemManifest, StemEntry
+                new_mf = StemManifest(snapshot_hash=stem_snap, created_at=time.time())
+                for entry in stems:
+                    new_mf.stems.append(StemEntry(
+                        track_name=entry["track_name"],
+                        file_name=entry["file_name"], hash=entry["hash"],
+                        size=entry.get("size", 0),
+                    ))
+                stem_store.save_manifest(new_mf)
             return (len(stems), manifest_data)
 
         print(f"  Pulling {len(needed)} stem(s) with {MAX_WORKERS} workers...")
