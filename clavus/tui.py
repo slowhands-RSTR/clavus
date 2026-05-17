@@ -154,6 +154,7 @@ class HelpScreen(Screen):
             yield Static(f"  :open [path]     Open in Ableton     :pull / :push    Manual sync")
             yield Static(f"  :push!           Force push (bypass lock — use when :push blocks)")
             yield Static(f"  :stem push/pull  Stem file sync      :init <path>     Init project")
+            yield Static(f"  :stem import <file>  Import WAV stem  :stem import-folder <dir>  Import all WAVs")
             yield Static(f"  :p2p-host        Start P2P host      :p2p-connect <dns>  P2P sync")
             yield Static(f"  :peers           Show connected peers :find            Discover relays")
             yield Static(f"  :remote rename <name>               :remote add <name> <url>")
@@ -744,8 +745,19 @@ class ClavusApp(App):
                 self.action_stem_push()
             elif arg == "pull":
                 self.action_pull()
+            elif arg == "import":
+                # No arg yet — prompt for path
+                self._show_input("command", ":stem import ", prefill="")
+            elif arg == "import-folder":
+                self._show_input("command", ":stem import-folder ", prefill="")
+            elif arg and arg.startswith("import "):
+                path = arg[7:].strip()
+                asyncio.create_task(self.action_stem_import(path))
+            elif arg and arg.startswith("import-folder "):
+                path = arg[14:].strip()
+                asyncio.create_task(self.action_stem_import_folder(path))
             else:
-                self._status("stem push  |  stem pull")
+                self._status("stem push  |  stem pull  |  stem import <file>  |  stem import-folder <dir>")
         elif cmd == "archive":
             self.action_archive()
         elif cmd in ("delete", "del"):
@@ -2227,6 +2239,48 @@ class ClavusApp(App):
         msg = out.split("\n")[-1][:60] if out else (err.split("\n")[-1][:60] if err else "done")
         self._status(f"stems: {msg}")
         self._log_event(f"stems: {msg}")
+
+    async def action_stem_import(self, path: str):
+        """Import a single WAV file as a stem."""
+        if not path:
+            self._status("usage: :stem import /path/to/file.wav")
+            return
+        self._status(f"importing {path}...")
+        import asyncio
+        proc = await asyncio.create_subprocess_shell(
+            f"clavus stem import '{path}'",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        out = stdout.decode('utf-8', errors='replace').strip()
+        err = stderr.decode('utf-8', errors='replace').strip()
+        msg = out.split("\n")[-1][:80] if out else (err.split("\n")[-1][:80] if err else "done")
+        self._status(f"stems: {msg}")
+        self._log_event(f"stems: {msg}")
+        if out:
+            self.notify(out[:120], timeout=5)
+
+    async def action_stem_import_folder(self, path: str):
+        """Import all WAV files from a folder as stems."""
+        if not path:
+            self._status("usage: :stem import-folder /path/to/folder")
+            return
+        self._status(f"importing stems from {path}...")
+        import asyncio
+        proc = await asyncio.create_subprocess_shell(
+            f"clavus stem import-folder '{path}'",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        out = stdout.decode('utf-8', errors='replace').strip()
+        err = stderr.decode('utf-8', errors='replace').strip()
+        msg = out.split("\n")[-1][:80] if out else (err.split("\n")[-1][:80] if err else "done")
+        self._status(f"stems: {msg}")
+        self._log_event(f"stems: {msg}")
+        if out:
+            self.notify(out[:120], timeout=5)
 
     # ─── Persistence ────────────────────────────────────────────────────
 
