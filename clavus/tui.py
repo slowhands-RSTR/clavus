@@ -2110,7 +2110,7 @@ class ClavusApp(App):
                 summary += f" · +{len(msgs)-5} more"
             w = self._footer_stats
             if w is not None:
-                w.update(f"[{C['dim']}]vv pull-all done: {summary}[/]")
+                w.update(f"[{C['dim']}]pull-all done: {summary}[/]")
                 w.refresh()
             # Use real timer so _restore_footer() fires and unblocks _update_footer
             if hasattr(self, '_toast_timer') and self._toast_timer is not None:
@@ -2804,7 +2804,7 @@ class ClavusApp(App):
                     # Refresh sample counts in header after materialize completes
                     self.refresh_materialized_count()
 
-            self._sync_status = f"vv {time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "") + (f" !{len(failed)}" if failed else "")
+            self._sync_status = f"{time.strftime('%H:%M')} {remote.name}  {cues_n}c {snaps_n}s" + (f" {blobs}b" if blobs else "") + (f" !{len(failed)}" if failed else "")
             if conflicts_n:
                 self._sync_status += f"  !{conflicts_n}"
             self._sync_progress = ""  # Clear progress on completion
