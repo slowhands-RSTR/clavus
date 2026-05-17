@@ -17,7 +17,9 @@ Work together: push snapshots to a shared relay, pull their changes, resolve con
                                cues, stems
 ```
 
-One person runs the relay (`clavus share`). Others connect (`clavus join`), push snapshots up, pull changes down. Work offline, sync when ready. No cloud.
+One person runs the relay (`clavus share`). Others connect (`clavus join`), push snapshots up, pull changes down. No cloud.
+
+**The relay runs on someone's machine.** When that machine goes to sleep or shuts down, the relay goes with it. Push and pull only work when the relay is reachable. This is not a cloud service — there's no always-on server unless you put the relay on one (a VPS, a Raspberry Pi, an old laptop that stays on).
 
 ---
 
@@ -25,14 +27,15 @@ One person runs the relay (`clavus share`). Others connect (`clavus join`), push
 
 | What | How |
 |------|-----|
-| **Snapshots** | `S` — saves a content-addressed checkpoint with the full `.als` file |
+| **Snapshots** | `S` — saves a content-addressed checkpoint with the full `.als` file, parent chain, and integrity verification |
 | **Timeline cues** | `c` — pinned comments at specific bars/beats; inject as Ableton markers |
-| **Push / Pull** | `P` / `p` — sync through a Tailscale relay; work offline, sync when ready |
+| **Push / Pull** | `P` / `p` — sync snapshots and cues through a relay |
 | **Stem sync** | `U` — upload/download WAV stems through the relay |
 | **Conflict resolution** | ⚠ warns when both sides edited the same thing; `!` to pick whose |
 | **Restore** | `T` — roll back to any previous snapshot |
 | **Diff** | `d` — see exactly what changed between snapshots (tracks, devices, clips) |
 | **Backup** | `clavus backup` — full store archive with auto-rotating index backups |
+| **Health check** | `clavus doctor` — read-only store integrity check and diagnostics |
 
 **Platform:** macOS, Windows · **DAW:** Ableton Live 11+ (Suite/Standard/Intro)  
 **Requirements:** Python 3.10+, [Tailscale](https://tailscale.com/download) (free tier)
@@ -163,7 +166,7 @@ S          → save a snapshot of your work
 P          → push your changes to the relay
 ```
 
-Your collaborator does the same from their machine. Neither of you needs to be online at the same time — Clavus queues everything through the relay.
+Your collaborator does the same from their machine. Whoever runs the relay needs to leave it running for push/pull to work. If you're both working on a session, pick whose machine stays on. If you want the relay available 24/7, put it on an always-on machine (a VPS, a Raspberry Pi, an old laptop).
 
 ### Adding timeline comments (cues)
 
@@ -260,11 +263,9 @@ clavus tui                   # open the dashboard
 clavus projects              # list all projects
 
 # Sync
-clavus status                # show relay connection status
-clavus pull                  # pull from relay
-clavus push                  # push to relay
-clavus join <url>           # connect to a relay (one URL)
-clavus share --port 7891    # start hosting a relay
+clavus pull                  # pull snapshots, cues, stems from relay
+clavus push                  # push snapshots, cues, stems to relay
+clavus status                # show current project and sync status
 
 # Snapshots & cues
 clavus snapshot "message"   # save checkpoint with a note
@@ -275,11 +276,19 @@ clavus stem import-folder ~/Desktop/Stems/   # import WAVs
 clavus stem push                              # push to relay
 clavus stem pull                              # pull from relay
 
+# Diagnostics
+clavus doctor                  # read-only store health check
+clavus status                  # show relay connection status
+
 # Backup & repair
 clavus backup                  # full store archive
 clavus backups                 # list backups
 clavus restore-store <file>    # restore from backup
 clavus repair                  # fix corrupted index
+
+# Relay
+clavus share --port 7891       # start hosting a relay
+clavus join <url>              # connect to a relay
 
 # Help
 clavus help                   # show all commands
