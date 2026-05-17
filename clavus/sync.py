@@ -1348,6 +1348,13 @@ def pull_stems_from_remote(
                 print(f"  ⚠️  Download failed for {entry['hash'][:12]}: {r.status_code}")
                 return (entry["hash"], False)
 
+            # Verify blob integrity against its content hash
+            import hashlib as hl
+            actual = hl.sha256(r.content).hexdigest()
+            if actual != entry["hash"]:
+                print(f"  ⚠️  Corrupt download for {entry['hash'][:12]} ({entry['track_name']})")
+                return (entry["hash"], False)
+
             store.put_object(r.content, entry["hash"])
             size_mb = len(r.content) / (1024 * 1024)
             print(f"    Downloaded {entry['track_name']} ({entry['hash'][:12]}) — {size_mb:.1f} MB")

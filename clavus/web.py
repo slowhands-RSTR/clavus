@@ -720,6 +720,28 @@ async def create_snapshot_endpoint(
     if not als_path.exists():
         return JSONResponse({"error": f".als file not found: {als_path}"}, status_code=404)
 
+    # Guard: if .als matches an existing snapshot (including non-HEAD), skip.
+    raw_als = als_path.read_bytes()
+    import hashlib as hl
+    current_als_hash = hl.sha256(raw_als).hexdigest()
+    if proj.head:
+        prev = store.load_snapshot(proj.head)
+        if prev and prev.als_hash == current_als_hash:
+            return {
+                "status": "no_change",
+                "hash": prev.short_hash(),
+                "message": "No changes detected — project state is identical to last snapshot.",
+            }
+        existing_meta = store.objects_dir / current_als_hash[:2] / f"{current_als_hash}.meta"
+        if existing_meta.exists():
+            existing = store.load_snapshot(current_als_hash)
+            if existing:
+                return {
+                    "status": "no_change",
+                    "hash": existing.short_hash(),
+                    "message": f"Snapshot already exists for this project state — '{existing.message}'",
+                }
+
     project = parse_als(als_path)
     snap = store.save_snapshot(
         project,
@@ -727,14 +749,6 @@ async def create_snapshot_endpoint(
         parent=proj.head,
         tags=body.tags.split(",") if body.tags else [],
     )
-
-    # Check if anything actually changed
-    if snap.hash == proj.head and proj.head is not None:
-        return {
-            "status": "no_change",
-            "hash": snap.short_hash(),
-            "message": "No changes detected — project state is identical to last snapshot.",
-        }
 
     # Update references
     store.update_ref("HEAD", snap.hash)
