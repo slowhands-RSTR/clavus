@@ -22,6 +22,8 @@ One person runs the relay (`clavus share`). Others connect (`clavus join`), push
 
 **The relay runs on someone's machine.** When that machine goes to sleep or shuts down, the relay goes with it. Push and pull only work when the relay is reachable. This is not a cloud service — there's no always-on server unless you put the relay on one (a VPS, a Raspberry Pi, an old laptop that stays on).
 
+> **Status: early but active.** Clavus is built by a producer who needed this to exist. It works in real studio workflows (Mac & Windows), but it's not polished — the TUI is functional, not beautiful, and you may hit rough edges. We fix bugs quickly and iterate constantly. See [Contributing](#contributing) below.
+
 ---
 
 ## What You Get
@@ -334,6 +336,19 @@ pip install -e .     # Windows: py -m pip install -e .
 **Single relay at a time:** `clavus join` replaces any existing remote. Your snapshots and history stay local regardless.
 
 **No two-person-at-once push protection:** Simultaneous pushes may get a 409. Clavus handles it gracefully — pull first, then push again.
+
+---
+
+## Contributing
+
+Clavus is MIT-licensed and open to contributions. Here's how to help:
+
+- **Report bugs** — open an [issue on GitHub](https://github.com/castle-queenside/clavus/issues). Include what you were doing, what you expected, and what happened.
+- **Suggest improvements** — the workflow makes sense to us because we built it. If something's confusing or missing, tell us.
+- **Submit code** — PRs welcome. Keep changes focused, add tests if applicable, and match the existing code style.
+- **Spread the word** — if Clavus saves you time, tell another producer.
+
+This is a small project built by one person who needed it. Every issue filed, every feature request, every "this part was confusing" helps make it better.
 
 ---
 
