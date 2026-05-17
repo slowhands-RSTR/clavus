@@ -117,28 +117,30 @@ S                   # snapshot — saves a checkpoint
 
 ### With a Collaborator — One person hosts
 
-The collaborator who wants to share runs these **once**:
+The collaborator who wants to share chooses a port (e.g. 7891) and runs the relay:
 
 ```bash
 # Start the relay (keeps running; use a separate terminal window)
 clavus share --port 7891
 
-# Expose it on your Tailscale network (one-time, survives reboots)
-tailscale serve --bg --http 7890 http://localhost:7891
-
-# Check it's live — you should see {"status":"ok"}
+# Check it's live
 curl http://localhost:7891/api/ping
+# → {"status":"ok"}
 ```
 
-The second command prints your MagicDNS URL (e.g. `http://your-machine.tailXXXX.ts.net:7890`). **Share this URL with your collaborator.**
+Share your Tailscale URL with your collaborator. Clavus prints it when the relay starts — it looks like `http://your-machine.tailXXXX.ts.net:7891`.
 
 > **Cross-account?** If you and your collaborator use different Tailscale accounts, go to [admin.tailscale.com](https://login.tailscale.com/admin/machines) → your machine → Share → their email. They must accept the invite before they can connect. Raw `100.x.x.x` IPs are blocked between different Tailscale accounts.
+
+> **If you want to use port 80/443** (cleaner URL, no port number), Tailscale can proxy:
+> `tailscale serve --bg --http 80 http://localhost:7891`
+> This is optional. The direct port works fine.
 
 ### With a Collaborator — Everyone else joins
 
 ```bash
-# Paste the URL your collaborator sent you
-clavus join http://their-name.tailXXXX.ts.net:7890
+# Paste the URL your collaborator sent you (use the same port they chose)
+clavus join http://their-name.tailXXXX.ts.net:7891
 
 # Pull all their projects
 clavus pull
