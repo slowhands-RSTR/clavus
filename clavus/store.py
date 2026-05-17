@@ -694,14 +694,20 @@ class BlobStore:
         return True
 
     def _trace_head(self, message: str) -> None:
-        """Append a line to head_trace.log for debugging HEAD corruption."""
+        """Append a line to head_trace.log for debugging HEAD corruption.
+
+        Rotates the log at 1000 lines, keeping the most recent 500."""
         try:
             import datetime
             trace_path = self.root / "head_trace.log"
-            ts = datetime.datetime.now().isoformat()
             trace_path.parent.mkdir(parents=True, exist_ok=True)
+            ts = datetime.datetime.now().isoformat()
             with open(trace_path, "a") as f:
                 f.write(f"{ts} {message}\n")
+            # Rotate at 1000 lines — keep most recent 500
+            lines = trace_path.read_text().strip().split("\n")
+            if len(lines) > 1000:
+                trace_path.write_text("\n".join(lines[-500:]) + "\n")
         except Exception:
             pass
 

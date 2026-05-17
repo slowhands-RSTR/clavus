@@ -2457,6 +2457,29 @@ class ClavusApp(App):
         self._render_history()
         self._load_sample_counts()  # update header sample counts
 
+        # ── Chain canary: detect orphan snapshots ──
+        # If there are .meta files whose parent is reachable but they aren't,
+        # HEAD may have been clobbered.  Warn the user so they can run repair.
+        try:
+            import json
+            reachable = seen  # set of hashes from the chain walk above
+            orphan_count = 0
+            for meta_file in self.store.objects_dir.rglob("*.meta"):
+                h = meta_file.name.replace(".meta", "")
+                if h in reachable:
+                    continue
+                try:
+                    data = json.loads(meta_file.read_text())
+                    parent = data.get("parent", "")
+                    if parent and parent in reachable:
+                        orphan_count += 1
+                except Exception:
+                    pass
+            if orphan_count:
+                self._log_event(f"⚠️ {orphan_count} orphan snapshot(s) detected — run :repair to recover")
+        except Exception:
+            pass
+
     def _load_sample_counts(self):
         """Load (total, materialized) sample counts from HEAD snapshot.
 

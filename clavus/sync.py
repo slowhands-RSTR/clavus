@@ -499,6 +499,13 @@ def pull_snapshot_blobs(
                 timeout=120,
             )
             if r.status_code == 200:
+                # Verify blob integrity against its content hash
+                import hashlib as hl
+                actual = hl.sha256(r.content).hexdigest()
+                if actual != h:
+                    with dl_lock:
+                        failed.append(h)
+                    return (h, False)
                 # Thread-safe write to store
                 with dl_lock:
                     store.put_object(r.content, h)
