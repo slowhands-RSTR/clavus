@@ -975,6 +975,40 @@ async def get_archived_cues(project: str = Query("", description="Project name")
 # ─── Stem Endpoints ───────────────────────────────────────────────────
 
 
+@app.get("/api/stems/{project}/manifest")
+async def list_stem_manifests(project: str):
+    """List all stem manifests for a project.
+
+    Returns the most recent manifest, or all manifests if none match
+    the current HEAD.  Used by pull_stems_from_remote fallback when
+    the current HEAD has no stem manifest.
+    """
+    try:
+        store, proj = _get_project(project)
+    except HTTPException:
+        return JSONResponse({"manifests": [], "error": f"Project '{project}' not found"}, status_code=404)
+
+    stem_store = StemStore(proj.name, store)
+    all_manifests = []
+    if stem_store.stems_root.exists():
+        import json
+        # Each subdirectory is a snapshot hash prefix containing StemManifest.json
+        for snap_dir in sorted(stem_store.stems_root.iterdir(), key=lambda d: d.name, reverse=True):
+            mf = snap_dir / "StemManifest.json"
+            if mf.exists():
+                try:
+                    data = json.loads(mf.read_text())
+                    all_manifests.append({
+                        "snapshot_hash": data.get("snapshot_hash", ""),
+                        "created_at": data.get("created_at", 0),
+                        "stem_count": len(data.get("stems", [])),
+                    })
+                except Exception:
+                    pass
+
+    return {"manifests": all_manifests}
+
+
 @app.get("/api/stems/{project}/manifest/{snapshot_hash}")
 async def get_stem_manifest(project: str, snapshot_hash: str):
     """Get the stem manifest for a given snapshot."""

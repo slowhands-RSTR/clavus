@@ -4181,22 +4181,25 @@ def cmd_stem_pull(args: argparse.Namespace) -> None:
     # Fetch stems from remotes via the sync extension
     from clavus.sync import pull_stems_from_remote
     total = 0
+    manifest_data = None
     for remote in remotes:
         print(f"  Pulling stems from '{remote.name}'...")
-        count = pull_stems_from_remote(store, proj, remote)
+        count, mdata = pull_stems_from_remote(store, proj, remote)
         total += count
         if count:
             print(f"    Downloaded {count} stem(s)")
+            manifest_data = mdata
         else:
             print(f"    No new stems")
 
-    # Materialize working tree
-    manifest = stem_store.get_manifest(head)
+    # Materialize working tree using the snapshot that actually has stems
+    snap_hash = (manifest_data.get("snapshot_hash", "") if manifest_data else "") or head
+    manifest = stem_store.get_manifest(snap_hash)
     if manifest and manifest.stems:
-        paths = stem_store.materialize_stems(head)
-        print(f"\n  Materialized {len(paths)} stem(s) to ~/.clavus/stems/{proj.name}/{head[:12]}/")
+        paths = stem_store.materialize_stems(snap_hash)
+        print(f"\n  Materialized {len(paths)} stem(s) to ~/.clavus/stems/{proj.name}/{snap_hash[:12]}/")
     else:
-        print(f"\n  No stem manifest for current snapshot")
+        print(f"\n  No stem manifest found on relay for this project.")
 
 
 def cmd_stem_push(args: argparse.Namespace) -> None:

@@ -1389,10 +1389,37 @@ def pull_stems_from_remote(
             f"{remote.url}/api/stems/{proj.name}/manifest/{head}",
             timeout=30,
         )
-        if r.status_code != 200:
+        manifest_data = None
+        if r.status_code == 200:
+            manifest_data = r.json()
+        else:
+            # Fallback: try to discover any stem manifest for this project
+            # (stems may have been pushed under a different snapshot hash)
+            print(f"    No manifest for current HEAD — checking for any stem manifests...")
+            r2 = client.client.get(
+                f"{remote.url}/api/stems/{proj.name}/manifest",
+                timeout=30,
+            )
+            if r2.status_code == 200:
+                candidates = r2.json().get("manifests", [])
+                if candidates:
+                    # Use the latest one by timestamp
+                    latest = max(candidates, key=lambda c: c.get("created_at", 0))
+                    snap = latest.get("snapshot_hash", "")
+                    print(f"    Found stems under snapshot {snap[:12]} — fetching...")
+                    r3 = client.client.get(
+                        f"{remote.url}/api/stems/{proj.name}/manifest/{snap}",
+                        timeout=30,
+                    )
+                    if r3.status_code == 200:
+                        manifest_data = r3.json()
+                if not manifest_data or not manifest_data.get("stems"):
+                    print(f"    No stem manifests found on relay.")
+                    return 0
+
+        if not manifest_data:
             return 0
 
-        manifest_data = r.json()
         stems = manifest_data.get("stems", [])
         if not stems:
             return 0
@@ -1454,4 +1481,4 @@ def pull_stems_from_remote(
     finally:
         client.close()
 
-    return count
+    return (count, manifest_data if count > 0 else None)
