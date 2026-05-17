@@ -4091,9 +4091,14 @@ def cmd_stem_import_folder(args: argparse.Namespace) -> None:
         print(f"-- Not a directory: {folder}")
         return
 
-    wavs = sorted(set(folder.glob("*.wav")) | set(folder.glob("*.WAV")))
-    if not wavs:
-        print(f"-- No .wav files found in {folder}")
+    # Support WAV (common stem format) and AIFF (Ableton default)
+    audio_files = sorted(
+        set(folder.glob("*.wav")) | set(folder.glob("*.WAV"))
+        | set(folder.glob("*.aif")) | set(folder.glob("*.aiff"))
+        | set(folder.glob("*.AIF")) | set(folder.glob("*.AIFF"))
+    )
+    if not audio_files:
+        print(f"-- No audio files (.wav, .aif, .aiff) found in {folder}")
         return
 
     manifest = stem_store.get_manifest(head) or StemManifest(snapshot_hash=head)
@@ -4101,13 +4106,13 @@ def cmd_stem_import_folder(args: argparse.Namespace) -> None:
     skipped = 0
     total_size = 0
 
-    print(f"\n  Importing {len(wavs)} stem(s) from {folder}/ ...\n")
-    for wav_path in wavs:
-        track_name = args.prefix + wav_path.stem if args.prefix else wav_path.stem
+    print(f"\n  Importing {len(audio_files)} stem(s) from {folder}/ ...\n")
+    for audio_path in audio_files:
+        track_name = args.prefix + audio_path.stem if args.prefix else audio_path.stem
         try:
-            entry = stem_store.store_stem_file(str(wav_path), track_name)
+            entry = stem_store.store_stem_file(str(audio_path), track_name)
         except Exception as e:
-            print(f"  [X] {wav_path.name}: {e}")
+            print(f"  [X] {audio_path.name}: {e}")
             skipped += 1
             continue
 
@@ -4506,7 +4511,7 @@ def main():
                                help="Track name (e.g., 'Kick', 'Bass', 'Vocal')")
 
     p_stem_import_folder = stem_sub.add_parser("import-folder", help="Import all WAV files from a folder as stems")
-    p_stem_import_folder.add_argument("folder", help="Path to folder containing .wav files")
+    p_stem_import_folder.add_argument("folder", help="Path to folder containing .wav, .aif, or .aiff files (Ableton exports AIFF by default)")
     p_stem_import_folder.add_argument("--prefix", "-p", default="",
                                      help="Optional prefix for track names (e.g. 'Drums -')")
 

@@ -262,7 +262,8 @@ clavus snapshot "message"   # save checkpoint with a note
 clavus history               # list snapshots for current project
 
 # Stems
-clavus stem import-folder ~/Desktop/Stems/   # import WAVs
+clavus stem import-folder ~/Desktop/Stems/   # import WAVs, AIFFs from folder
+clavus stem import Kick.wav --track "Kick"    # import single file
 clavus stem push                              # push to relay
 clavus stem pull                              # pull from relay
 
