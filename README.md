@@ -357,8 +357,8 @@ This is a small project built by a small team of producers who needed it. Every 
 
 If Clavus saves you time, frustration, or a lost arrangement, consider tossing a few dollars our way.
 
-- [GitHub Sponsors](https://github.com/sponsors/castle-queenside)
 - Cash App: `$slowhandschris`
+- Venmo: `@chrisandcarr`
 
 No tiers, no rewards, no subscriptions. Just a donation if you find it useful.
 
