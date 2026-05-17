@@ -22,7 +22,7 @@ One person runs the relay (`clavus share`). Others connect (`clavus join`), push
 
 **The relay runs on someone's machine.** When that machine goes to sleep or shuts down, the relay goes with it. Push and pull only work when the relay is reachable. This is not a cloud service — there's no always-on server unless you put the relay on one (a VPS, a Raspberry Pi, an old laptop that stays on).
 
-> **Status: early but active.** Clavus is built by a producer who needed this to exist. It works in real studio workflows (Mac & Windows), but it's not polished — the TUI is functional, not beautiful, and you may hit rough edges. We fix bugs quickly and iterate constantly. See [Contributing](#contributing) below.
+> **Status: early but active.** Clavus came together through late nights and real studio sessions — a small team of producers who needed this to exist, building and testing it across Mac and Windows between sessions. The TUI is functional, not beautiful, and you may hit rough edges. We fix bugs quickly and iterate constantly. See [Contributing](#contributing) below.
 
 ---
 
@@ -348,7 +348,7 @@ Clavus is MIT-licensed and open to contributions. Here's how to help:
 - **Submit code** — PRs welcome. Keep changes focused, add tests if applicable, and match the existing code style.
 - **Spread the word** — if Clavus saves you time, tell another producer.
 
-This is a small project built by one person who needed it. Every issue filed, every feature request, every "this part was confusing" helps make it better.
+This is a small project built by a small team of producers who needed it. Every issue filed, every feature request, every "this part was confusing" helps make it better.
 
 ---
 
