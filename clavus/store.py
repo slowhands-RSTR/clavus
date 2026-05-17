@@ -248,6 +248,7 @@ class BlobStore:
     # ── Helpers ──
 
     @staticmethod
+    @staticmethod
     def _write_json(path: Path, data: dict) -> None:
         """Write JSON data to a file atomically via rename.
 
@@ -255,6 +256,9 @@ class BlobStore:
         target. This prevents corruption if the process is killed or
         crashes mid-write. The .tmp is created in the same directory
         as the target so the rename is always on the same filesystem.
+
+        Callers that need cross-process safety must hold _lock_index()
+        before the read-modify-write cycle.
         """
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, default=str))
@@ -711,13 +715,83 @@ class BlobStore:
         except Exception:
             pass
 
+    def _lock_index(self):
+        """Acquire a cross-process lock on index.json.
+
+        Returns a file descriptor that must be passed to _unlock_index().
+        Blocks up to 30 seconds.
+        """
+        import time as _time
+        lock_path = self.index_path.with_suffix(self.index_path.suffix + ".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = _time.monotonic() + 30.0
+        lock_fd = None
+        while _time.monotonic() < deadline:
+            try:
+                lock_fd = open(lock_path, "w")
+                try:
+                    import fcntl
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return lock_fd
+                except (ImportError, ModuleNotFoundError):
+                    import msvcrt
+                    msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+                    return lock_fd
+                except (BlockingIOError, OSError):
+                    lock_fd.close()
+                    lock_fd = None
+                    _time.sleep(0.1)
+            except Exception:
+                if lock_fd:
+                    try:
+                        lock_fd.close()
+                    except Exception:
+                        pass
+                    lock_fd = None
+                _time.sleep(0.1)
+        # Timeout — write without lock (better than hanging forever)
+        return None
+
+    def _unlock_index(self, lock_fd) -> None:
+        """Release the cross-process lock on index.json."""
+        if lock_fd is None:
+            return
+        try:
+            try:
+                import fcntl
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+            except (ImportError, ModuleNotFoundError):
+                import msvcrt
+                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
+            lock_fd.close()
+        except Exception:
+            pass
+
+    def _read_index(self) -> dict:
+        """Read the current index.json (no locking)."""
+        if self.index_path.exists():
+            try:
+                return json.loads(self.index_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
     def set_index(self, project: ClavusProject) -> None:
-        """Set the active tracked project in the index."""
+        """Set the active tracked project in the index.
+
+        Acquires a cross-process lock for the full read-modify-write
+        to prevent lost updates when multiple processes share the same
+        ~/.clavus/ directory (relay + TUI on localhost).
+        """
         self._backup_index()
-        index = json.loads(self.index_path.read_text()) if self.index_path.exists() else {}
-        index[project.name] = asdict(project)
-        index["_last_project"] = project.name
-        self._write_json(self.index_path, index)
+        lock_fd = self._lock_index()
+        try:
+            index = self._read_index()
+            index[project.name] = asdict(project)
+            index["_last_project"] = project.name
+            self._write_json(self.index_path, index)
+        finally:
+            self._unlock_index(lock_fd)
         # Also persist as a ref for recovery safety
         self.update_ref("_last_project", project.name)
 

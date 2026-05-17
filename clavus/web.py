@@ -1704,9 +1704,16 @@ def _repair_orphaned_chains() -> int:
             children_of.setdefault(snap.parent, []).append(h)
 
     repaired = 0
-    index_data = json.loads(store.index_path.read_text()) if store.index_path.exists() else {}
+    lock_fd = store._lock_index()
+    try:
+        index_data = store._read_index()
+    finally:
+        store._unlock_index(lock_fd)
+    # Work on a copy — we only need to read, not hold the lock for the
+    # entire scan (which can be slow with many meta files).
+    modified = False
 
-    for proj_name, proj_dict in index_data.items():
+    for proj_name, proj_dict in list(index_data.items()):
         if proj_name.startswith("_"):
             continue
         head = proj_dict.get("head", "")
@@ -1752,10 +1759,22 @@ def _repair_orphaned_chains() -> int:
         if best_tip != head:
             proj_dict["head"] = best_tip
             repaired += 1
+            modified = True
             print(f"  🔗 Repaired orphan chain: {proj_name} HEAD {head[:10]} → {best_tip[:10]}")
 
-    if repaired:
-        store._write_json(store.index_path, index_data)
+    if modified:
+        lock_fd = store._lock_index()
+        try:
+            # Re-read, patch, write — minimize the critical section
+            current = store._read_index()
+            for proj_name in index_data:
+                if proj_name.startswith("_"):
+                    continue
+                if proj_name in current and index_data[proj_name].get("head") != current[proj_name].get("head"):
+                    current[proj_name]["head"] = index_data[proj_name]["head"]
+            store._write_json(store.index_path, current)
+        finally:
+            store._unlock_index(lock_fd)
 
     return repaired
 
