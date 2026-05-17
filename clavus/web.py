@@ -1497,6 +1497,124 @@ async def get_share_info():
         "hostname": socket.gethostname(),
     }
 
+
+# ─── Relay startup timestamp (for health endpoint) ───────────────
+
+_RELAY_STARTED_AT: float = 0.0
+
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint for monitoring and operations.
+
+    Returns store integrity status, per-project chain health,
+    orphan detection, and relay uptime.  Used by operators and
+    automated monitoring to detect problems before users report them.
+
+    Status levels:
+      healthy   — all projects have intact chains, no orphans
+      degraded  — some projects have orphans or missing .als files
+      unhealthy — index.json missing/corrupt or no projects found
+    """
+    import json, time as _time
+    store = BlobStore()
+    uptime = _time.time() - _RELAY_STARTED_AT if _RELAY_STARTED_AT else 0
+
+    report = {
+        "status": "healthy",
+        "uptime_seconds": round(uptime, 1),
+        "store_path": str(store.root),
+        "index_exists": store.index_path.exists(),
+        "projects": [],
+        "warnings": [],
+    }
+
+    if not store.index_path.exists():
+        report["status"] = "unhealthy"
+        report["warnings"].append("index.json missing")
+        return report
+
+    try:
+        index = json.loads(store.index_path.read_text())
+    except Exception:
+        report["status"] = "unhealthy"
+        report["warnings"].append("index.json corrupt")
+        return report
+
+    project_count = 0
+    total_snapshots = 0
+    total_orphans = 0
+
+    for name, data in index.items():
+        if name.startswith("_"):
+            continue
+        project_count += 1
+        head = data.get("head", "")
+        als = data.get("root_als", "")
+
+        chain_len = store.count_chain(head) if head else 0
+        total_snapshots += chain_len
+
+        # Detect orphans for this project
+        orphans = 0
+        if head:
+            reachable: set[str] = set()
+            current = head
+            while current and current not in reachable:
+                reachable.add(current)
+                snap = store.load_snapshot(current)
+                if not snap or not snap.parent or snap.parent == current:
+                    break
+                current = snap.parent
+            for meta_file in store.objects_dir.rglob("*.meta"):
+                h = meta_file.name.replace(".meta", "")
+                if h in reachable:
+                    continue
+                try:
+                    d = json.loads(meta_file.read_text())
+                    if d.get("parent") and d["parent"] in reachable:
+                        orphans += 1
+                except Exception:
+                    pass
+        total_orphans += orphans
+
+        proj_health = {
+            "name": name,
+            "head": head[:12] if head else None,
+            "chain_length": chain_len,
+            "orphans": orphans,
+            "als_exists": bool(als and __import__("pathlib").Path(als).exists()),
+            "als_path": als[:60] if als else "",
+        }
+        if orphans:
+            proj_health["warning"] = f"{orphans} orphan snapshot(s) — run repair"
+        if als and not proj_health["als_exists"]:
+            proj_health["warning"] = proj_health.get("warning", "") + " .als file missing"
+            proj_health["warning"] = proj_health["warning"].strip()
+
+        report["projects"].append(proj_health)
+
+    report["project_count"] = project_count
+    report["total_snapshots"] = total_snapshots
+    report["total_orphans"] = total_orphans
+
+    if total_orphans > 0:
+        report["status"] = "degraded"
+        report["warnings"].append(f"{total_orphans} orphan snapshot(s) across {sum(1 for p in report['projects'] if p.get('orphans', 0))} project(s)")
+
+    for p in report["projects"]:
+        if not p.get("als_exists") and p.get("als_path"):
+            if report["status"] == "healthy":
+                report["status"] = "degraded"
+            report["warnings"].append(f"{p['name']}: .als file missing")
+
+    if project_count == 0:
+        report["status"] = "unhealthy"
+        report["warnings"].append("no projects in index")
+
+    return report
+
+
 # ─── Web companion stripped (HTML/CSS/JS removed) ────────────────
 
 
@@ -1847,6 +1965,10 @@ def run_relay_server(host: str = "0.0.0.0", port: int = 7890, share_code: str = 
     print()
     print(f"  Press Ctrl+C to stop.")
     print()
+
+    # Record startup time for health endpoint uptime reporting
+    global _RELAY_STARTED_AT
+    _RELAY_STARTED_AT = time.time()
 
     # Repair any orphaned snapshot chains before accepting connections.
     # If HEAD was clobbered back to an old snapshot, orphan chains exist

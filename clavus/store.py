@@ -359,15 +359,36 @@ class BlobStore:
         return snapshot
 
     def load_snapshot(self, hash_str: str) -> Optional[Snapshot]:
-        """Load snapshot metadata by hash."""
-        meta_path = self.objects_dir / hash_str[:2] / f"{hash_str}.meta"
+        """Load snapshot metadata by hash (full or short).
+
+        Validates required fields and hash consistency before returning.
+        Returns None for corrupt, partial, or mismatched meta files.
+        """
+        # Resolve short hashes to full 64-char filenames
+        full = self._resolve_object_hash(hash_str) if len(hash_str) < 64 else hash_str
+        if not full:
+            return None
+        meta_path = self.objects_dir / full[:2] / f"{full}.meta"
         if not meta_path.exists():
             return None
         try:
             data = json.loads(meta_path.read_text())
-            return Snapshot(**data)
+            snap = Snapshot(**data)
         except (TypeError, json.JSONDecodeError):
             return None  # corrupted or partial meta file
+
+        # Validate required fields
+        if not snap.hash:
+            return None
+        if not isinstance(snap.timestamp, (int, float)) or snap.timestamp <= 0:
+            return None
+
+        # Validate hash consistency: filename must match stored hash
+        # (prevents a meta file from being moved/copied to wrong location)
+        if snap.hash != full:
+            return None
+
+        return snap
 
     def load_project(self, hash_str: str) -> Optional[Project]:
         """Deserialize a Project from a snapshot hash.
