@@ -820,13 +820,13 @@ def push_to_remote(store: BlobStore, proj: ClavusProject, remote: Remote, force:
         print(f"  ✅ Connected")
 
         # ── Compute expected_parent ──────────────────────────────────────────
-        # If local state has no last_head, probe the relay so we can still
-        # detect conflicts on the first push after a pull (last_remote_head
-        # is only set on push success, not pull — so pull-then-push has no guard).
+        # Use per-project last_remote_head if available.  Fall back to probing
+        # the relay.  NEVER use remote.last_head — it's global per-remote, not
+        # per-project, so it carries stale HEAD hashes from other projects.
         expected_parent: str | None = None
         if not force:
-            if proj.last_remote_head or remote.last_head:
-                expected_parent = proj.last_remote_head or remote.last_head
+            if proj.last_remote_head:
+                expected_parent = proj.last_remote_head
             else:
                 relay_probe = client.get_relay_head(proj.name)
                 if relay_probe:
