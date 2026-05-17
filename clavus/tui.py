@@ -541,8 +541,8 @@ class ClavusApp(App):
         elif self._remote_picker_active:
             event.stop()
             idx = event.index
-            if idx == 0:
-                # Local-only mode selected (index 0 is always the local-only entry)
+            if idx == 1:
+                # Local-only mode selected (index 1 is always the local-only entry)
                 self._cancel_remote_picker()
                 self._peer_name = ""
                 self._peer_reachable = False
@@ -552,8 +552,8 @@ class ClavusApp(App):
                     self.store.set_index(proj_index)
                 self._update_header()
                 self._render()
-            elif idx is not None and idx - 1 < len(self._remote_list):
-                remote = self._remote_list[idx - 1]
+            elif idx is not None and idx - 2 < len(self._remote_list):
+                remote = self._remote_list[idx - 2]
                 self._cancel_remote_picker()
                 self._peer_name = remote.name
                 # Save to project so it persists across sessions
@@ -592,7 +592,10 @@ class ClavusApp(App):
         self._remote_picker_active = True
         lv = self.query_one("#clv", ListView)
         lv.clear()
-        # Index 0 is always "local only" — selected when _peer_name is ""
+        # Show active project context
+        pname = f"  [{C['dim']}]project: {self.project}[/]" if self.project else ""
+        lv.append(ListItem(Label(pname, classes="project-picker-item")))
+        # Index 1 is always "local only" — selected when _peer_name is ""
         is_active = self._peer_name == ""
         active_mark = " ◀" if is_active else ""
         reachable_mark = "●" if is_active else "○"
