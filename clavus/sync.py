@@ -1473,7 +1473,9 @@ def pull_stems_from_remote(
             stem_store.save_manifest(local_manifest)
         else:
             from clavus.store import StemManifest, StemEntry
-            new_manifest = StemManifest(snapshot_hash=head, created_at=time.time())
+            # Save under the snapshot that actually has stems (may differ from HEAD)
+            stem_snap = manifest_data.get("snapshot_hash", head) if manifest_data else head
+            new_manifest = StemManifest(snapshot_hash=stem_snap, created_at=time.time())
             for entry in stems:
                 new_manifest.stems.append(StemEntry(
                     track_name=entry["track_name"],
