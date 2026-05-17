@@ -7,6 +7,18 @@ Work together: push snapshots to a shared relay, pull their changes, resolve con
 
 **New here?** Start with [Quick Install](#quick-install) below. Takes about 5 minutes.
 
+```
+  Mac Studio     push/pull      ┌──────────┐      push/pull     Windows PC
+  (producer)  ────────────────→ │  Relay   │ ←──────────────── (co-producer)
+              ←──────────────── │ (host)   │ ────────────────→
+                                └──────────┘
+                                     │
+                               stores snapshots,
+                               cues, stems
+```
+
+One person runs the relay (`clavus share`). Others connect (`clavus join`), push snapshots up, pull changes down. Work offline, sync when ready. No cloud.
+
 ---
 
 ## What You Get

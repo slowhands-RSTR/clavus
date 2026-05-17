@@ -350,6 +350,67 @@
 
 <hr class="divider">
 
+<!-- Architecture diagram -->
+<section>
+  <div class="container">
+    <h3>How It Connects</h3>
+    <p>One person runs the relay. Everyone else connects. Data stays on machines you control.</p>
+
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 32px 24px; margin: 24px 0; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 0.75em; line-height: 1.8;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <!-- Machine A -->
+        <div style="text-align: center; flex: 1; min-width: 120px;">
+          <div style="background: var(--surface2); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 16px; display: inline-block;">
+            <div style="color: var(--accent2); font-weight: 700; font-size: 1.1em;">Mac Studio</div>
+            <div style="color: var(--dim); font-size: 0.9em; margin-top: 2px;">producer</div>
+          </div>
+          <div style="color: var(--green); margin-top: 8px;">push &darr; pull &uarr;</div>
+        </div>
+
+        <!-- Arrow right -->
+        <div style="color: var(--dim); font-size: 1.5em; flex-shrink: 0;">&rarr; &larr;</div>
+
+        <!-- Relay -->
+        <div style="text-align: center; flex: 1; min-width: 140px;">
+          <div style="background: var(--surface2); border: 2px solid var(--accent2); border-radius: 8px; padding: 16px 20px; display: inline-block;">
+            <div style="color: var(--accent2); font-weight: 700; font-size: 1.1em;">Relay</div>
+            <div style="color: var(--dim); font-size: 0.85em; margin-top: 2px;">self-hosted</div>
+            <div style="color: var(--muted); font-size: 0.8em;">localhost:7891</div>
+          </div>
+          <div style="color: var(--muted); font-size: 0.85em; margin-top: 6px;">stores snapshots</div>
+        </div>
+
+        <!-- Arrow left -->
+        <div style="color: var(--dim); font-size: 1.5em; flex-shrink: 0;">&larr; &rarr;</div>
+
+        <!-- Machine B -->
+        <div style="text-align: center; flex: 1; min-width: 120px;">
+          <div style="background: var(--surface2); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 16px; display: inline-block;">
+            <div style="color: var(--accent2); font-weight: 700; font-size: 1.1em;">Windows PC</div>
+            <div style="color: var(--dim); font-size: 0.9em; margin-top: 2px;">co-producer</div>
+          </div>
+          <div style="color: var(--green); margin-top: 8px;">pull &darr; push &uarr;</div>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
+        <div style="display: flex; justify-content: center; gap: 32px; flex-wrap: wrap; color: var(--dim); font-size: 0.9em;">
+          <span>
+            <span style="color: var(--muted);">$</span> clavus share
+            <span style="color: var(--muted);"># relay</span>
+          </span>
+          <span>
+            <span style="color: var(--muted);">$</span> clavus join http://host:7891
+            <span style="color: var(--muted);"># client</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
 <!-- Honest section -->
 <section style="background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
   <div class="container">
