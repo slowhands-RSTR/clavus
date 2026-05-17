@@ -1392,9 +1392,18 @@ def pull_stems_from_remote(
             timeout=30,
         )
         manifest_data = None
+        needs_fallback = False
         if r.status_code == 200:
-            manifest_data = r.json()
+            candidate = r.json()
+            if candidate.get("stems"):
+                manifest_data = candidate
+            else:
+                # HEAD returned 200 but 0 stems — try fallback
+                needs_fallback = True
         else:
+            needs_fallback = True
+
+        if needs_fallback:
             # Fallback: try to discover any stem manifest for this project
             # (stems may have been pushed under a different snapshot hash)
             print(f"    No manifest for current HEAD — checking for any stem manifests...")
@@ -1415,9 +1424,9 @@ def pull_stems_from_remote(
                     )
                     if r3.status_code == 200:
                         manifest_data = r3.json()
-                if not manifest_data or not manifest_data.get("stems"):
-                    print(f"    No stem manifests found on relay.")
-                    return (0, None)
+            if not manifest_data or not manifest_data.get("stems"):
+                print(f"    No stem manifests found on relay.")
+                return (0, None)
 
         if not manifest_data:
             return (0, None)
