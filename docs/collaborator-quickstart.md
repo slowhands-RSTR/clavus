@@ -10,7 +10,7 @@ You need three things:
 
 1. **Tailscale** installed — this is how your computer talks to theirs securely
 2. **Clavus** installed — the collaboration tool
-3. The URL from your collaborator (something like `http://your-machine.tailXXXX.ts.net:7890`)
+3. The URL from your collaborator (something like `http://your-machine.tailXXXX.ts.net:7891`)
 
 No accounts. No cloud. Just these three things.
 
@@ -64,7 +64,7 @@ It'll ask your name and a couple preferences. Just press Enter for defaults.
 Run this in the terminal, using the URL your collaborator sent:
 
 ```bash
-clavus join http://your-machine.tailXXXX.ts.net:7890
+clavus join http://your-machine.tailXXXX.ts.net:7891
 ```
 
 You'll see something like:
@@ -79,7 +79,7 @@ You'll see something like:
     ✅  Tailscale running (100.x.x.x)
     ✅  Storage ready
 
-🔗  Connecting to your-machine.tailXXXX.ts.net:7890...
+🔗  Connecting to your-machine.tailXXXX.ts.net:7891...
     ✅  Connected — relay is online
 
 📦  3 project(s) available:

@@ -130,7 +130,7 @@ fixtures/
 - Relay process: `clavus share --port 7891` → HTTP daemon on port 7891
 - Expose via Tailscale: `tailscale serve --bg --http 7890 http://localhost:7891`
 - API endpoints: `GET /api/ping`, `POST /api/push`, `GET /api/pull`, `GET /api/projects`
-- Clients join with: `clavus join http://host.tailXXXX.ts.net:7890`
+- Clients join with: `clavus join http://host.tailXXXX.ts.net:7891`
 
 ### Windows encoding
 All pipe reads in async contexts must decode with `errors='replace'`:

@@ -330,8 +330,6 @@ pip install -e .     # Windows: py -m pip install -e .
 
 ## Known Limitations
 
-**Ableton Suite vs Intro/Standard:** Clavus snapshots the raw `.als` file. Suite-only features are preserved but Intro/Standard can't decode them. Always verify a restored `.als` opens before deleting the original.
-
 **OneDrive / Files On-Demand:** Ableton has trouble with `.als` files in OneDrive-synced folders. Keep projects on a local drive.
 
 **Single relay at a time:** `clavus join` replaces any existing remote. Your snapshots and history stay local regardless.
